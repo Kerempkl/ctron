@@ -293,71 +293,140 @@ int hw_init(hardware_state_t *hw) {
     return 0;
 }
 
-// Live telemetry polling (CPU temp, frequency, battery, etc.)
-int hw_poll_telemetry(hardware_state_t *hw) {
-    // 1. CPU Temperature via hwmon
-    int temp_raw = -1;
+static int read_k10temp_c(void)
+{
     glob_t g;
-    if (glob("/sys/class/hwmon/hwmon*/temp*_input", 0, NULL, &g) == 0) {
-        for (size_t i = 0; i < g.gl_pathc; i++) {
-            char name_path[256];
-            char *dup = strdup(g.gl_pathv[i]);
-            char *dname = dirname(dup);
-            snprintf(name_path, sizeof(name_path), "%s/name", dname);
-            free(dup);
-            char sensor_name[64] = {0};
-            read_sysfs_str(name_path, sensor_name, sizeof(sensor_name));
-            if (strstr(sensor_name, "k10temp") || strstr(sensor_name, "coretemp") || strstr(sensor_name, "acpitz")) {
-                temp_raw = read_sysfs_int(g.gl_pathv[i]);
-                if (temp_raw > 0) break;
-            }
-        }
-        globfree(&g);
+    int c = -1;
+    if (glob("/sys/class/hwmon/hwmon*", 0, NULL, &g) != 0)
+        return -1;
+    for (size_t i = 0; i < g.gl_pathc; i++) {
+        char np[256], name[64] = {0};
+        snprintf(np, sizeof(np), "%s/name", g.gl_pathv[i]);
+        read_sysfs_str(np, name, sizeof(name));
+        if (strcmp(name, "k10temp") != 0)
+            continue;
+        snprintf(np, sizeof(np), "%s/temp1_input", g.gl_pathv[i]);
+        int raw = read_sysfs_int(np);
+        if (raw > 0)
+            c = raw / 1000;
+        break;
     }
-    if (temp_raw > 0) hw->cpu_temp_c = temp_raw / 1000;
+    globfree(&g);
+    return c;
+}
 
-    /* Software Tctl cap: drop scaling_max when hot, restore when cool. */
-    if (hw->cpu_temp_cap_on && hw->cpu_temp_c > 0) {
-        int want = hw->cpu_target_max_mhz;
-        if (hw->cpu_temp_c >= hw->cpu_temp_cap_c) {
-            int step = hw->cpu_applied_max_mhz > 0 ? hw->cpu_applied_max_mhz : want;
-            step -= 200;
-            if (step < hw->cpu_min_freq_mhz) step = hw->cpu_min_freq_mhz;
-            want = step;
-        }
-        if (want != hw->cpu_applied_max_mhz) {
-            char cmd[256];
-            snprintf(cmd, sizeof(cmd),
-                     "echo %d | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq",
-                     want * 1000);
-            if (exec_cmd_quiet(cmd, NULL, 0) == 0) {
-                if (want < hw->cpu_target_max_mhz)
-                    log_add("Tctl %d°C >= %d, cap %d MHz", hw->cpu_temp_c, hw->cpu_temp_cap_c, want);
-                else
-                    log_add("Tctl %d°C, restore %d MHz", hw->cpu_temp_c, want);
-                hw->cpu_applied_max_mhz = want;
-            }
-        }
-    }
+/* Fast: temp, clocks, battery. Safe for the TUI 250 ms loop. */
+int hw_poll_telemetry(hardware_state_t *hw) {
+    int t = read_k10temp_c();
+    if (t > 0)
+        hw->cpu_temp_c = t;
 
-    // 2. CPU Frequency
     int cur_khz = read_sysfs_int("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq");
-    if (cur_khz > 0) hw->cpu_cur_freq_mhz = cur_khz / 1000;
+    if (cur_khz > 0)
+        hw->cpu_cur_freq_mhz = cur_khz / 1000;
+    int max_khz = read_sysfs_int("/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq");
+    if (max_khz > 0)
+        hw->cpu_applied_max_mhz = max_khz / 1000;
 
-    // 3. Battery
     int cap = read_sysfs_int("/sys/class/power_supply/BAT1/capacity");
-    if (cap < 0) cap = read_sysfs_int("/sys/class/power_supply/BAT0/capacity");
-    if (cap >= 0) hw->battery_percent = cap;
+    if (cap < 0)
+        cap = read_sysfs_int("/sys/class/power_supply/BAT0/capacity");
+    if (cap >= 0)
+        hw->battery_percent = cap;
 
     char bat_stat[32] = {0};
-    if (read_sysfs_str("/sys/class/power_supply/BAT1/status", bat_stat, sizeof(bat_stat)) < 0) {
+    if (read_sysfs_str("/sys/class/power_supply/BAT1/status", bat_stat, sizeof(bat_stat)) < 0)
         read_sysfs_str("/sys/class/power_supply/BAT0/status", bat_stat, sizeof(bat_stat));
-    }
-    if (bat_stat[0]) snprintf(hw->battery_status, sizeof(hw->battery_status), "%s", bat_stat);
+    if (bat_stat[0])
+        snprintf(hw->battery_status, sizeof(hw->battery_status), "%s", bat_stat);
 
     int ac = read_sysfs_int("/sys/class/power_supply/ACAD/online");
-    if (ac < 0) ac = read_sysfs_int("/sys/class/power_supply/AC/online");
+    if (ac < 0)
+        ac = read_sysfs_int("/sys/class/power_supply/AC/online");
     hw->battery_ac_connected = (ac == 1);
+
+    return 0;
+}
+
+/* Full sysfs/asusctl snapshot. CLI --status/--doctor. Not the TUI poll. */
+int hw_refresh_live(hardware_state_t *hw)
+{
+    hw_poll_telemetry(hw);
+    hw_fan_read(hw);
+
+    {
+        int v;
+        v = wmi_read_int("ppt_pl1_spl");
+        hw->ppt_spl = (v > 5) ? v : 0;
+        v = wmi_read_int("ppt_pl2_sppt");
+        hw->ppt_sppt = (v > 5) ? v : 0;
+        v = wmi_read_int("ppt_fppt");
+        hw->ppt_fppt = (v > 5) ? v : 0;
+        v = wmi_read_int("nv_dynamic_boost");
+        if (v >= 5 && v <= 25)
+            hw->nv_boost_w = v;
+        v = wmi_read_int("nv_temp_target");
+        if (v >= 75)
+            hw->nv_temp_target = v;
+        v = wmi_read_int("panel_od");
+        if (v >= 0)
+            hw->panel_od = (v == 1);
+        v = read_sysfs_int("/sys/devices/system/cpu/cpufreq/boost");
+        if (v >= 0)
+            hw->cpu_boost = (v != 0);
+    }
+
+    int lim = read_sysfs_int("/sys/class/power_supply/BAT1/charge_control_end_threshold");
+    if (lim <= 0)
+        lim = read_sysfs_int("/sys/class/power_supply/BAT0/charge_control_end_threshold");
+    if (lim > 0)
+        hw->battery_charge_limit = lim;
+
+    char acpi_prof[64] = {0};
+    read_sysfs_str("/sys/firmware/acpi/platform_profile", acpi_prof, sizeof(acpi_prof));
+    if (strstr(acpi_prof, "quiet"))
+        hw->active_profile = PROF_QUIET;
+    else if (strstr(acpi_prof, "balanced"))
+        hw->active_profile = PROF_BALANCED;
+    else if (strstr(acpi_prof, "performance"))
+        hw->active_profile = PROF_PERFORMANCE;
+    else if (hw->has_asusctl) {
+        char prof_buf[64] = {0};
+        if (exec_cmd_quiet("asusctl profile get", prof_buf, sizeof(prof_buf)) == 0) {
+            if (strstr(prof_buf, "Quiet"))
+                hw->active_profile = PROF_QUIET;
+            else if (strstr(prof_buf, "Balanced"))
+                hw->active_profile = PROF_BALANCED;
+            else if (strstr(prof_buf, "Performance"))
+                hw->active_profile = PROF_PERFORMANCE;
+        }
+    }
+
+    char epp_buf[64] = {0};
+    read_sysfs_str("/sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference",
+                   epp_buf, sizeof(epp_buf));
+    if (strstr(epp_buf, "balance_power"))
+        hw->active_epp = EPP_BALANCED_POWER;
+    else if (strstr(epp_buf, "balance_performance"))
+        hw->active_epp = EPP_BALANCED_PERF;
+    else if (strstr(epp_buf, "power"))
+        hw->active_epp = EPP_POWER;
+    else if (strstr(epp_buf, "performance"))
+        hw->active_epp = EPP_PERFORMANCE;
+
+    int kbd_val = read_sysfs_int("/sys/class/leds/asus::kbd_backlight/brightness");
+    if (kbd_val >= 0 && kbd_val <= 3)
+        hw->kbd_brightness = (kbd_bright_t)kbd_val;
+
+    char hypr_out[512] = {0};
+    if (exec_cmd_quiet("hyprctl monitors -j", hypr_out, sizeof(hypr_out)) == 0) {
+        char *rate_str = strstr(hypr_out, "\"refreshRate\":");
+        if (rate_str) {
+            float r = 0;
+            if (sscanf(rate_str + 14, "%f", &r) == 1)
+                hw->display_cur_hz = (int)(r + 0.5f);
+        }
+    }
 
     return 0;
 }
@@ -750,6 +819,69 @@ static int fan_sort_xy(fan_curve_t *fc, int keep_idx)
         }
     }
     return new_keep;
+}
+
+static int parse_csv_ints(const char *s, int *out, int max)
+{
+    int n = 0;
+    const char *p = s;
+    if (!s || !*s)
+        return 0;
+    while (*p && n < max) {
+        while (*p == ',' || isspace((unsigned char)*p))
+            p++;
+        if (!*p)
+            break;
+        char *end = NULL;
+        long v = strtol(p, &end, 10);
+        if (end == p)
+            break;
+        out[n++] = (int)v;
+        p = end;
+    }
+    return n;
+}
+
+int hw_fan_from_csv(fan_curve_t *fc, const char *temps, const char *pwms)
+{
+    int t[FAN_POINTS], p[FAN_POINTS];
+    int nt = parse_csv_ints(temps, t, FAN_POINTS);
+    int np = parse_csv_ints(pwms, p, FAN_POINTS);
+    int n = nt < np ? nt : np;
+    if (n < 1)
+        return -1;
+    fc->n = n;
+    for (int i = 0; i < n; i++) {
+        int tc = t[i], pc = p[i];
+        fan_clamp_xy(&tc, &pc);
+        fc->temp_c[i] = tc;
+        fc->pwm[i] = pc;
+    }
+    fan_sort_xy(fc, 0);
+    return fc->n;
+}
+
+void hw_fan_to_csv(const fan_curve_t *fc, char *temps, size_t tn, char *pwms, size_t pn)
+{
+    size_t to = 0, po = 0;
+    if (temps && tn)
+        temps[0] = '\0';
+    if (pwms && pn)
+        pwms[0] = '\0';
+    int n = fc && fc->n > 0 && fc->n <= FAN_POINTS ? fc->n : 0;
+    for (int i = 0; i < n; i++) {
+        int w;
+        if (temps && tn > to) {
+            w = snprintf(temps + to, tn - to, "%s%d", i ? "," : "", fc->temp_c[i]);
+            if (w > 0)
+                to += (size_t)w;
+        }
+        if (pwms && pn > po) {
+            w = snprintf(pwms + po, pn - po, "%s%d", i ? "," : "", fc->pwm[i]);
+            if (w > 0)
+                po += (size_t)w;
+        }
+    }
 }
 
 int hw_fan_nudge_point(hardware_state_t *hw, int gpu, int idx, int dtemp, int dpwm)

@@ -14,10 +14,17 @@
 #include <sys/stat.h>
 
 static void get_profiles_dir(char *out, size_t maxlen) {
-    const char *home = getenv("HOME");
-    if (!home) home = "/home/arcioth";
-    snprintf(out, maxlen, "%s/.config/vhelper/profiles", home);
-    mkdir(out, 0755);
+    char root[512];
+    settings_dir(root, sizeof(root));
+    snprintf(out, maxlen, "%s/profiles", root);
+    settings_init();
+}
+
+static void profile_path(char *out, size_t n, const char *name3, const char *ext)
+{
+    char dir[512];
+    get_profiles_dir(dir, sizeof(dir));
+    snprintf(out, n, "%s/%s.%s", dir, name3, ext);
 }
 
 void profile_gen_random_name(char out[4]) {
@@ -40,7 +47,7 @@ int profile_list(char list[][4], int max_count) {
     get_profiles_dir(dir, sizeof(dir));
 
     char pattern[512];
-    snprintf(pattern, sizeof(pattern), "%s/*.acv", dir);
+    snprintf(pattern, sizeof(pattern), "%s/*.ctr", dir);
 
     glob_t g;
     int count = 0;
@@ -66,13 +73,35 @@ int profile_list(char list[][4], int max_count) {
         }
         globfree(&g);
     }
+    snprintf(pattern, sizeof(pattern), "%s/*.acv", dir);
+    if (glob(pattern, 0, NULL, &g) == 0) {
+        for (size_t i = 0; i < g.gl_pathc && count < max_count; i++) {
+            const char *slash = strrchr(g.gl_pathv[i], '/');
+            const char *fname = slash ? slash + 1 : g.gl_pathv[i];
+            char base[32] = {0};
+            strncpy(base, fname, sizeof(base) - 1);
+            char *dot = strrchr(base, '.');
+            if (dot) *dot = '\0';
+            if (strlen(base) > 0) {
+                char code[4] = {0};
+                int dup = 0;
+                for (int j = 0; j < 3 && base[j]; j++)
+                    code[j] = toupper((unsigned char)base[j]);
+                for (int k = 0; k < count; k++)
+                    if (!strcmp(list[k], code))
+                        dup = 1;
+                if (!dup) {
+                    strncpy(list[count], code, 4);
+                    count++;
+                }
+            }
+        }
+        globfree(&g);
+    }
     return count;
 }
 
 int profile_export(const char *name3, const hardware_state_t *hw, const acv_profile_filter_t *filter) {
-    char dir[512];
-    get_profiles_dir(dir, sizeof(dir));
-
     char code[4] = {0};
     for (int i = 0; i < 3 && name3[i]; i++) {
         code[i] = toupper((unsigned char)name3[i]);
@@ -80,7 +109,7 @@ int profile_export(const char *name3, const hardware_state_t *hw, const acv_prof
     if (strlen(code) == 0) profile_gen_random_name(code);
 
     char path[512];
-    snprintf(path, sizeof(path), "%s/%s.acv", dir, code);
+    profile_path(path, sizeof(path), code, "ctr");
 
     FILE *f = fopen(path, "w");
     if (!f) return -1;
@@ -99,9 +128,20 @@ int profile_export(const char *name3, const hardware_state_t *hw, const acv_prof
     }
 
     if (!filter || filter->include_power) {
+        char t[128], p[128];
         fprintf(f, "[power]\n");
         fprintf(f, "display_hz = %d\n", hw->display_cur_hz);
-        fprintf(f, "battery_limit = %d\n\n", hw->battery_charge_limit);
+        fprintf(f, "battery_limit = %d\n", hw->battery_charge_limit);
+        hw_fan_to_csv(&hw->fan_cpu, t, sizeof(t), p, sizeof(p));
+        fprintf(f, "fan_cpu_on = %d\n", hw->fan_cpu_on ? 1 : 0);
+        fprintf(f, "fan_cpu_n = %d\n", hw->fan_cpu.n);
+        fprintf(f, "fan_cpu_t = %s\n", t);
+        fprintf(f, "fan_cpu_p = %s\n", p);
+        hw_fan_to_csv(&hw->fan_gpu, t, sizeof(t), p, sizeof(p));
+        fprintf(f, "fan_gpu_on = %d\n", hw->fan_gpu_on ? 1 : 0);
+        fprintf(f, "fan_gpu_n = %d\n", hw->fan_gpu.n);
+        fprintf(f, "fan_gpu_t = %s\n", t);
+        fprintf(f, "fan_gpu_p = %s\n\n", p);
     }
 
     if (!filter || filter->include_aura) {
@@ -121,21 +161,24 @@ int profile_export(const char *name3, const hardware_state_t *hw, const acv_prof
     }
 
     fclose(f);
-    log_add("Exported profile %s.acv", code);
+    log_add("Exported profile %s.ctr", code);
     return 0;
 }
 
 int profile_import(const char *name3, hardware_state_t *hw, const acv_profile_filter_t *filter) {
-    char dir[512];
-    get_profiles_dir(dir, sizeof(dir));
-
     char path[512];
-    snprintf(path, sizeof(path), "%s/%s.acv", dir, name3);
+    profile_path(path, sizeof(path), name3, "ctr");
     FILE *f = fopen(path, "r");
+    if (!f) {
+        profile_path(path, sizeof(path), name3, "acv");
+        f = fopen(path, "r");
+    }
     if (!f) return -1;
 
     char line[256];
     char current_sec[32] = {0};
+    char cpu_t[128] = {0}, cpu_p[128] = {0};
+    char gpu_t[128] = {0}, gpu_p[128] = {0};
 
     while (fgets(line, sizeof(line), f)) {
         // Strip comments and whitespace
@@ -195,7 +238,19 @@ int profile_import(const char *name3, hardware_state_t *hw, const acv_profile_fi
                 if (hz >= 60 && hz <= 360) hw_set_display_hz(hw, hz);
             } else if (strcmp(k, "battery_limit") == 0) {
                 int bl = atoi(v);
-                if (bl >= 60 && bl <= 100) hw_set_battery_limit(hw, bl);
+                if (bl >= 20 && bl <= 100) hw_set_battery_limit(hw, bl);
+            } else if (strcmp(k, "fan_cpu_on") == 0) {
+                hw->fan_cpu_on = atoi(v) != 0;
+            } else if (strcmp(k, "fan_gpu_on") == 0) {
+                hw->fan_gpu_on = atoi(v) != 0;
+            } else if (strcmp(k, "fan_cpu_t") == 0) {
+                strncpy(cpu_t, v, sizeof(cpu_t) - 1);
+            } else if (strcmp(k, "fan_cpu_p") == 0) {
+                strncpy(cpu_p, v, sizeof(cpu_p) - 1);
+            } else if (strcmp(k, "fan_gpu_t") == 0) {
+                strncpy(gpu_t, v, sizeof(gpu_t) - 1);
+            } else if (strcmp(k, "fan_gpu_p") == 0) {
+                strncpy(gpu_p, v, sizeof(gpu_p) - 1);
             }
         } else if (strcasecmp(current_sec, "aura") == 0) {
             if (filter && !filter->include_aura) continue;
@@ -227,8 +282,13 @@ int profile_import(const char *name3, hardware_state_t *hw, const acv_profile_fi
     }
 
     fclose(f);
+    /* RAM only — user hits Write for EC. */
+    if (cpu_t[0] && cpu_p[0])
+        hw_fan_from_csv(&hw->fan_cpu, cpu_t, cpu_p);
+    if (gpu_t[0] && gpu_p[0])
+        hw_fan_from_csv(&hw->fan_gpu, gpu_t, gpu_p);
     settings_save(hw);
-    log_add("Applied profile %s.acv", name3);
+    log_add("Applied profile %s", name3);
     return 0;
 }
 
@@ -236,18 +296,24 @@ int profile_delete(const char *name3) {
     char dir[512];
     get_profiles_dir(dir, sizeof(dir));
     char path[512];
-    snprintf(path, sizeof(path), "%s/%s.acv", dir, name3);
+    profile_path(path, sizeof(path), name3, "ctr");
     int ret = unlink(path);
-    if (ret == 0) log_add("Deleted profile %s.acv", name3);
+    if (ret != 0) {
+        profile_path(path, sizeof(path), name3, "acv");
+        ret = unlink(path);
+    }
+    if (ret == 0) log_add("Deleted profile %s", name3);
     return ret;
 }
 
 int profile_get_summary(const char *name3, char out_perf[64], char out_pwr[64], char out_aura[64]) {
-    char dir[512];
-    get_profiles_dir(dir, sizeof(dir));
     char path[512];
-    snprintf(path, sizeof(path), "%s/%s.acv", dir, name3);
+    profile_path(path, sizeof(path), name3, "ctr");
     FILE *f = fopen(path, "r");
+    if (!f) {
+        profile_path(path, sizeof(path), name3, "acv");
+        f = fopen(path, "r");
+    }
     if (!f) return -1;
 
     char prof[32] = "Bal", epp[32] = "bal_pwr", hz[16] = "144", bat[16] = "80", hex[16] = "00ffff";

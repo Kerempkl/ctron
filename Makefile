@@ -17,15 +17,26 @@ build/%.o: src/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -rf build/*.o $(TARGET)
+	rm -rf build/*.o $(TARGET) $(TEST_BIN)
 
 install: $(TARGET)
 	mkdir -p $(HOME)/.local/bin
 	install -m 755 $(TARGET) $(HOME)/.local/bin/ctron
+	chmod 755 scripts/daetron-spawn.sh
 	ln -sf $(HOME)/.local/bin/ctron $(HOME)/.local/bin/vhelper
 	ln -sf $(HOME)/.local/bin/ctron $(HOME)/.local/bin/tufhelper
 	mkdir -p $(HOME)/.local/share/applications
 	install -m 644 ctron.desktop $(HOME)/.local/share/applications/ctron.desktop
 	ln -sf $(HOME)/.local/share/applications/ctron.desktop $(HOME)/.local/share/applications/vhelper.desktop
 
-.PHONY: all clean install
+TEST = tests/test_persist.c
+TEST_BIN = build/test_persist
+
+test: $(TEST_BIN)
+	$(TEST_BIN)
+
+$(TEST_BIN): $(TEST) src/hardware.c src/settings.c src/profile.c
+	@mkdir -p build
+	$(CC) $(CFLAGS) -o $@ $(TEST) src/hardware.c src/settings.c src/profile.c
+
+.PHONY: all clean install test

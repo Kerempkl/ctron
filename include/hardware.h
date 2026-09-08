@@ -150,6 +150,7 @@ extern const int AURA_COLOR_COUNT;
 // Core functions
 int hw_init(hardware_state_t *hw);
 int hw_poll_telemetry(hardware_state_t *hw);
+int hw_refresh_live(hardware_state_t *hw);
 
 // asus-armoury driver interface
 int hw_armoury_get(const char *attr, char *out, size_t maxlen);
@@ -164,6 +165,8 @@ int hw_set_display_hz(hardware_state_t *hw, int hz);
 int hw_set_battery_limit(hardware_state_t *hw, int limit);
 int hw_fan_read(hardware_state_t *hw);
 int hw_fan_apply(hardware_state_t *hw);
+int hw_fan_from_csv(fan_curve_t *fc, const char *temps, const char *pwms);
+void hw_fan_to_csv(const fan_curve_t *fc, char *temps, size_t tn, char *pwms, size_t pn);
 int hw_fan_preset(hardware_state_t *hw, int preset); /* 0 stock 1 silent 2 cool 3 full */
 int hw_fan_enable(hardware_state_t *hw, bool cpu_on, bool gpu_on);
 int hw_fan_nudge_point(hardware_state_t *hw, int gpu, int idx, int dtemp, int dpwm);

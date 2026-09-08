@@ -792,7 +792,7 @@ int ui_run(hardware_state_t *hw) {
                 // Profiles Export Section
                 ncplane_set_channels(stdn, ch_hi);
                 ncplane_set_styles(stdn, NCSTYLE_BOLD);
-                ncplane_putstr_yx(stdn, cy++, ox + 3, "EXPORT PROFILE (.acv):");
+                ncplane_putstr_yx(stdn, cy++, ox + 3, "EXPORT PROFILE (.ctr):");
                 ncplane_set_styles(stdn, NCSTYLE_NONE);
 
                 // Export Row
@@ -815,7 +815,7 @@ int ui_run(hardware_state_t *hw) {
                 draw_btn(stdn, ox + 42, cy, ck, exp_filter.include_aura, focus_item == 14, ACT_FILTER_EXP_AURA, &pal);
                 cy += 2;
 
-                draw_btn(stdn, ox + 3, cy, " Export .acv ", false, focus_item == 15, ACT_EXPORT_PROFILE, &pal);
+                draw_btn(stdn, ox + 3, cy, " Export .ctr ", false, focus_item == 15, ACT_EXPORT_PROFILE, &pal);
                 draw_btn(stdn, ox + 18, cy, " Export All (Skip) ", false, focus_item == 16, ACT_EXPORT_ALL_SKIP, &pal);
                 cy += 2;
 
@@ -856,7 +856,7 @@ int ui_run(hardware_state_t *hw) {
                         ncplane_set_channels(stdn, ch_hi);
                         ncplane_set_styles(stdn, NCSTYLE_BOLD);
                         char sel_lbl[64];
-                        snprintf(sel_lbl, sizeof(sel_lbl), "SELECTED PROFILE: %s.acv", profile_slots[selected_slot]);
+                        snprintf(sel_lbl, sizeof(sel_lbl), "SELECTED PROFILE: %s.ctr", profile_slots[selected_slot]);
                         ncplane_putstr_yx(stdn, cy++, ox + 3, sel_lbl);
                         ncplane_set_styles(stdn, NCSTYLE_NONE);
 

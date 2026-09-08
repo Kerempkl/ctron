@@ -1,36 +1,53 @@
-# Ctron (Arcioth & C & Kerempkl Helper)
+# Ctron
 
-Custom ASUS TUF Gaming Control Center written in **pure C** with the **Notcurses** toolkit.
-Designed specifically as a **512×512px floating desktop applet** for Hyprland / Wayland.
+Linux control program for **ASUS TUF** laptops (AMD Ryzen + NVIDIA). One C binary with Notcurses. Headless flags are the program. `--tui` is optional and runs in the current terminal.
 
-## Features
+Verified on a TUF A15 FA507NVR (kernel 6.18). Makefile is the build; flake.nix is one package of that Makefile.
 
-- **Platform Profiles**: Quiet, Balanced, Performance via `asusctl` & ACPI `platform_profile`.
-- **CPU & EPP**: Power, Balanced Power, Balanced Performance, Performance + frequency capping + optional Tctl cap (software throttle).
-- **Display Refresh**: One-click switching between 60 Hz power save and 144 Hz high refresh rate via `hyprctl`.
-- **Battery Health**: Limit battery charging to 60%, 80%, or 100%.
-- **Aura RGB Backlight**: 12 animation effects, 8 color presets, and 4 brightness levels.
-- **Hardware Telemetry**: Real-time 250ms polling of CPU temperature, frequency, and battery status.
-- **Driver Support**: Dual-path driver support for `asus-armoury` and `asus_wmi` / `asusctl`.
+## Status
 
-## Quick Start
+Paused 2026-09-09. CLI-first invert is in. `--watch` / live `--status` checked on FA507NVR. **Writes and TUI click-through are not field-tested.** Fan Write that lasts uses `asusctl`. Temp cap is a cpufreq ceiling, not RyzenAdj. No Kitty spawn. daetron is not this release. See `HANDOFF.md`.
 
-```bash
-# Launch the 512x512 floating applet:
-./run.sh
+## Requirements
 
-# Or run from anywhere:
-ctron
-# (or vhelper / tufhelper)
+C11 compiler, make, pkg-config, [notcurses](https://github.com/dankamongmen/notcurses).
+
+```
+# Debian/Ubuntu    sudo apt install build-essential pkg-config libnotcurses-dev
+# Fedora           sudo dnf install gcc make pkgconf notcurses-devel
+# Arch             sudo pacman -S base-devel notcurses
+# Nix              nix-shell -p gcc pkg-config notcurses gnumake   # optional
+make
+./build/ctron --status
 ```
 
-## CLI Usage
+Runtime (detected): `asus-nb-wmi`, fan hwmon, k10temp, optional `asusctl`, compositor tools for Hz. Writes use `sudo tee` on user actions. Config: `~/.config/ctron` (or `$CTRON_CONFIG` / `--config-dir`). Profiles: `profiles/*.ctr`.
+
+## Run
 
 ```bash
-ctron --status
+./build/ctron --help
+./build/ctron --status
+./build/ctron --watch
+./build/ctron --doctor
+./build/ctron --setup          # optional wizard
+./build/ctron --tui            # this terminal
+```
+
+No-args prints a short welcome and exits. It does not open a window.
+
+```bash
 ctron --profile Performance
 ctron --hz 144
 ctron --battery 80
+ctron --ppt B60
+ctron --fan-write
 ctron --epp balance_performance
 ctron --tctl 85
+ctron profile list
+ctron profile export TUF
 ```
+
+## Docs
+
+README this file · PLAN.md invert · AGENTS.md agents · HANDOFF.md session · CHANGELOG.md history

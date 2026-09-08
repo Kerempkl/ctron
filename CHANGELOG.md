@@ -1,8 +1,71 @@
 # Changelog
 
+## 2026-09-09 — Session close
+
+- Handoff signed. Invert is in tree: CLI-first, optional `--tui`, live `--status`/`--watch`, `*.ctr`, `--setup`.
+- Field test of hardware writes and TUI click-through **not done**. `--watch` checked.
+- Pushed to `kerempkl/ctron`. Next session: field test (HANDOFF todo 1).
+
+## 2026-09-08 — CLI live fetch
+
+- `--status` / `--doctor` call `hw_refresh_live`: k10temp Tctl, scaling_cur/max, ACPI profile, EPP, hwmon fans, WMI PPT/NV, battery, Hz. Settings.ini no longer wins for those fields.
+- `--watch` (`-w`): 250 ms line of temp/freq/battery.
+- TUI poll reads k10temp by name, not the first acpitz node.
+
+## 2026-09-08 — Invert started (approved)
+
+- No Kitty spawn. No-args: welcome, exit 2. `--setup`, `--doctor`, `--config-dir`.
+- Config `~/.config/ctron`, profiles `*.ctr` (still reads old `.acv` for import/list).
+- CLI: `--ppt`, `--nv-boost`, `--nv-temp`, `--panel-od`, `--cpu-boost`, `--battery-oneshot`, `--kbd`, `--aura`, `--freq`, `--fan-curve`, `--fan-write`, `profile list|export|import|delete`.
+- Poll loop no longer `sudo tee` scaling_max_freq.
+- `run.sh` is `make && ctron "$@"`.
+
+## 2026-09-08 — Plan tightened (still not coded)
+
+- TUI always compiled; running it is optional. No device-modularity. Target is ASUS TUF + Ryzen + NVIDIA. `--setup` is the wizard; first no-args is welcome text, not a blocking interview.
+
+## 2026-09-08 — Wizard / .ctr / platform seam (still not coded)
+
+- Plan now includes runtime `--setup`, `*.ctr` under user config dir, TUI opt-in as config+compile, `platform/asus_tuf.c` seam. Build-time profile paths rejected. Waiting on approval.
+
+## 2026-09-08 — Invert plan (not coded)
+
+- `PLAN.md` rewritten as a wait-for-approval invert: no-args does not spawn kitty; `make` is CLI-only; `--tui` is current terminal; CLI flags must cover TUI hardware knobs (PPT, NV, fan-write, aura, profiles). Implementation starts only after Arcioth approves.
+
+## 2026-09-08 — Deps as layers, any-distro freeze
+
+- Compile dep remains notcurses only. Kernel sysfs is the portable core. asusctl / compositor / kitty / ryzenadj are runtime probes, not link libraries.
+- Privilege (`sudo tee` on a 250 ms poll) is the real cross-distro hole. Freeze: stop polling writes. Later: udev/polkit helper.
+- README Requirements lists apt/dnf/pacman/nix. PLAN recasts thermal as ASUS vendor stack + optional SMU overlay, not a NixOS module plan.
+
+## 2026-09-08 — RyzenAdj research; daetron shelved
+
+- 7435HS is Rembrandt-R (CPUID 25:68). FlyGoat/RyzenAdj v0.19.0 supports Rembrandt `tctl-temp` (SMU 0x19). ctron never reaches it: no binary, wrong probe (`--help`), software path is `scaling_max_freq`, hysteresis documented but not implemented, SMU backend missing (`STRICT_DEVMEM`, no `ryzen_smu`).
+- nixpkgs has `ryzenadj` 0.19.0. A package without the kernel module still fails here.
+- **daetron integration shelved** until initial ctron release. PLAN.md is the release freeze + Tctl pathways A–E (A for v1, B after `ryzenadj -i`).
+- Do not mix RyzenAdj STAPM/PPT with `asus-nb-wmi` PPT.
+
+## 2026-09-08 — Plan start (research + tests)
+
+- Phase 0: FA507NVR, kernel 6.18.46, `asus_custom_fan_curve` on hwmon4, no `asus-armoury`, no `ryzenadj`. `ctron --status` works. Sysfs-only fan write is overwritten by asusd; `asusctl fan-curve --mod-profile` holds. Quiet curve restored.
+- Phase 2 mode A: `fan_cpu_t/p` + `fan_gpu_t/p` in `settings.ini` and `.acv` `[power]`. `CTRON_CONFIG` for tests. `make test` persist round-trip passed. Import does not Write to EC.
+- Phase 1: `scripts/daetron-spawn.sh` (single-instance, verified 1 then 1). `daetron/rules.d/ctron.rule` is inert `0000/0000/` until a spare stick is dumped. Hyprland match now `.*(ctron|vhelper).*` (live lua + nixos files copy; **did not** `apply.sh`).
+- Phase 3: README CLI, AGENTS quit is `q` not ESC.
+- PPT `--status` read `0/0/0` W on this boot.
+
+## 2026-09-08 — Docs cleanup
+
+- Removed duplicate `agents.md` / `changelog.md` / `handoff.md` (same content as the uppercase files). Root keeps `README.md`, `AGENTS.md`, `HANDOFF.md`, `CHANGELOG.md`, `PLAN.md`.
+- All arclinkdae references now say **daetron** (`~/Documents/daetron`).
+
+## 2026-09-08 — Clone + PLAN.md
+
+- Repo cloned to `~/Documents/ctron` from `github.com/kerempkl/ctron`.
+- Added `PLAN.md`: ranked holes, Phase 0 field check, Phase 1 daetron USB bind, Phase 2 fan X,Y persist, Phase 3 doc hygiene, parked items.
+
 ## 2026-09-04 — Session close (signed)
 
-- Software gate passed. Handoff signed. Next: arclinkdae → ctron USB wake, then optional fan-curve persist.
+- Software gate passed. Handoff signed. Next: daetron → ctron USB wake, then optional fan-curve persist.
 - FAN is X=°C / Y=pwm (click graph or type both). Waybar Sync OFF is a no-op. Edge tab-switch parked as chronic.
 - Known limits and the todo list live in `HANDOFF.md`.
 

@@ -3,7 +3,7 @@
 
 #include "hardware.h"
 
-// Launch the interactive Notcurses 512x512 applet UI
+/* TUI in the current terminal. Optional; CLI is the program. */
 int ui_run(hardware_state_t *hw);
 
 #endif // TUF_UI_H

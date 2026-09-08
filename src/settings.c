@@ -6,16 +6,53 @@
 #include <unistd.h>
 #include <ctype.h>
 
-static void get_config_dir(char *out, size_t maxlen) {
+static int mkdir_p(const char *path)
+{
+    char buf[512];
+    size_t n = strlen(path);
+    if (n == 0 || n >= sizeof(buf))
+        return -1;
+    memcpy(buf, path, n + 1);
+    for (char *p = buf + 1; *p; p++) {
+        if (*p == '/') {
+            *p = '\0';
+            mkdir(buf, 0755);
+            *p = '/';
+        }
+    }
+    return mkdir(buf, 0755);
+}
+
+void settings_dir(char *out, size_t maxlen) {
+    const char *env = getenv("CTRON_CONFIG");
+    if (env && env[0]) {
+        snprintf(out, maxlen, "%s", env);
+        return;
+    }
+    const char *xdg = getenv("XDG_CONFIG_HOME");
+    if (xdg && xdg[0]) {
+        snprintf(out, maxlen, "%s/ctron", xdg);
+        return;
+    }
     const char *home = getenv("HOME");
     if (!home) home = "/tmp";
-    snprintf(out, maxlen, "%s/.config/vhelper", home);
+    snprintf(out, maxlen, "%s/.config/ctron", home);
 }
 
 static void get_config_file(char *out, size_t maxlen) {
     char dir[512];
-    get_config_dir(dir, sizeof(dir));
+    settings_dir(dir, sizeof(dir));
     snprintf(out, maxlen, "%s/settings.ini", dir);
+}
+
+int settings_present(void) {
+    char path[512], dir[512];
+    settings_dir(dir, sizeof(dir));
+    snprintf(path, sizeof(path), "%s/config.ini", dir);
+    if (access(path, F_OK) == 0)
+        return 1;
+    get_config_file(path, sizeof(path));
+    return access(path, F_OK) == 0;
 }
 
 static char* trim(char *s) {
@@ -28,9 +65,26 @@ static char* trim(char *s) {
 }
 
 int settings_init(void) {
-    char dir[512];
-    get_config_dir(dir, sizeof(dir));
-    mkdir(dir, 0755);
+    char dir[512], prof[512];
+    settings_dir(dir, sizeof(dir));
+    mkdir_p(dir);
+    snprintf(prof, sizeof(prof), "%s/profiles", dir);
+    mkdir_p(prof);
+    return 0;
+}
+
+int settings_write_stub(void) {
+    settings_init();
+    char dir[512], path[512];
+    settings_dir(dir, sizeof(dir));
+    snprintf(path, sizeof(path), "%s/config.ini", dir);
+    FILE *f = fopen(path, "w");
+    if (!f)
+        return -1;
+    fprintf(f, "# ctron\n");
+    fprintf(f, "platform = asus_tuf\n");
+    fprintf(f, "config_dir = %s\n", dir);
+    fclose(f);
     return 0;
 }
 
@@ -40,6 +94,8 @@ int settings_load(hardware_state_t *hw) {
     FILE *f = fopen(path, "r");
     if (!f) return -1;
 
+    char cpu_t[128] = {0}, cpu_p[128] = {0};
+    char gpu_t[128] = {0}, gpu_p[128] = {0};
     char line[256];
     while (fgets(line, sizeof(line), f)) {
         char *eq = strchr(line, '=');
@@ -86,6 +142,14 @@ int settings_load(hardware_state_t *hw) {
             hw->fan_cpu_on = (atoi(val) != 0);
         } else if (strcmp(key, "fan_gpu_on") == 0) {
             hw->fan_gpu_on = (atoi(val) != 0);
+        } else if (strcmp(key, "fan_cpu_t") == 0) {
+            snprintf(cpu_t, sizeof(cpu_t), "%s", val);
+        } else if (strcmp(key, "fan_cpu_p") == 0) {
+            snprintf(cpu_p, sizeof(cpu_p), "%s", val);
+        } else if (strcmp(key, "fan_gpu_t") == 0) {
+            snprintf(gpu_t, sizeof(gpu_t), "%s", val);
+        } else if (strcmp(key, "fan_gpu_p") == 0) {
+            snprintf(gpu_p, sizeof(gpu_p), "%s", val);
         } else if (strcmp(key, "theme") == 0) {
             int t = atoi(val);
             if (t >= 0 && t < THEME_COUNT) hw->theme = (acv_theme_t)t;
@@ -112,6 +176,11 @@ int settings_load(hardware_state_t *hw) {
     }
 
     fclose(f);
+    /* Mode A: restore editor points only. Missing keys keep hwmon. */
+    if (cpu_t[0] && cpu_p[0])
+        hw_fan_from_csv(&hw->fan_cpu, cpu_t, cpu_p);
+    if (gpu_t[0] && gpu_p[0])
+        hw_fan_from_csv(&hw->fan_gpu, gpu_t, gpu_p);
     return 0;
 }
 
@@ -135,6 +204,17 @@ int settings_save(const hardware_state_t *hw) {
     fprintf(f, "cpu_temp_cap_on = %d\n", hw->cpu_temp_cap_on ? 1 : 0);
     fprintf(f, "fan_cpu_on = %d\n", hw->fan_cpu_on ? 1 : 0);
     fprintf(f, "fan_gpu_on = %d\n", hw->fan_gpu_on ? 1 : 0);
+    {
+        char t[128], p[128];
+        hw_fan_to_csv(&hw->fan_cpu, t, sizeof(t), p, sizeof(p));
+        fprintf(f, "fan_cpu_n = %d\n", hw->fan_cpu.n);
+        fprintf(f, "fan_cpu_t = %s\n", t);
+        fprintf(f, "fan_cpu_p = %s\n", p);
+        hw_fan_to_csv(&hw->fan_gpu, t, sizeof(t), p, sizeof(p));
+        fprintf(f, "fan_gpu_n = %d\n", hw->fan_gpu.n);
+        fprintf(f, "fan_gpu_t = %s\n", t);
+        fprintf(f, "fan_gpu_p = %s\n", p);
+    }
     fprintf(f, "theme = %d\n", (int)hw->theme);
     fprintf(f, "transparency = %d\n", hw->transparency_pct);
     fprintf(f, "tint_level = %d\n", hw->tint_level);
