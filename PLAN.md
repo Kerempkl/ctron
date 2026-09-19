@@ -1,5 +1,7 @@
 # ctron v2 — approved plan (2026-09-19)
 
+Hyprland 0.55 on FA507NVR: detect/modes/`set_hz` via `hl.monitor` eval — 2026-09-20. See HANDOFF.md.
+
 Single C binary for ASUS laptops. No-args `ctron` opens a fullscreen TUI;
 any argument (`ctron --status`, `ctron --mode turbo`) runs headless and exits.
 Notcurses is the only build dependency.

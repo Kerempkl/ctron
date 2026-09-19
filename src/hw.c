@@ -145,7 +145,7 @@ static int ppt_from_node(const char *attr)
 {
     int v = nbwmi_read(attr);
     if (v <= 5)
-        return 0; /* unknown or stale kernel cache */
+        return -1; /* unknown or stale kernel cache */
     return v;
 }
 

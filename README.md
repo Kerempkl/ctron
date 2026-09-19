@@ -144,17 +144,15 @@ The Hyprland backend carries the working hyprctl code from ctron v1 and
 is the agreed handoff point. Current state and open items:
 
 - [x] detect via `HYPRLAND_INSTANCE_SIGNATURE` + `hyprctl monitors -j`
-- [x] `current_hz` from `currentMode.refreshRate`
-- [x] `set_hz` via `hyprctl keyword monitor <name>,WxH@R,0x0,1`
-- [ ] mode list: `availableModes` parsing is implemented but untested on
-      real Hyprland; verify on the target build (older builds omit the
-      field — the fallback only reports the current rate)
-- [ ] `set_hz` hardcodes position `0x0` and scale `1`. With multi-monitor
-      layouts or fractional scaling, read `x`, `y` and `scale` from the
-      monitors JSON and re-emit them.
-- [ ] Test focus-out / edge mouse quirks in the TUI under Hyprland
-      (v1 had a long history there; v2 already filters releases, drags
-      and edge cells).
+- [x] JSON is a **raw array** (no `"monitors"` wrapper, no `currentMode`);
+      parse top-level `name` / `width` / `height` / `refreshRate` on the
+      focused output. Verified Hyprland **0.55.4** on FA507NVR (NixOS).
+- [x] `availableModes` (`60` / `144` on the TUF panel)
+- [x] `set_hz` via `hyprctl eval 'hl.monitor({...})'` (0.55 Lua parser;
+      `keyword monitor` is a no-op). Position and scale copied from JSON.
+      Fallback: legacy `hyprctl keyword monitor`.
+- [ ] HDMI-A-1 / multi-monitor: only the focused output is changed.
+- [ ] TUI mouse under Hyprland (v1 edge-tab history).
 
 ## Roadmap (parked)
 
