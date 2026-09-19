@@ -2,342 +2,250 @@
 #define _GNU_SOURCE
 #endif
 #include "profile.h"
-#include "hardware.h"
+#include "cmds.h"
 #include "settings.h"
+#include "util.h"
+
+#include <ctype.h>
+#include <glob.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
-#include <unistd.h>
-#include <glob.h>
+#include <strings.h>
 #include <time.h>
-#include <sys/stat.h>
+#include <unistd.h>
 
-static void get_profiles_dir(char *out, size_t maxlen) {
-    char root[512];
-    settings_dir(root, sizeof(root));
-    snprintf(out, maxlen, "%s/profiles", root);
-    settings_init();
-}
+/* ---- names ------------------------------------------------------------ */
 
-static void profile_path(char *out, size_t n, const char *name3, const char *ext)
+/* Sanitize to [A-Za-z0-9._-], collapse runs, trim, cap length. */
+static void sanitize_name(const char *in, char *out, size_t n)
 {
-    char dir[512];
-    get_profiles_dir(dir, sizeof(dir));
-    snprintf(out, n, "%s/%s.%s", dir, name3, ext);
-}
-
-void profile_gen_random_name(char out[4]) {
-    static const char *s_tags[] = {
-        "GAM", "TUF", "ECO", "ICE", "MAX", "PWR", "SIL", "ARC",
-        "VGZ", "BLZ", "NEO", "CYN", "RED", "GRN", "BLU", "ZEN",
-        "BAT", "DEV", "FPS", "WAR", "HOT", "COL", "FLY", "RUN"
-    };
-    static bool seeded = false;
-    if (!seeded) {
-        srand(time(NULL) ^ getpid());
-        seeded = true;
+    size_t w = 0;
+    int prev_dash = 0;
+    for (const char *p = in; *p && w + 1 < n; p++) {
+        if (isalnum((unsigned char)*p) || *p == '.' || *p == '_') {
+            out[w++] = *p;
+            prev_dash = 0;
+        } else if (!prev_dash && w > 0) {
+            out[w++] = '-';
+            prev_dash = 1;
+        }
     }
-    int idx = rand() % (sizeof(s_tags) / sizeof(s_tags[0]));
-    snprintf(out, 4, "%s", s_tags[idx]);
+    while (w && (out[w - 1] == '-'))
+        w--;
+    if (w == 0 && n > 0)
+        out[w++] = 'p';
+    out[w] = '\0';
 }
 
-int profile_list(char list[][4], int max_count) {
-    char dir[512];
-    get_profiles_dir(dir, sizeof(dir));
+void profile_gen_name(char *out, size_t n)
+{
+    static const char *tags[] = {
+        "game", "eco", "cool", "fast", "calm", "work", "play", "trip"
+    };
+    srand((unsigned)(time(NULL) ^ getpid()));
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%s-%03d", tags[rand() % 8], rand() % 1000);
+    sanitize_name(buf, out, n);
+}
 
-    char pattern[512];
+/* ---- paths ------------------------------------------------------------ */
+
+static void profile_path(const char *name, char *out, size_t n)
+{
+    char safe[PROFILE_NAME_MAX];
+    sanitize_name(name, safe, sizeof(safe));
+    char dir[460];
+    settings_profiles_dir(dir, sizeof(dir));
+    snprintf(out, n, "%s/%s.ctr", dir, safe);
+}
+
+/* ---- list ------------------------------------------------------------- */
+
+int profile_list(char list[][PROFILE_NAME_MAX], int max)
+{
+    char dir[460];
+    settings_profiles_dir(dir, sizeof(dir));
+    ut_mkdir_p(dir);
+
+    char pattern[520];
     snprintf(pattern, sizeof(pattern), "%s/*.ctr", dir);
 
     glob_t g;
     int count = 0;
     if (glob(pattern, 0, NULL, &g) == 0) {
-        for (size_t i = 0; i < g.gl_pathc && count < max_count; i++) {
+        for (size_t i = 0; i < g.gl_pathc && count < max; i++) {
             const char *slash = strrchr(g.gl_pathv[i], '/');
             const char *fname = slash ? slash + 1 : g.gl_pathv[i];
-            char base[32] = {0};
-            strncpy(base, fname, sizeof(base) - 1);
+            char base[PROFILE_NAME_MAX] = {0};
+            snprintf(base, sizeof(base), "%s", fname);
             char *dot = strrchr(base, '.');
-            if (dot) *dot = '\0';
-
-            if (strlen(base) > 0) {
-                // Keep 3 characters uppercase
-                char code[4] = {0};
-                for (int j = 0; j < 3 && base[j]; j++) {
-                    code[j] = toupper((unsigned char)base[j]);
-                }
-                code[3] = '\0';
-                strncpy(list[count], code, 4);
-                count++;
-            }
-        }
-        globfree(&g);
-    }
-    snprintf(pattern, sizeof(pattern), "%s/*.acv", dir);
-    if (glob(pattern, 0, NULL, &g) == 0) {
-        for (size_t i = 0; i < g.gl_pathc && count < max_count; i++) {
-            const char *slash = strrchr(g.gl_pathv[i], '/');
-            const char *fname = slash ? slash + 1 : g.gl_pathv[i];
-            char base[32] = {0};
-            strncpy(base, fname, sizeof(base) - 1);
-            char *dot = strrchr(base, '.');
-            if (dot) *dot = '\0';
-            if (strlen(base) > 0) {
-                char code[4] = {0};
-                int dup = 0;
-                for (int j = 0; j < 3 && base[j]; j++)
-                    code[j] = toupper((unsigned char)base[j]);
-                for (int k = 0; k < count; k++)
-                    if (!strcmp(list[k], code))
-                        dup = 1;
-                if (!dup) {
-                    strncpy(list[count], code, 4);
-                    count++;
-                }
-            }
+            if (dot)
+                *dot = '\0';
+            if (base[0])
+                snprintf(list[count++], PROFILE_NAME_MAX, "%s", base);
         }
         globfree(&g);
     }
     return count;
 }
 
-int profile_export(const char *name3, const hardware_state_t *hw, const acv_profile_filter_t *filter) {
-    char code[4] = {0};
-    for (int i = 0; i < 3 && name3[i]; i++) {
-        code[i] = toupper((unsigned char)name3[i]);
-    }
-    if (strlen(code) == 0) profile_gen_random_name(code);
+/* ---- export ----------------------------------------------------------- */
 
-    char path[512];
-    profile_path(path, sizeof(path), code, "ctr");
+int profile_export(const char *name, const hw_state_t *hw)
+{
+    char safe[PROFILE_NAME_MAX];
+    sanitize_name(name, safe, sizeof(safe));
 
+    char dir[460];
+    settings_profiles_dir(dir, sizeof(dir));
+    ut_mkdir_p(dir);
+
+    char path[520];
+    profile_path(safe, path, sizeof(path));
     FILE *f = fopen(path, "w");
-    if (!f) return -1;
+    if (!f)
+        return -1;
 
-    fprintf(f, "# Ctron Profile Configuration\n");
-    fprintf(f, "# Tag: %s | Device: %s\n\n", code, hw->laptop_model);
-    fprintf(f, "[profile]\nname = %s\n\n", code);
+    char ft[128], fp[128], gt[128], gp[128];
+    fan_to_csv(&hw->fan_cpu, ft, sizeof(ft), fp, sizeof(fp));
+    fan_to_csv(&hw->fan_gpu, gt, sizeof(gt), gp, sizeof(gp));
 
-    if (!filter || filter->include_perf) {
-        fprintf(f, "[perf]\n");
-        fprintf(f, "profile = %s\n", hw_profile_name(hw->active_profile));
-        fprintf(f, "epp = %s\n", hw_epp_name(hw->active_epp));
-        fprintf(f, "cpu_target_max_mhz = %d\n", hw->cpu_target_max_mhz);
-        fprintf(f, "cpu_temp_cap_c = %d\n", hw->cpu_temp_cap_c);
-        fprintf(f, "cpu_temp_cap_on = %d\n\n", hw->cpu_temp_cap_on ? 1 : 0);
-    }
-
-    if (!filter || filter->include_power) {
-        char t[128], p[128];
-        fprintf(f, "[power]\n");
-        fprintf(f, "display_hz = %d\n", hw->display_cur_hz);
-        fprintf(f, "battery_limit = %d\n", hw->battery_charge_limit);
-        hw_fan_to_csv(&hw->fan_cpu, t, sizeof(t), p, sizeof(p));
-        fprintf(f, "fan_cpu_on = %d\n", hw->fan_cpu_on ? 1 : 0);
-        fprintf(f, "fan_cpu_n = %d\n", hw->fan_cpu.n);
-        fprintf(f, "fan_cpu_t = %s\n", t);
-        fprintf(f, "fan_cpu_p = %s\n", p);
-        hw_fan_to_csv(&hw->fan_gpu, t, sizeof(t), p, sizeof(p));
-        fprintf(f, "fan_gpu_on = %d\n", hw->fan_gpu_on ? 1 : 0);
-        fprintf(f, "fan_gpu_n = %d\n", hw->fan_gpu.n);
-        fprintf(f, "fan_gpu_t = %s\n", t);
-        fprintf(f, "fan_gpu_p = %s\n\n", p);
-    }
-
-    if (!filter || filter->include_aura) {
-        fprintf(f, "[aura]\n");
-        fprintf(f, "kbd_brightness = %s\n", hw_kbd_name(hw->kbd_brightness));
-        fprintf(f, "aura_effect = %d\n", hw->aura_effect_idx);
-        fprintf(f, "aura_color = %d\n", hw->aura_color_idx);
-        fprintf(f, "custom_hex = %s\n\n", hw->custom_hex);
-    }
-
-    if (!filter || filter->include_theme) {
-        fprintf(f, "[theme]\n");
-        fprintf(f, "theme = %d\n", (int)hw->theme);
-        fprintf(f, "tint_level = %d\n", hw->transparency_pct);
-        fprintf(f, "sync_backlight = %d\n", hw->sync_with_backlight ? 1 : 0);
-        fprintf(f, "sync_waybar = %d\n", hw->sync_with_waybar ? 1 : 0);
-    }
-
+    fprintf(f, "# ctron profile\n");
+    fprintf(f, "# device: %s\n", hw->model);
+    fprintf(f, "[perf]\n");
+    fprintf(f, "profile = %s\n", hw_profile_name(hw->profile));
+    fprintf(f, "epp = %s\n", hw_epp_name(hw->epp));
+    fprintf(f, "freq = %d\n", hw->cpu_mhz_limit);
+    fprintf(f, "[power]\n");
+    if (hw->hz_cur > 0)
+        fprintf(f, "hz = %d\n", hw->hz_cur);
+    fprintf(f, "battery = %d\n", hw->bat_limit > 0 ? hw->bat_limit : 80);
+    fprintf(f, "fan_cpu = %d\n", hw->fan_cpu_on ? 1 : 0);
+    fprintf(f, "fan_gpu = %d\n", hw->fan_gpu_on ? 1 : 0);
+    fprintf(f, "fan-curve cpu = %s %s\n", ft, fp);
+    fprintf(f, "fan-curve gpu = %s %s\n", gt, gp);
+    fprintf(f, "[light]\n");
+    fprintf(f, "kbd = %s\n", hw_kbd_name(hw->kbd));
     fclose(f);
-    log_add("Exported profile %s.ctr", code);
+
+    ut_log("profile exported: %s", safe);
     return 0;
 }
 
-int profile_import(const char *name3, hardware_state_t *hw, const acv_profile_filter_t *filter) {
-    char path[512];
-    profile_path(path, sizeof(path), name3, "ctr");
+/* ---- import ----------------------------------------------------------- */
+
+int profile_import(const char *name, hw_state_t *hw, char *err, size_t errn)
+{
+    char path[520];
+    profile_path(name, path, sizeof(path));
     FILE *f = fopen(path, "r");
     if (!f) {
-        profile_path(path, sizeof(path), name3, "acv");
-        f = fopen(path, "r");
+        if (err && errn)
+            snprintf(err, errn, "no such profile");
+        return -1;
     }
-    if (!f) return -1;
 
-    char line[256];
-    char current_sec[32] = {0};
-    char cpu_t[128] = {0}, cpu_p[128] = {0};
-    char gpu_t[128] = {0}, gpu_p[128] = {0};
+    char line[512];
+    bool fan_cpu_on = true, fan_gpu_on = true;
+    char fc_t[128] = {0}, fc_p[128] = {0}, fg_t[128] = {0}, fg_p[128] = {0};
+    int failed = 0;
 
     while (fgets(line, sizeof(line), f)) {
-        // Strip comments and whitespace
-        char *hash = strchr(line, '#');
-        if (hash) *hash = '\0';
-        char *trim_line = line;
-        while (isspace((unsigned char)*trim_line)) trim_line++;
-        if (!*trim_line) continue;
+        char *s = ut_trim(line);
+        if (*s == '#' || *s == ';' || *s == '[' || !*s)
+            continue;
+        char *eq = strchr(s, '=');
+        if (!eq)
+            continue;
+        *eq = '\0';
+        char *key = ut_trim(s);
+        char *val = ut_trim(eq + 1);
 
-        if (*trim_line == '[') {
-            char *end = strchr(trim_line, ']');
-            if (end) {
-                *end = '\0';
-                strncpy(current_sec, trim_line + 1, sizeof(current_sec) - 1);
+        /* fan enable flags ride along with the curves */
+        if (!strcasecmp(key, "fan_cpu")) {
+            fan_cpu_on = (atoi(val) != 0);
+            continue;
+        }
+        if (!strcasecmp(key, "fan_gpu")) {
+            fan_gpu_on = (atoi(val) != 0);
+            continue;
+        }
+        if (!strcasecmp(key, "fan-curve")) {
+            char which[8] = {0}, t[96] = {0}, p[96] = {0};
+            if (sscanf(val, "%7s %95s %95s", which, t, p) != 3)
+                continue;
+            if (!strcasecmp(which, "cpu")) {
+                snprintf(fc_t, sizeof(fc_t), "%s", t);
+                snprintf(fc_p, sizeof(fc_p), "%s", p);
+            } else {
+                snprintf(fg_t, sizeof(fg_t), "%s", t);
+                snprintf(fg_p, sizeof(fg_p), "%s", p);
             }
             continue;
         }
 
-        char *eq = strchr(trim_line, '=');
-        if (!eq) continue;
-        *eq = '\0';
-        char *k = trim_line;
-        char *v = eq + 1;
-        while (isspace((unsigned char)*k)) k++;
-        char *kend = k + strlen(k) - 1;
-        while (kend > k && isspace((unsigned char)*kend)) *kend-- = '\0';
-
-        while (isspace((unsigned char)*v)) v++;
-        char *vend = v + strlen(v) - 1;
-        while (vend > v && isspace((unsigned char)*vend)) *vend-- = '\0';
-
-        // Check if section is enabled by filter
-        if (strcasecmp(current_sec, "perf") == 0) {
-            if (filter && !filter->include_perf) continue;
-            if (strcmp(k, "profile") == 0) {
-                if (strcasecmp(v, "quiet") == 0) hw_set_profile(hw, PROF_QUIET);
-                else if (strcasecmp(v, "balanced") == 0) hw_set_profile(hw, PROF_BALANCED);
-                else if (strcasecmp(v, "performance") == 0) hw_set_profile(hw, PROF_PERFORMANCE);
-            } else if (strcmp(k, "epp") == 0) {
-                if (strcasecmp(v, "power") == 0) hw_set_epp(hw, EPP_POWER);
-                else if (strcasecmp(v, "balance_power") == 0) hw_set_epp(hw, EPP_BALANCED_POWER);
-                else if (strcasecmp(v, "balance_performance") == 0) hw_set_epp(hw, EPP_BALANCED_PERF);
-                else if (strcasecmp(v, "performance") == 0) hw_set_epp(hw, EPP_PERFORMANCE);
-            } else if (strcmp(k, "cpu_target_max_mhz") == 0) {
-                int f_val = atoi(v);
-                if (f_val > 500 && f_val <= 6000) hw_set_cpu_max_freq(hw, f_val);
-            } else if (strcmp(k, "cpu_temp_cap_c") == 0) {
-                int t = atoi(v);
-                if (t >= 70 && t <= 105) hw_set_temp_cap(hw, t);
-            } else if (strcmp(k, "cpu_temp_cap_on") == 0) {
-                hw_set_temp_cap_enabled(hw, atoi(v) != 0);
-            }
-        } else if (strcasecmp(current_sec, "power") == 0) {
-            if (filter && !filter->include_power) continue;
-            if (strcmp(k, "display_hz") == 0) {
-                int hz = atoi(v);
-                if (hz >= 60 && hz <= 360) hw_set_display_hz(hw, hz);
-            } else if (strcmp(k, "battery_limit") == 0) {
-                int bl = atoi(v);
-                if (bl >= 20 && bl <= 100) hw_set_battery_limit(hw, bl);
-            } else if (strcmp(k, "fan_cpu_on") == 0) {
-                hw->fan_cpu_on = atoi(v) != 0;
-            } else if (strcmp(k, "fan_gpu_on") == 0) {
-                hw->fan_gpu_on = atoi(v) != 0;
-            } else if (strcmp(k, "fan_cpu_t") == 0) {
-                strncpy(cpu_t, v, sizeof(cpu_t) - 1);
-            } else if (strcmp(k, "fan_cpu_p") == 0) {
-                strncpy(cpu_p, v, sizeof(cpu_p) - 1);
-            } else if (strcmp(k, "fan_gpu_t") == 0) {
-                strncpy(gpu_t, v, sizeof(gpu_t) - 1);
-            } else if (strcmp(k, "fan_gpu_p") == 0) {
-                strncpy(gpu_p, v, sizeof(gpu_p) - 1);
-            }
-        } else if (strcasecmp(current_sec, "aura") == 0) {
-            if (filter && !filter->include_aura) continue;
-            if (strcmp(k, "kbd_brightness") == 0) {
-                if (strcasecmp(v, "off") == 0) hw_set_kbd_brightness(hw, KBD_OFF);
-                else if (strcasecmp(v, "low") == 0) hw_set_kbd_brightness(hw, KBD_LOW);
-                else if (strcasecmp(v, "med") == 0) hw_set_kbd_brightness(hw, KBD_MED);
-                else if (strcasecmp(v, "high") == 0) hw_set_kbd_brightness(hw, KBD_HIGH);
-            } else if (strcmp(k, "aura_effect") == 0) {
-                hw->aura_effect_idx = atoi(v);
-            } else if (strcmp(k, "aura_color") == 0) {
-                hw->aura_color_idx = atoi(v);
-            } else if (strcmp(k, "custom_hex") == 0) {
-                hw_set_aura_hex(hw, v);
-            }
-        } else if (strcasecmp(current_sec, "theme") == 0) {
-            if (filter && !filter->include_theme) continue;
-            if (strcmp(k, "theme") == 0) {
-                int t = atoi(v);
-                if (t >= 0 && t < THEME_COUNT) hw->theme = (acv_theme_t)t;
-            } else if (strcmp(k, "tint_level") == 0) {
-                hw->transparency_pct = atoi(v);
-            } else if (strcmp(k, "sync_backlight") == 0) {
-                hw->sync_with_backlight = (atoi(v) != 0);
-            } else if (strcmp(k, "sync_waybar") == 0) {
-                hw->sync_with_waybar = (atoi(v) != 0);
-            }
+        char serr[128];
+        if (cmd_run(hw, key, val, serr, sizeof(serr)) != 0) {
+            ut_log("profile '%s': step '%s' failed (%s)", name, key, serr);
+            failed++;
         }
     }
-
     fclose(f);
-    /* RAM only — user hits Write for EC. */
-    if (cpu_t[0] && cpu_p[0])
-        hw_fan_from_csv(&hw->fan_cpu, cpu_t, cpu_p);
-    if (gpu_t[0] && gpu_p[0])
-        hw_fan_from_csv(&hw->fan_gpu, gpu_t, gpu_p);
-    settings_save(hw);
-    log_add("Applied profile %s", name3);
-    return 0;
+
+    if (fc_t[0] && fc_p[0])
+        fan_from_csv(&hw->fan_cpu, fc_t, fc_p);
+    if (fg_t[0] && fg_p[0])
+        fan_from_csv(&hw->fan_gpu, fg_t, fg_p);
+    hw->fan_cpu_on = fan_cpu_on;
+    hw->fan_gpu_on = fan_gpu_on;
+
+    if (failed && err && errn)
+        snprintf(err, errn, "%d step(s) failed (see log)", failed);
+    ut_log("profile applied: %s", name);
+    return failed ? -1 : 0;
 }
 
-int profile_delete(const char *name3) {
-    char dir[512];
-    get_profiles_dir(dir, sizeof(dir));
-    char path[512];
-    profile_path(path, sizeof(path), name3, "ctr");
-    int ret = unlink(path);
-    if (ret != 0) {
-        profile_path(path, sizeof(path), name3, "acv");
-        ret = unlink(path);
+/* ---- delete / summary -------------------------------------------------- */
+
+int profile_delete(const char *name)
+{
+    char path[520];
+    profile_path(name, path, sizeof(path));
+    if (unlink(path) == 0) {
+        ut_log("profile deleted: %s", name);
+        return 0;
     }
-    if (ret == 0) log_add("Deleted profile %s", name3);
-    return ret;
+    return -1;
 }
 
-int profile_get_summary(const char *name3, char out_perf[64], char out_pwr[64], char out_aura[64]) {
-    char path[512];
-    profile_path(path, sizeof(path), name3, "ctr");
+int profile_summary(const char *name, char *out, size_t n)
+{
+    char path[520];
+    profile_path(name, path, sizeof(path));
     FILE *f = fopen(path, "r");
-    if (!f) {
-        profile_path(path, sizeof(path), name3, "acv");
-        f = fopen(path, "r");
-    }
-    if (!f) return -1;
+    if (!f)
+        return -1;
 
-    char prof[32] = "Bal", epp[32] = "bal_pwr", hz[16] = "144", bat[16] = "80", hex[16] = "00ffff";
-    char line[256];
+    char prof[24] = "?", hz[16] = "-", bat[16] = "-", kbd[16] = "-";
+    char line[512];
     while (fgets(line, sizeof(line), f)) {
         char *eq = strchr(line, '=');
-        if (!eq) continue;
+        if (!eq)
+            continue;
         *eq = '\0';
-        char *k = line, *v = eq + 1;
-        while (isspace((unsigned char)*k)) k++;
-        char *ke = k + strlen(k) - 1; while (ke > k && isspace((unsigned char)*ke)) *ke-- = '\0';
-        while (isspace((unsigned char)*v)) v++;
-        char *ve = v + strlen(v) - 1; while (ve > v && isspace((unsigned char)*ve)) *ve-- = '\0';
-
-        if (strcmp(k, "profile") == 0) strncpy(prof, v, sizeof(prof) - 1);
-        else if (strcmp(k, "epp") == 0) strncpy(epp, v, sizeof(epp) - 1);
-        else if (strcmp(k, "display_hz") == 0) strncpy(hz, v, sizeof(hz) - 1);
-        else if (strcmp(k, "battery_limit") == 0) strncpy(bat, v, sizeof(bat) - 1);
-        else if (strcmp(k, "custom_hex") == 0) strncpy(hex, v, sizeof(hex) - 1);
+        char *key = ut_trim(line);
+        char *val = ut_trim(eq + 1);
+        if (!strcasecmp(key, "profile"))
+            snprintf(prof, sizeof(prof), "%s", val);
+        else if (!strcasecmp(key, "hz"))
+            snprintf(hz, sizeof(hz), "%s", val);
+        else if (!strcasecmp(key, "battery"))
+            snprintf(bat, sizeof(bat), "%s", val);
+        else if (!strcasecmp(key, "kbd"))
+            snprintf(kbd, sizeof(kbd), "%s", val);
     }
     fclose(f);
-
-    if (out_perf) snprintf(out_perf, 64, "%s | EPP: %s", prof, epp);
-    if (out_pwr) snprintf(out_pwr, 64, "%s Hz | Bat: %s%%", hz, bat);
-    if (out_aura) snprintf(out_aura, 64, "#%s", hex);
+    snprintf(out, n, "%s | %sHz | bat %s%% | kbd %s", prof, hz, bat, kbd);
     return 0;
 }

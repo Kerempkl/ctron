@@ -1,76 +1,114 @@
-# Ctron plan — invert (paused 2026-09-09)
+# ctron v2 — approved plan (2026-09-19)
 
-Approved and implemented. **Field test of writes/TUI knobs is not done.** `--watch` / live `--status` looked fine. Resume from `HANDOFF.md` todo 1.
+Single C binary for ASUS laptops. No-args `ctron` opens a fullscreen TUI;
+any argument (`ctron --status`, `ctron --mode turbo`) runs headless and exits.
+Notcurses is the only build dependency.
 
-`ctron` is a Linux **ASUS TUF** control program (AMD Ryzen + NVIDIA dGPU). Headless flags are the program. `--tui` is optional. The TUI is **always compiled in** (notcurses is a real dependency). No Kitty spawn. No plugin/platform framework.
+Target machine for verification: ASUS TUF Gaming A16 **FA608PP**
+(Ryzen 9 8940HX + RTX 5070 Max-Q, CachyOS, KDE Plasma Wayland, kernel 7.2).
+Primary development session: KDE. Hyprland backend is prepared for handoff.
 
----
+## File layout
 
-## Locked for this version
+```
+src/
+  main.c          CLI parsing (multi-flag, --flag=val), tty check, dispatch
+  util.c/.h       sysfs read/write, exec helper, parse utils, log ring
+  hw.c/.h         hardware state + read layer (fast poll / full live)
+  control.c/.h    write layer: profile/EPP/PPT/battery/fan/kbd/panel-od
+  fan.c/.h        8-point fan curve model (X=°C, Y=pwm)
+  modes.c/.h      user modes (modes.ini) + applier
+  cmds.c/.h       key/value command table shared by CLI, modes and profiles
+  profile.c/.h    .ctr profiles (free-form names)
+  settings.c/.h   ~/.config/ctron prefs + hardware persist
+  ui/             fullscreen TUI
+    ui.c/.h           main loop, layout engine, input dispatch
+    ui_internal.h     shared panel contract, palette, targets, text input
+    panel_profiles.c  left-top: profile list + save/apply/delete/import/export
+    panel_controls.c  left-bottom: quick controls (modes, profile, fan, battery)
+    panel_workspace.c right-top: workspace views (FAN/POWER/LIGHT/SETTINGS/HELP)
+    panel_telemetry.c right-bottom: always-on live telemetry strip
+    panel_settings.c  Settings view incl. CLI Shortcuts editor
+    editor_fan.c      large fan curve editor (graph, points, write)
+  display/
+    display.h/.c   backend interface + auto-detect (DISPLAY_BACKEND override)
+    display_kde.c  kscreen-doctor backend — fully working (verified on KDE)
+    display_hypr.c hyprctl backend — basic port from v1; see README handoff note
+tests/test_core.c  fan CSV round-trip, settings/modes/profile persist, parsers
+Makefile           all / test / install / clean
+```
 
-- Target hardware: ASUS TUF series, AMD Ryzen, NVIDIA. That is the product. `hardware.c` stays TUF-shaped. No `platform.h`, no second device, no “modular later” scaffolding.
-- TUI: always linked. Running it is optional (`--tui` in the **current** terminal). No `make tui` split. No Kitty, no 512² applet this pass.
-- Profiles: `*.ctr` under the config dir (`profiles/TAG.ctr`). Stop writing new `*.acv` / `vhelper` paths.
-- Makefile is the build. flake.nix packages it. README’s happy path is `make`, not nix-shell.
-- daetron, RyzenAdj `.ko`, polkit helper, edge tab-switch, 140 W, kernel bump: not this pass.
+## Layout of the fullscreen TUI
 
----
+```
++--------------+---------------------------------------------+
+| PROFILES     |  WORKSPACE (fan curve editor by default;     [Settings]
+|  list +      |   POWER / LIGHT / SETTINGS / MODE EDIT       [Help]  q:quit
+|  save/load   |   views are switched by left-column buttons) |
++--------------+                                             |
+| CONTROLS     +---------------------------------------------+
+|  mode,       | LIVE: 62°C 47°C GPU 3300/3600rpm 5.2GHz     |
+|  profile,    | BAT 58% Performance  | last action log       |
+|  fan, batt   |                                             |
++--------------+---------------------------------------------+
+```
 
-## Wizard: what I suggest
+- Every panel is an independent widget (draw + key + mouse-action); the
+  layout engine only places rectangles. Changing the layout later means
+  re-placing widgets, not rewriting them (requested by user).
+- Keyboard first (vim-style), full mouse support (click; fan graph
+  point select/move). Focus travels with Tab / 1..4.
 
-Do **not** make setup a gate. Defaults must work with zero questions:
+## Modes ("CLI shortcuts")
 
-- Config dir: `$XDG_CONFIG_HOME/ctron` (usually `~/.config/ctron`)
-- Profiles: `$config_dir/profiles/*.ctr`
-- Env `CTRON_CONFIG` / flag `--config-dir` override
+- Defaults in `~/.config/ctron/modes.ini`: turbo, performance, balanced,
+  quiet, silent. Each mode is a list of steps executed through the shared
+  command table (e.g. `profile performance, ppt P80, fan cool, hz max`).
+- CLI: `ctron --mode turbo`, `ctron mode list|show|add|delete`.
+- TUI Settings panel: list / create / edit / delete modes (name + steps).
 
-`--setup` is the wizard: re-runnable, documented, the place for questions (custom config dir, import old `vhelper/*.acv` if you want that, sudo check). Print distro from `/etc/os-release` and DMI product. Write `config.ini`. Exit.
+## Write layer
 
-**First no-args:** if stdin is a tty and there is no config file yet, print a short welcome (distro, DMI, default paths, “`ctron --setup` to change this, `ctron --help` for flags, `ctron --tui` for the interface”) and **exit**. Do not block on prompts. `ctron --battery 80` and `ctron --status` never start a wizard.
+Priority chain in one place (`control.c`): **asusctl** → direct sysfs write
+→ `sudo -n` (clean error if passwordless sudo is unavailable; never blocks).
+No writes from the poll loop; writes happen only on user action.
 
-Why not auto-run the full wizard on first `ctron`: scripts, waybar, ssh non-tty, and “I just wanted --help” all hang or get a surprise interview. Why not skip `--setup` entirely: you asked for a welcome and a place to choose the directory; a named command is that place.
+## Read layer
 
-Build-time setup is still out. Packagers do not sit at the laptop.
+- Fast poll (default 250 ms): k10temp Tctl, scaling freq, battery, fan RPM
+  (hwmon name `asus`, fan1/fan2_input with labels). GPU temp via nvidia-smi,
+  cached 2 s (never inside the poll hot path).
+- Full snapshot: + PPT (armoury attribute → asusctl → nb-wmi; print `--`
+  when the kernel reports stale 0/5), panel OD, charge threshold, platform
+  profile, EPP, kbd brightness, fan curve + enable state, display Hz.
+- No fabricated fallback data (v1 synthesized default curves when reads
+  failed; v2 prints `--` instead).
 
-TUI-during-setup: with TUI always in the binary, do not ask “install TUI?”. At most “show `--tui` in the welcome blurb.” That is a help sentence, not a compile switch.
+## PPT limits
 
----
+No more hardcoded FA507 numbers. Limits come from firmware-attributes
+`min`/`max` files when present; otherwise a generous physical ceiling
+(SPL 15–90 W, SPPT/FPPT 35–120 W) and kernel rejection (EIO) is surfaced
+to the user. Invariant `fppt >= sppt >= spl` kept; presets Q45/B60/P80 kept.
 
-## Defaults after invert
+## Display backend
 
-| Today | After |
-|-------|--------|
-| no-args forks kitty | no-args: usage if config exists; short welcome if not (tty). Never a window. |
-| `run.sh` nix-shell + kitty | `make && ./build/ctron "$@"` or delete |
-| CLI missing PPT/NV/fan-write | flags for every TUF hardware setter the TUI already has |
-| `~/.config/vhelper` + `.acv` | `~/.config/ctron` + `.ctr` |
+`display.h` contract: `detect / current_hz / modes_hz[] / set_hz`.
+KDE backend parses `kscreen-doctor -o` and applies
+`output.<name>.mode.<W>x<H>@<refresh>` — verified live. Hyprland backend
+carries the working v1 hyprctl code (read monitors, keyword monitor); mode
+list parsing and edge cases are listed in README as the handoff checklist.
+Adding a backend (wlr-randr, xrandr) = one new file + one line in the list.
 
-CLI flags to add (same `hw_*` as the TUI): `--doctor`, `--freq`, `--ppt`, `--nv-boost`, `--nv-temp`, `--panel-od`, `--cpu-boost`, `--battery-oneshot`, `--kbd`, `--aura`, `--fan-write`, `--fan-curve`, `profile list|export|import|delete`. Theme/tint/hex picker stay TUI-only.
+## Explicitly out of scope
 
-`--status` / `--doctor` do not lie (PPT 0 or 5 → `--`; no asusctl; software cap ≠ SMU).
+MUX/dGPU switch · throttle_thermal_policy (overlaps platform profiles) ·
+Waybar sync (parked for later, README roadmap) · wlr-randr/xrandr backends.
 
-Privilege: no `sudo tee` on the 250 ms poll. Writes on user action / flags only.
+## Verification
 
----
-
-## Order after approval
-
-1. Paths: XDG `ctron/`, `.ctr`, `CTRON_CONFIG`. — done
-2. `main.c`: no kitty. no-args welcome. `--setup`. — done
-3. `--doctor` + welcome (`os-release` + DMI). — done
-4. Missing CLI flags. — done
-5. `--tui` in current terminal (fails cleanly without a tty). — done
-6. README. — done
-
-Keep `hardware.c` field behavior (asusctl+sysfs fan Write, PPT stale-5, 8-point pad). Old `~/.config/vhelper` is not auto-migrated; `profile list` still sees leftover `*.acv` if you point config there.
-
----
-
-## Approve / reject
-
-- TUI always in the binary; `--tui` optional; no Kitty this pass.
-- No modularity. TUF + Ryzen + NVIDIA only.
-- Wizard = `ctron --setup` only. First no-args is a short welcome, not an interview.
-- Config `~/.config/ctron`, profiles `*.ctr`.
-
-Say yes (or mark those four) and we start at order item 1.
+1. `make` compiles warning-free; `make test` passes.
+2. Live on the FA608PP: `--doctor`, `--status` (RPM, GPU °C, PPT, Hz),
+   `--watch` observed for a few seconds.
+3. TUI smoke test under a pseudo-tty (opens, renders, quits).
+4. Writers are only exercised when explicitly invoked by the user.

@@ -4,319 +4,304 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
-#include <ctype.h>
-#include "hardware.h"
-#include "settings.h"
+#include <signal.h>
+
+#include "cmds.h"
+#include "control.h"
+#include "hw.h"
+#include "modes.h"
 #include "profile.h"
-#include "ui.h"
+#include "settings.h"
+#include "ui/ui.h"
+#include "util.h"
+#include "display/display.h"
 
-static int parse_onoff(const char *s, int *out)
-{
-    if (!s)
-        return -1;
-    if (!strcasecmp(s, "on") || !strcasecmp(s, "1") || !strcasecmp(s, "true")) {
-        *out = 1;
-        return 0;
-    }
-    if (!strcasecmp(s, "off") || !strcasecmp(s, "0") || !strcasecmp(s, "false")) {
-        *out = 0;
-        return 0;
-    }
-    return -1;
-}
+#define PROG "ctron"
+#define VERSION "2.0.0-deno"
 
-static void read_kv_file(const char *path, const char *key, char *out, size_t n)
+/* ---- output helpers ----------------------------------------------------- */
+
+static void print_version(void)
 {
-    FILE *f = fopen(path, "r");
-    if (!f)
-        return;
-    char line[256];
-    size_t klen = strlen(key);
-    while (fgets(line, sizeof(line), f)) {
-        if (strncmp(line, key, klen) != 0)
-            continue;
-        char *eq = strchr(line, '=');
-        if (!eq)
-            continue;
-        eq++;
-        while (*eq == '"' || isspace((unsigned char)*eq))
-            eq++;
-        size_t i = 0;
-        while (eq[i] && eq[i] != '"' && eq[i] != '\n' && i + 1 < n)
-            i++;
-        memcpy(out, eq, i);
-        out[i] = '\0';
-        break;
-    }
-    fclose(f);
+    printf("%s %s — ASUS laptop control center\n", PROG, VERSION);
 }
 
 static void print_usage(const char *prog)
 {
-    printf("Usage: %s [options]\n\n", prog);
-    printf("Ctron — ASUS TUF (AMD Ryzen + NVIDIA) control program.\n");
-    printf("Headless by default. Optional TUI: %s --tui\n\n", prog);
-    printf("Options:\n");
-    printf("  --setup                Interactive setup (config dir)\n");
-    printf("  --config-dir DIR       Override config directory\n");
-    printf("  --status, -s           Live hardware snapshot (sysfs/asusctl)\n");
-    printf("  --watch, -w            Live temp/freq/battery line (250 ms)\n");
-    printf("  --doctor               Capability dump\n");
-    printf("  --tui, -t              TUI in this terminal\n");
-    printf("  --profile <name>       Quiet | Balanced | Performance\n");
-    printf("  --epp <mode>           power | balance_power | balance_performance | performance\n");
-    printf("  --freq <mhz>           CPU scaling_max_freq cap\n");
-    printf("  --tctl <C>             Software temp cap (70-105, 0=off)\n");
-    printf("  --hz <rate>            60 | 144 | max\n");
-    printf("  --battery <limit>      Charge limit 20-100\n");
-    printf("  --battery-oneshot      asusctl battery oneshot\n");
-    printf("  --ppt Q45|B60|P80      PPT preset\n");
-    printf("  --ppt <spl>,<sppt>,<fppt>\n");
-    printf("  --nv-boost <W>         NVIDIA dynamic boost watts\n");
-    printf("  --nv-temp <C>          NVIDIA temp target\n");
-    printf("  --panel-od on|off\n");
-    printf("  --cpu-boost on|off\n");
-    printf("  --fan <preset>         stock | silent | cool | full | on | off\n");
-    printf("  --fan-curve cpu|gpu <temps> <pwms>\n");
-    printf("  --fan-write            Write in-memory curve to EC/asusctl\n");
-    printf("  --kbd off|low|med|high\n");
+    printf("Usage: %s [flags] | %s mode <sub> | %s profile <sub>\n\n", prog, prog, prog);
+    printf("No arguments opens the fullscreen TUI (needs a terminal).\n\n");
+    printf("Information:\n");
+    printf("  --status, -s        live hardware snapshot\n");
+    printf("  --watch, -w         rolling one-line telemetry (Ctrl-C stops)\n");
+    printf("  --doctor            capability report\n");
+    printf("  --help, -h          this help\n");
+    printf("  --version, -V       version\n\n");
+    printf("Modes & profiles:\n");
+    printf("  --mode <name>       apply a shortcut bundle (see modes.ini)\n");
+    printf("  mode list|show <n>|add <name> <steps>|delete <n>\n");
+    printf("  profile list\n");
+    printf("  profile apply|export|delete <name>\n\n");
+    printf("Hardware (key = value pairs, same as mode steps):\n");
+    printf("  --profile quiet|balanced|performance\n");
+    printf("  --epp power|balance_power|balance_performance|performance\n");
+    printf("  --freq <mhz>            CPU max frequency\n");
+    printf("  --hz <rate|max>         display refresh (compositor backend)\n");
+    printf("  --battery <20..100>     charge limit\n");
+    printf("  --battery-oneshot       charge to full once\n");
+    printf("  --ppt Q45|B60|P80|<spl>,<sppt>,<fppt>\n");
+    printf("  --nv-boost <5..25 W>    NVIDIA dynamic boost\n");
+    printf("  --nv-temp <75..87 C>    NVIDIA temp target\n");
+    printf("  --panel-od on|off       panel overdrive\n");
+    printf("  --cpu-boost on|off      cpufreq boost\n");
+    printf("  --kbd off|low|med|high  keyboard backlight\n");
     printf("  --aura <effect> [color|hex]\n");
-    printf("  --armoury-get <attr>\n");
-    printf("  --armoury-set <attr> <val>\n");
-    printf("  profile list|export|import|delete [TAG]\n");
-    printf("  --help, -h\n");
+    printf("  --fan stock|silent|cool|full|on|off\n");
+    printf("  --fan-curve cpu|gpu <temps> <pwms>\n");
+    printf("  --fan-write             write in-memory curve to the EC\n\n");
+    printf("Config: %s [--config-dir DIR]\n", prog);
 }
 
-static void print_welcome(void)
+/* ---- status / doctor / watch --------------------------------------------- */
+
+static const char *dash_if(int v)
 {
-    char os[128] = "unknown", dmi[128] = "unknown", dir[512];
-    read_kv_file("/etc/os-release", "PRETTY_NAME", os, sizeof(os));
-    if (!os[0])
-        read_kv_file("/etc/os-release", "NAME", os, sizeof(os));
-    read_kv_file("/sys/class/dmi/id/product_name", "", dmi, sizeof(dmi));
+    static char b[4][16];
+    static int i = 0;
+    i = (i + 1) % 4;
+    if (v < 0)
+        return "--";
+    snprintf(b[i], sizeof(b[i]), "%d", v);
+    return b[i];
+}
+
+static int cmd_status(hw_state_t *hw)
+{
+    printf("ctron — %s\n", hw->model);
+    printf("  CPU            : %s\n", hw->cpu);
+    printf("  CPU temp       : %s °C (k10temp)\n", dash_if(hw->cpu_temp));
+    printf("  GPU temp       : %s °C (nvidia-smi)\n", dash_if(hw->gpu_temp));
+    printf("  CPU clock      : %d MHz (limit %d MHz)\n", hw->cpu_mhz_cur, hw->cpu_mhz_limit);
+    printf("  Fan RPM        : %s / %s (cpu/gpu)\n", dash_if(hw->rpm_cpu), dash_if(hw->rpm_gpu));
+    printf("  Profile        : %s\n", hw_profile_name(hw->profile));
+    printf("  EPP            : %s\n", hw_epp_name(hw->epp));
+    printf("  Display        : %s Hz (%s)\n", hw->hz_cur > 0 ? dash_if(hw->hz_cur) : "--",
+           display_get() ? display_get()->name : "no backend");
+    if (hw->hz_count > 0) {
+        printf("  Modes          : ");
+        for (int i = 0; i < hw->hz_count; i++)
+            printf("%s%d", i ? ", " : "", hw->hz_modes[i]);
+        printf(" Hz\n");
+    }
+    printf("  Battery        : %d%% %s%s limit %d%%\n", hw->bat_pct,
+           hw->bat_status, hw->ac_online ? " (AC)" : "", hw->bat_limit);
+    printf("  PPT            : %s / %s / %s W (SPL/SPPT/FPPT; -- until written)\n",
+           dash_if(hw->ppt_spl), dash_if(hw->ppt_sppt), dash_if(hw->ppt_fppt));
+    printf("  NV boost/temp  : %s W / %s °C\n", dash_if(hw->nv_boost), dash_if(hw->nv_temp));
+    printf("  Panel OD       : %s   CPU boost: %s\n",
+           hw->panel_od ? "on" : "off", hw->cpu_boost ? "on" : "off");
+    printf("  Keyboard       : %s\n", hw_kbd_name(hw->kbd));
     {
-        FILE *f = fopen("/sys/class/dmi/id/product_name", "r");
+        char ct[128], cp[128], gt[128], gp[128];
+        fan_to_csv(&hw->fan_cpu, ct, sizeof(ct), cp, sizeof(cp));
+        fan_to_csv(&hw->fan_gpu, gt, sizeof(gt), gp, sizeof(gp));
+        printf("  Fan curve cpu  : %s %s (%s)\n", ct, cp, hw->fan_cpu_on ? "on" : "off");
+        printf("  Fan curve gpu  : %s %s (%s)\n", gt, gp, hw->fan_gpu_on ? "on" : "off");
+    }
+    return 0;
+}
+
+static volatile sig_atomic_t s_watch_run = 1;
+static void watch_stop(int sig) { (void)sig; s_watch_run = 0; }
+
+static int cmd_watch(hw_state_t *hw)
+{
+    struct sigaction sa = {0};
+    sa.sa_handler = watch_stop;
+    sigaction(SIGINT, &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
+
+    setvbuf(stdout, NULL, _IONBF, 0);
+    printf("ctron watch — Ctrl-C stops\n");
+    while (s_watch_run) {
+        hw_refresh_fast(hw);
+        printf("\r %3d°C  GPU %2d°C  %4d MHz  fan %4s/%4s rpm  BAT %3d%% %-11s %s   ",
+               hw->cpu_temp, hw->gpu_temp, hw->cpu_mhz_cur,
+               dash_if(hw->rpm_cpu), dash_if(hw->rpm_gpu),
+               hw->bat_pct, hw->bat_status, hw_profile_name(hw->profile));
+        usleep((useconds_t)g_prefs.poll_ms * 1000);
+    }
+    printf("\n");
+    return 0;
+}
+
+static int cmd_doctor(hw_state_t *hw)
+{
+    char os[128] = "?", dir[400];
+    ut_read_file("/etc/os-release", os, sizeof(os)); /* first line; fine */
+    {
+        FILE *f = fopen("/etc/os-release", "r");
         if (f) {
-            if (fgets(dmi, sizeof(dmi), f)) {
-                size_t n = strlen(dmi);
-                while (n && (dmi[n - 1] == '\n' || dmi[n - 1] == '\r'))
-                    dmi[--n] = '\0';
+            char line[256];
+            os[0] = '\0';
+            while (fgets(line, sizeof(line), f)) {
+                if (!strncmp(line, "PRETTY_NAME=", 12)) {
+                    char *v = line + 12;
+                    v += (*v == '"');
+                    v[strcspn(v, "\"\n")] = '\0';
+                    snprintf(os, sizeof(os), "%s", v);
+                    break;
+                }
             }
             fclose(f);
         }
     }
     settings_dir(dir, sizeof(dir));
-    printf("ctron — ASUS TUF control (AMD Ryzen + NVIDIA)\n");
-    printf("  distro  : %s\n", os[0] ? os : "unknown");
-    printf("  machine : %s\n", dmi[0] ? dmi : "unknown");
-    printf("  config  : %s\n", dir);
-    printf("  profiles: %s/profiles/*.ctr\n", dir);
-    printf("\n");
-    printf("  ctron --setup     choose config dir\n");
-    printf("  ctron --help      flags\n");
-    printf("  ctron --status    hardware\n");
-    printf("  ctron --tui       interface in this terminal\n");
-}
+    const display_ops_t *d = display_get();
 
-static int cmd_setup(void)
-{
-    char def[512], line[512], dir[512];
-    settings_dir(def, sizeof(def));
-    print_welcome();
-    printf("\n");
-    if (isatty(0)) {
-        printf("Config directory [%s]: ", def);
-        fflush(stdout);
-        if (!fgets(line, sizeof(line), stdin))
-            line[0] = '\0';
-        char *p = line;
-        while (isspace((unsigned char)*p))
-            p++;
-        size_t n = strlen(p);
-        while (n && isspace((unsigned char)p[n - 1]))
-            p[--n] = '\0';
-        if (n)
-            setenv("CTRON_CONFIG", p, 1);
-    }
-    settings_dir(dir, sizeof(dir));
-    if (settings_write_stub() != 0) {
-        fprintf(stderr, "Could not write %s/config.ini\n", dir);
-        return 1;
-    }
-    printf("Wrote %s/config.ini\n", dir);
-    if (system("sudo -n true >/dev/null 2>&1") != 0)
-        printf("Note: sysfs writes use sudo; this session is not passwordless.\n");
-    return 0;
-}
-
-static void print_ppt(const hardware_state_t *hw)
-{
-    if (hw->ppt_spl > 5)
-        printf("%d/%d/%d W", hw->ppt_spl, hw->ppt_sppt, hw->ppt_fppt);
-    else
-        printf("-- (sysfs 0 or 5 is not a live wattage)");
-}
-
-static void print_fan_line(const char *who, const fan_curve_t *fc, int on)
-{
-    char t[128], p[128];
-    hw_fan_to_csv(fc, t, sizeof(t), p, sizeof(p));
-    printf("  Fan %-4s        : %s  n=%d  T=%s  pwm=%s\n",
-           who, on ? "on" : "off", fc->n, t[0] ? t : "-", p[0] ? p : "-");
-}
-
-static int cmd_status(const hardware_state_t *hw)
-{
-    printf("Hardware Status for %s:\n", hw->laptop_model);
-    printf("  CPU Model       : %s\n", hw->cpu_model);
-    printf("  CPU Temp        : %d°C (k10temp Tctl)\n", hw->cpu_temp_c);
-    printf("  CPU Frequency   : %d MHz (scaling_max live %d, saved %d)\n",
-           hw->cpu_cur_freq_mhz, hw->cpu_applied_max_mhz, hw->cpu_target_max_mhz);
-    printf("  Temp cap        : %d°C (%s, software freq — not SMU Tctl)\n",
-           hw->cpu_temp_cap_c, hw->cpu_temp_cap_on ? "on" : "off");
-    printf("  Active Profile  : %s\n", hw_profile_name(hw->active_profile));
-    printf("  Active EPP      : %s\n", hw_epp_name(hw->active_epp));
-    printf("  Display         : %s @ %d Hz (Max: %d Hz)\n",
-           hw->display_name, hw->display_cur_hz, hw->display_max_hz);
-    printf("  Battery         : %d%% (%s) [Cap: %d%%] AC=%s\n",
-           hw->battery_percent, hw->battery_status, hw->battery_charge_limit,
-           hw->battery_ac_connected ? "yes" : "no");
-    printf("  Fan curve       : %s\n",
-           hw->has_fan_curve ? "asus_custom_fan_curve (live hwmon)" : "none");
-    print_fan_line("CPU", &hw->fan_cpu, hw->fan_cpu_on);
-    print_fan_line("GPU", &hw->fan_gpu, hw->fan_gpu_on);
-    printf("  PPT SPL/SPPT/FPPT: ");
-    print_ppt(hw);
-    printf("\n");
-    printf("  NV boost/temp   : %d W / %d°C  panel_od=%s  cpu_boost=%s\n",
-           hw->nv_boost_w, hw->nv_temp_target,
-           hw->panel_od ? "on" : "off", hw->cpu_boost ? "on" : "off");
-    printf("  Keyboard        : %s\n", hw_kbd_name(hw->kbd_brightness));
-    printf("  Aura            : %s (%s) (last set, not live EC)\n",
-           AURA_EFFECT_NAMES[hw->aura_effect_idx],
-           AURA_COLOR_NAMES[hw->aura_color_idx]);
-    printf("  Armoury         : %s\n",
-           hw->has_asus_armoury ? "asus-armoury" : "asus_wmi (no armoury sysfs)");
-    return 0;
-}
-
-static int cmd_watch(hardware_state_t *hw)
-{
-    hw_refresh_live(hw);
-    setvbuf(stdout, NULL, _IONBF, 0);
-    printf("ctron watch  (Ctrl-C to stop)\n");
-    for (;;) {
-        hw_poll_telemetry(hw);
-        printf("\r  %3d°C  %4d MHz  (max %4d)  BAT %3d%% %-12s  %s %s    ",
-               hw->cpu_temp_c, hw->cpu_cur_freq_mhz, hw->cpu_applied_max_mhz,
-               hw->battery_percent, hw->battery_status,
-               hw_profile_name(hw->active_profile),
-               hw->battery_ac_connected ? "AC" : "DC");
-        usleep(250000);
-    }
-    return 0;
-}
-
-static int cmd_doctor(const hardware_state_t *hw)
-{
-    char os[128] = "", dir[512];
-    read_kv_file("/etc/os-release", "PRETTY_NAME", os, sizeof(os));
-    settings_dir(dir, sizeof(dir));
     printf("ctron doctor\n");
-    printf("  os            : %s\n", os[0] ? os : "unknown");
-    printf("  dmi           : %s\n", hw->laptop_model);
-    printf("  cpu           : %s\n", hw->cpu_model);
-    printf("  config        : %s%s\n", dir, settings_present() ? "" : " (no config.ini yet)");
+    printf("  os            : %s\n", os[0] ? os : "?");
+    printf("  machine       : %s (%s)\n", hw->model, hw->is_asus ? "ASUS" : "not ASUS");
+    printf("  cpu           : %s\n", hw->cpu);
     printf("  asusctl       : %s\n", hw->has_asusctl ? "yes" : "no");
-    printf("  asus-armoury  : %s\n", hw->has_asus_armoury ? "yes" : "no");
-    printf("  fan hwmon     : %s\n", hw->has_fan_curve ? "asus_custom_fan_curve" : "missing");
+    printf("  asus-armoury  : %s\n", hw->has_armoury ? "yes" : "no");
+    printf("  fan curve     : %s\n", hw->has_fan_curve ? "hwmon asus_custom_fan_curve" : "missing");
+    printf("  fan rpm       : %s\n", hw->has_fan_rpm ? "hwmon asus" : "missing");
+    printf("  k10temp       : %s °C\n", dash_if(hw->cpu_temp));
+    printf("  nvidia-smi    : %s (%s °C)\n", hw->has_nvidia_smi ? "yes" : "no",
+           dash_if(hw->gpu_temp));
+    printf("  kbd led       : %s\n", hw->has_kbd_led ? "asus::kbd_backlight" : "missing");
     printf("  ppt sysfs     : %s\n",
-           access("/sys/devices/platform/asus-nb-wmi/ppt_pl1_spl", F_OK) == 0 ? "yes" : "no");
-    printf("  k10temp       : %d°C\n", hw->cpu_temp_c);
-    printf("  ryzenadj      : %s\n", hw->has_ryzenadj ? "on PATH (not used as Tctl yet)" : "no");
-    printf("  tui           : linked (--tui)\n");
-    printf("  ppt live      : ");
-    print_ppt(hw);
-    printf("\n");
+           ut_path_exists("/sys/devices/platform/asus-nb-wmi/ppt_pl1_spl") ? "yes" : "no");
+    printf("  display       : %s\n", d ? d->name : "no backend detected");
+    printf("  sudo -n       : %s\n",
+           system("sudo -n true >/dev/null 2>&1") == 0 ? "passwordless" : "unavailable");
+    printf("  config        : %s\n", dir);
     return 0;
 }
 
-static int apply_ppt_token(hardware_state_t *hw, const char *tok)
-{
-    int spl, sppt, fppt;
-    if (!strcasecmp(tok, "Q45") || !strcasecmp(tok, "q45")) {
-        if (hw->battery_ac_connected)
-            return hw_set_ppt(hw, 45, 55, 55);
-        return hw_set_ppt(hw, 35, 45, 45);
-    }
-    if (!strcasecmp(tok, "B60") || !strcasecmp(tok, "b60")) {
-        if (hw->battery_ac_connected)
-            return hw_set_ppt(hw, 60, 75, 75);
-        return hw_set_ppt(hw, 45, 54, 54);
-    }
-    if (!strcasecmp(tok, "P80") || !strcasecmp(tok, "p80")) {
-        if (hw->battery_ac_connected)
-            return hw_set_ppt(hw, 80, 80, 80);
-        return hw_set_ppt(hw, 65, 65, 65);
-    }
-    if (sscanf(tok, "%d,%d,%d", &spl, &sppt, &fppt) == 3)
-        return hw_set_ppt(hw, spl, sppt, fppt);
-    fprintf(stderr, "Unknown PPT: %s (Q45|B60|P80 or spl,sppt,fppt)\n", tok);
-    return -1;
-}
+/* ---- mode / profile subcommands ------------------------------------------ */
 
-static int aura_effect_idx(const char *name)
+static int cmd_mode(int argc, char **argv, hw_state_t *hw)
 {
-    for (int i = 0; i < AURA_EFFECT_COUNT; i++)
-        if (!strcasecmp(name, AURA_EFFECT_NAMES[i]))
-            return i;
-    return -1;
-}
-
-static int aura_color_idx(const char *name)
-{
-    for (int i = 0; i < AURA_COLOR_COUNT; i++)
-        if (!strcasecmp(name, AURA_COLOR_NAMES[i]))
-            return i;
-    return -1;
-}
-
-static int cmd_profile(hardware_state_t *hw, int argc, char **argv)
-{
+    (void)hw; /* modes are applied through --mode, not here */
     if (argc < 3) {
-        fprintf(stderr, "profile list|export|import|delete [TAG]\n");
-        return 1;
+        fprintf(stderr, "usage: ctron mode list|show <name>|add <name> <steps>|delete <name>\n");
+        return 2;
     }
     const char *sub = argv[2];
-    acv_profile_filter_t all = {1, 1, 1, 1};
+
+    mode_def_t modes[MODES_MAX];
+    int n = modes_load(modes, MODES_MAX);
+
     if (!strcmp(sub, "list")) {
-        char list[MAX_PROFILES][4];
+        for (int i = 0; i < n; i++)
+            printf("%-12s %s\n", modes[i].name, modes[i].steps);
+        return 0;
+    }
+    if (!strcmp(sub, "show") && argc > 3) {
+        int i = mode_find(modes, n, argv[3]);
+        if (i < 0) {
+            fprintf(stderr, "no such mode: %s\n", argv[3]);
+            return 1;
+        }
+        printf("[%s]\nsteps = %s\n", modes[i].name, modes[i].steps);
+        return 0;
+    }
+    if (!strcmp(sub, "add") && argc > 4) {
+        if (mode_find(modes, n, argv[3]) >= 0) {
+            fprintf(stderr, "mode exists: %s (delete it first)\n", argv[3]);
+            return 1;
+        }
+        char steps[MODE_STEPS_MAX] = {0};
+        for (int i = 4; i < argc; i++) {
+            strncat(steps, argv[i], sizeof(steps) - strlen(steps) - 2);
+            if (i + 1 < argc)
+                strncat(steps, " ", sizeof(steps) - strlen(steps) - 2);
+        }
+        snprintf(modes[n].name, MODE_NAME_MAX, "%s", argv[3]);
+        snprintf(modes[n].steps, MODE_STEPS_MAX, "%s", steps);
+        n++;
+        modes_save(modes, n);
+        printf("added mode '%s'\n", argv[3]);
+        return 0;
+    }
+    if (!strcmp(sub, "delete") && argc > 3) {
+        int i = mode_find(modes, n, argv[3]);
+        if (i < 0) {
+            fprintf(stderr, "no such mode: %s\n", argv[3]);
+            return 1;
+        }
+        for (; i + 1 < n; i++)
+            modes[i] = modes[i + 1];
+        n--;
+        modes_save(modes, n);
+        printf("deleted mode '%s'\n", argv[3]);
+        return 0;
+    }
+    fprintf(stderr, "unknown mode subcommand\n");
+    return 2;
+}
+
+static int cmd_profile(int argc, char **argv, hw_state_t *hw)
+{
+    if (argc < 3) {
+        fprintf(stderr, "usage: ctron profile list|apply|export|delete <name>\n");
+        return 2;
+    }
+    const char *sub = argv[2];
+
+    if (!strcmp(sub, "list")) {
+        char list[MAX_PROFILES][PROFILE_NAME_MAX];
         int n = profile_list(list, MAX_PROFILES);
         for (int i = 0; i < n; i++)
             printf("%s\n", list[i]);
         return 0;
     }
     if (argc < 4) {
-        fprintf(stderr, "profile %s needs TAG\n", sub);
-        return 1;
+        fprintf(stderr, "profile %s needs a name\n", sub);
+        return 2;
     }
-    const char *tag = argv[3];
+    const char *name = argv[3];
+
+    if (!strcmp(sub, "apply")) {
+        char err[128];
+        int rc = profile_import(name, hw, err, sizeof(err));
+        if (rc == 0)
+            ctrl_fan_write(hw);
+        else
+            fprintf(stderr, "%s\n", err[0] ? err : "apply failed");
+        return rc == 0 ? 0 : 1;
+    }
     if (!strcmp(sub, "export"))
-        return profile_export(tag, hw, &all) == 0 ? 0 : 1;
-    if (!strcmp(sub, "import"))
-        return profile_import(tag, hw, &all) == 0 ? 0 : 1;
+        return profile_export(name, hw) == 0 ? 0 : 1;
     if (!strcmp(sub, "delete"))
-        return profile_delete(tag) == 0 ? 0 : 1;
-    fprintf(stderr, "Unknown profile command: %s\n", sub);
-    return 1;
+        return profile_delete(name) == 0 ? 0 : 1;
+
+    fprintf(stderr, "unknown profile subcommand: %s\n", sub);
+    return 2;
 }
 
-static void eat_config_dir(int *argc, char **argv)
+/* ---- flag → cmd_run bridge ------------------------------------------------ */
+
+static int run_flag(hw_state_t *hw, const char *key, const char *val)
 {
+    char err[192];
+    int rc = cmd_run(hw, key, val, err, sizeof(err));
+    if (rc != 0)
+        fprintf(stderr, "ctron: %s\n", err[0] ? err : "command failed");
+    return rc;
+}
+
+/* ---- main ------------------------------------------------------------------ */
+
+int main(int argc, char *argv[])
+{
+    /* --config-dir DIR (removes itself from argv) */
     int w = 1;
-    for (int i = 1; i < *argc; i++) {
-        if (!strcmp(argv[i], "--config-dir") && i + 1 < *argc) {
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--config-dir") && i + 1 < argc) {
             setenv("CTRON_CONFIG", argv[++i], 1);
             continue;
         }
@@ -327,187 +312,139 @@ static void eat_config_dir(int *argc, char **argv)
         argv[w++] = argv[i];
     }
     argv[w] = NULL;
-    *argc = w;
-}
-
-int main(int argc, char *argv[])
-{
-    eat_config_dir(&argc, argv);
+    argc = w;
 
     if (argc > 1 && (!strcmp(argv[1], "--help") || !strcmp(argv[1], "-h"))) {
         print_usage(argv[0]);
         return 0;
     }
-    if (argc > 1 && !strcmp(argv[1], "--setup"))
-        return cmd_setup();
+    if (argc > 1 && (!strcmp(argv[1], "--version") || !strcmp(argv[1], "-V"))) {
+        print_version();
+        return 0;
+    }
 
     if (argc == 1) {
-        print_welcome();
-        if (!settings_present() && isatty(0))
-            printf("\nNo config yet. Defaults above. Run ctron --setup to write them.\n");
+        /* no args: fullscreen TUI when interactive, help otherwise */
+        if (isatty(0) && isatty(1)) {
+            hw_state_t hw;
+            hw_init(&hw);
+            settings_load(&hw);
+            int rc = ui_run(&hw);
+            return rc == 0 ? 0 : 1;
+        }
+        print_version();
+        printf("No terminal attached — printing help instead of the TUI.\n\n");
+        print_usage(argv[0]);
         return 2;
     }
 
-    hardware_state_t hw;
+    hw_state_t hw;
     hw_init(&hw);
     settings_load(&hw);
 
-    if (!strcmp(argv[1], "--tui") || !strcmp(argv[1], "-t"))
-        return ui_run(&hw);
-    if (!strcmp(argv[1], "--watch") || !strcmp(argv[1], "-w") ||
-        (( !strcmp(argv[1], "--status") || !strcmp(argv[1], "-s")) &&
-         argc > 2 && (!strcmp(argv[2], "--watch") || !strcmp(argv[2], "-w")))) {
-        return cmd_watch(&hw);
-    }
-    if (!strcmp(argv[1], "--status") || !strcmp(argv[1], "-s")) {
-        hw_refresh_live(&hw);
-        return cmd_status(&hw);
+    /* commands that never touch hardware state */
+    if (!strcmp(argv[1], "--tui") || !strcmp(argv[1], "-t")) {
+        if (!isatty(0) || !isatty(1)) {
+            fprintf(stderr, "ctron: --tui needs a terminal\n");
+            return 1;
+        }
+        int rc = ui_run(&hw);
+        return rc == 0 ? 0 : 1;
     }
     if (!strcmp(argv[1], "--doctor")) {
         hw_refresh_live(&hw);
         return cmd_doctor(&hw);
     }
-    if (!strcmp(argv[1], "profile"))
-        return cmd_profile(&hw, argc, argv);
-
-    int rc = 0;
-    if (!strcmp(argv[1], "--profile") && argc > 2) {
-        if (!strcasecmp(argv[2], "quiet"))
-            rc = hw_set_profile(&hw, PROF_QUIET);
-        else if (!strcasecmp(argv[2], "balanced"))
-            rc = hw_set_profile(&hw, PROF_BALANCED);
-        else if (!strcasecmp(argv[2], "performance") || !strcasecmp(argv[2], "perf"))
-            rc = hw_set_profile(&hw, PROF_PERFORMANCE);
-        else {
-            fprintf(stderr, "Unknown profile: %s\n", argv[2]);
-            return 1;
-        }
-    } else if (!strcmp(argv[1], "--hz") && argc > 2) {
-        int hz = !strcasecmp(argv[2], "max") ? hw.display_max_hz : atoi(argv[2]);
-        rc = hw_set_display_hz(&hw, hz);
-    } else if (!strcmp(argv[1], "--battery") && argc > 2) {
-        rc = hw_set_battery_limit(&hw, atoi(argv[2]));
-    } else if (!strcmp(argv[1], "--battery-oneshot")) {
-        rc = hw_battery_oneshot(&hw);
-    } else if (!strcmp(argv[1], "--epp") && argc > 2) {
-        if (!strcasecmp(argv[2], "power"))
-            rc = hw_set_epp(&hw, EPP_POWER);
-        else if (!strcasecmp(argv[2], "balance_power"))
-            rc = hw_set_epp(&hw, EPP_BALANCED_POWER);
-        else if (!strcasecmp(argv[2], "balance_performance"))
-            rc = hw_set_epp(&hw, EPP_BALANCED_PERF);
-        else if (!strcasecmp(argv[2], "performance"))
-            rc = hw_set_epp(&hw, EPP_PERFORMANCE);
-        else {
-            fprintf(stderr, "Unknown EPP: %s\n", argv[2]);
-            return 1;
-        }
-    } else if (!strcmp(argv[1], "--freq") && argc > 2) {
-        rc = hw_set_cpu_max_freq(&hw, atoi(argv[2]));
-    } else if (!strcmp(argv[1], "--fan") && argc > 2) {
-        if (!strcasecmp(argv[2], "stock"))
-            rc = hw_fan_preset(&hw, 0);
-        else if (!strcasecmp(argv[2], "silent"))
-            rc = hw_fan_preset(&hw, 1);
-        else if (!strcasecmp(argv[2], "cool"))
-            rc = hw_fan_preset(&hw, 2);
-        else if (!strcasecmp(argv[2], "full"))
-            rc = hw_fan_preset(&hw, 3);
-        else if (!strcasecmp(argv[2], "on"))
-            rc = hw_fan_enable(&hw, true, true);
-        else if (!strcasecmp(argv[2], "off"))
-            rc = hw_fan_enable(&hw, false, false);
-        else {
-            fprintf(stderr, "Unknown fan preset: %s\n", argv[2]);
-            return 1;
-        }
-    } else if (!strcmp(argv[1], "--fan-curve") && argc > 4) {
-        int gpu = !strcasecmp(argv[2], "gpu");
-        if (!gpu && strcasecmp(argv[2], "cpu")) {
-            fprintf(stderr, "--fan-curve cpu|gpu <temps> <pwms>\n");
-            return 1;
-        }
-        rc = hw_fan_from_csv(gpu ? &hw.fan_gpu : &hw.fan_cpu, argv[3], argv[4]);
-        if (rc < 0) {
-            fprintf(stderr, "bad curve\n");
-            return 1;
-        }
-        rc = 0;
-    } else if (!strcmp(argv[1], "--fan-write")) {
-        rc = hw_fan_apply(&hw);
-    } else if (!strcmp(argv[1], "--tctl") && argc > 2) {
-        int t = atoi(argv[2]);
-        if (t <= 0)
-            rc = hw_set_temp_cap_enabled(&hw, false);
-        else {
-            hw_set_temp_cap(&hw, t);
-            rc = hw_set_temp_cap_enabled(&hw, true);
-        }
-    } else if (!strcmp(argv[1], "--ppt") && argc > 2) {
-        rc = apply_ppt_token(&hw, argv[2]);
-        if (rc < 0)
-            return 1;
-    } else if (!strcmp(argv[1], "--nv-boost") && argc > 2) {
-        rc = hw_set_nv_boost(&hw, atoi(argv[2]));
-    } else if (!strcmp(argv[1], "--nv-temp") && argc > 2) {
-        rc = hw_set_nv_temp(&hw, atoi(argv[2]));
-    } else if (!strcmp(argv[1], "--panel-od") && argc > 2) {
-        int on;
-        if (parse_onoff(argv[2], &on) != 0)
-            return 1;
-        rc = hw_set_panel_od(&hw, on);
-    } else if (!strcmp(argv[1], "--cpu-boost") && argc > 2) {
-        int on;
-        if (parse_onoff(argv[2], &on) != 0)
-            return 1;
-        rc = hw_set_cpu_boost(&hw, on);
-    } else if (!strcmp(argv[1], "--kbd") && argc > 2) {
-        if (!strcasecmp(argv[2], "off"))
-            rc = hw_set_kbd_brightness(&hw, KBD_OFF);
-        else if (!strcasecmp(argv[2], "low"))
-            rc = hw_set_kbd_brightness(&hw, KBD_LOW);
-        else if (!strcasecmp(argv[2], "med"))
-            rc = hw_set_kbd_brightness(&hw, KBD_MED);
-        else if (!strcasecmp(argv[2], "high"))
-            rc = hw_set_kbd_brightness(&hw, KBD_HIGH);
-        else {
-            fprintf(stderr, "Unknown kbd: %s\n", argv[2]);
-            return 1;
-        }
-    } else if (!strcmp(argv[1], "--aura") && argc > 2) {
-        int ei = aura_effect_idx(argv[2]);
-        if (ei < 0) {
-            fprintf(stderr, "Unknown aura effect: %s\n", argv[2]);
-            return 1;
-        }
-        int ci = hw.aura_color_idx;
-        if (argc > 3) {
-            if (strchr(argv[3], '#') || strspn(argv[3], "0123456789abcdefABCDEF") == strlen(argv[3])) {
-                hw_set_aura_hex(&hw, argv[3]);
-                ci = hw.aura_color_idx;
-            } else {
-                int c = aura_color_idx(argv[3]);
-                if (c >= 0)
-                    ci = c;
-            }
-        }
-        rc = hw_set_aura(&hw, ei, ci);
-    } else if (!strcmp(argv[1], "--armoury-get") && argc > 2) {
-        char val[64] = {0};
-        if (hw_armoury_get(argv[2], val, sizeof(val)) != 0) {
-            fprintf(stderr, "Failed to get '%s'\n", argv[2]);
-            return 1;
-        }
-        printf("%s = %s\n", argv[2], val);
+    if (!strcmp(argv[1], "--setup")) {
+        char dir[400];
+        settings_dir(dir, sizeof(dir));
+        printf("ctron config lives in %s\n", dir);
+        printf("edit %s/modes.ini to manage shortcut bundles;\n", dir);
+        printf("profiles are stored in %s/profiles/*.ctr\n", dir);
         return 0;
-    } else if (!strcmp(argv[1], "--armoury-set") && argc > 3) {
-        rc = hw_armoury_set(argv[2], argv[3]);
-    } else {
-        fprintf(stderr, "Unknown option: %s\n", argv[1]);
-        print_usage(argv[0]);
-        return 1;
+    }
+    if (!strcmp(argv[1], "mode"))
+        return cmd_mode(argc, argv, &hw);
+    if (!strcmp(argv[1], "profile"))
+        return cmd_profile(argc, argv, &hw);
+
+    /* status / watch need a live snapshot */
+    if (!strcmp(argv[1], "--status") || !strcmp(argv[1], "-s")) {
+        hw_refresh_live(&hw);
+        return cmd_status(&hw);
+    }
+    if (!strcmp(argv[1], "--watch") || !strcmp(argv[1], "-w")) {
+        hw_refresh_fast(&hw);
+        return cmd_watch(&hw);
+    }
+
+    /* everything else: hardware flags applied in order */
+    int rc = 0;
+    for (int i = 1; i < argc; i++) {
+        const char *flag = argv[i];
+        if (flag[0] != '-' || flag[1] != '-') {
+            fprintf(stderr, "ctron: unexpected argument '%s'\n", flag);
+            return 2;
+        }
+        /* --flag=value */
+        char key[64] = {0};
+        const char *val = NULL;
+        const char *eq = strchr(flag + 2, '=');
+        if (eq) {
+            size_t kn = (size_t)(eq - (flag + 2));
+            if (kn >= sizeof(key))
+                kn = sizeof(key) - 1;
+            memcpy(key, flag + 2, kn);
+            val = eq + 1;
+        } else {
+            snprintf(key, sizeof(key), "%s", flag + 2);
+        }
+
+        /* valueless flags */
+        if (!strcmp(key, "fan-write") || !strcmp(key, "battery-oneshot")) {
+            if (run_flag(&hw, key, "") != 0)
+                rc = 1;
+            continue;
+        }
+
+        /* multi-token flags: --fan-curve cpu T P (3 tokens after the flag),
+         * --aura effect [color|hex] (1-2 tokens) */
+        if (!val && (!strcmp(key, "fan-curve") || !strcmp(key, "aura"))) {
+            int want = !strcmp(key, "fan-curve") ? 3 : 1;
+            char joined[256] = {0};
+            int got = 0;
+            while (got < want && i + 1 < argc && argv[i + 1][0] != '-') {
+                if (got)
+                    strncat(joined, " ", sizeof(joined) - strlen(joined) - 1);
+                strncat(joined, argv[++i], sizeof(joined) - strlen(joined) - 1);
+                got++;
+            }
+            /* --aura with a color/hex right after "effect" already grabbed
+             * one token; try to also absorb a color-looking second token */
+            if (want == 1 && i + 1 < argc && argv[i + 1][0] != '-') {
+                strncat(joined, " ", sizeof(joined) - strlen(joined) - 1);
+                strncat(joined, argv[++i], sizeof(joined) - strlen(joined) - 1);
+            }
+            if (got == 0) {
+                fprintf(stderr, "ctron: %s needs a value\n", flag);
+                return 2;
+            }
+            if (run_flag(&hw, key, joined) != 0)
+                rc = 1;
+            continue;
+        }
+
+        if (!val) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "ctron: %s needs a value\n", flag);
+                return 2;
+            }
+            val = argv[++i];
+        }
+        if (run_flag(&hw, key, val) != 0)
+            rc = 1;
     }
 
     settings_save(&hw);
-    return rc == 0 ? 0 : 1;
+    return rc;
 }

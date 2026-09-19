@@ -1,13 +1,2 @@
-# Local dumps
-project_context.md
-
-# Derleme çıktıları
 build/
 *.o
-*.so
-
-# Editör / sistem dosyaları
-*.swp
-.vscode/
-.idea/
-.DS_Store
