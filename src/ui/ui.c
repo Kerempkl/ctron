@@ -397,6 +397,10 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
 int ui_run(hw_state_t *hw)
 {
     setlocale(LC_ALL, "");
+    /* Notcurses wants LC_CTYPE for unicode, but LC_NUMERIC must stay "C":
+     * strtod/printf otherwise parse "59.87" as 59 under tr_TR (decimal
+     * comma) and the refresh-rate lists corrupt (59/164 ghosts). */
+    setlocale(LC_NUMERIC, "C");
 
     struct notcurses_options opts = {0};
     opts.flags = NCOPTION_SUPPRESS_BANNERS | NCOPTION_NO_CLEAR_BITMAPS |
@@ -434,7 +438,14 @@ int ui_run(hw_state_t *hw)
     g_ui.ctl_kbd_idx = (int)hw->kbd;
     g_ui.ctl_bat = hw->bat_limit > 0 ? hw->bat_limit : 80;
     g_ui.ctl_fan_idx = 0;
+    /* start the Refresh row on the mode closest to the live rate */
     g_ui.ctl_hz_idx = 0;
+    for (int i = 1; i < hw->hz_count; i++) {
+        if (hw->hz_cur > 0 &&
+            abs(hw->hz_modes[i] - hw->hz_cur) <
+                abs(hw->hz_modes[g_ui.ctl_hz_idx] - hw->hz_cur))
+            g_ui.ctl_hz_idx = i;
+    }
     g_ui.lt_eff = 0;
     g_ui.lt_col = 0;
     tin_set(&g_ui.lt_hex, "00e5ff");

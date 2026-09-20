@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-09-21 — Refresh row starts on the live rate
+
+- CONTROLS → Refresh row opened on the first mode (60) regardless of the
+  live rate. It now starts on the mode closest to `hz_cur` (e.g. 165).
+
+## 2026-09-21 — tr_TR locale fix (Kerempkl, FA608PP)
+
+- TUI pinned `LC_NUMERIC` to "C" after `setlocale(LC_ALL, "")`. Under
+  tr_TR (decimal comma) `strtod("59.87")` returned 59, so the refresh list
+  became [59,60,164,165] and `--hz`/TUI refresh applied "59 Hz" → FAILED.
+  Verified in a tr_TR pty: TUI Enter switches 165→60 and back.
+
 ## 2026-09-20 — FA507NVR / Hyprland 0.55
 
 - Hyprland backend parses `hyprctl monitors -j` **array** JSON (`name`, `refreshRate`, `availableModes`; no `currentMode` wrapper).
