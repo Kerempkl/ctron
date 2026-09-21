@@ -215,30 +215,47 @@ bool tin_key(tinput_t *t, uint32_t key)
 
 /* ---- layout -------------------------------------------------------------- */
 
+/* Placement is data-driven from g_prefs (Settings overlay → LAYOUT);
+ * re-evaluated every frame, so changes apply instantly. */
 static void ui_layout(unsigned dimy, unsigned dimx)
 {
     int W = (int)dimx, H = (int)dimy;
 
     int top = 1; /* top bar */
-    int telem_h = 5;
+    int telem_h = ut_clamp_i(g_prefs.telem_h, 3, 10);
     int body_h = H - top - telem_h;
-    if (body_h < 10)
-        body_h = H - top;
+    if (body_h < 10) {
+        body_h = H - top; /* tiny terminal: telemetry collapses away */
+        telem_h = 0;
+    }
 
-    int lw = W * 33 / 100;
+    int lw = W * ut_clamp_i(g_prefs.left_pct, 25, 50) / 100;
     if (lw < 30)
         lw = 30;
     if (lw > W - 20)
         lw = W / 2;
 
-    int prof_h = body_h * 55 / 100;
+    int split = ut_clamp_i(g_prefs.split_pct, 25, 75);
+    int up_h = body_h * split / 100;
+    int body_y = g_prefs.telem_top ? top + telem_h : top;
+    int telem_y = g_prefs.telem_top ? top : top + body_h;
 
-    g_ui.rc_prof   = (rect_t){ 0, top, lw, prof_h };
-    g_ui.rc_ctl    = (rect_t){ 0, top + prof_h, lw, body_h - prof_h };
-    g_ui.rc_ws     = (rect_t){ lw, top, W - lw, body_h };
-    g_ui.rc_telem  = (rect_t){ 0, top + body_h, W, telem_h };
-    if (body_h + telem_h < H - top)
-        g_ui.rc_telem.h = H - top - body_h;
+    rect_t left_top = { 0, body_y, lw, up_h };
+    rect_t left_bot = { 0, body_y + up_h, lw, body_h - up_h };
+    if (g_prefs.swap_left) {
+        g_ui.rc_ctl  = left_top;
+        g_ui.rc_prof = left_bot;
+    } else {
+        g_ui.rc_prof = left_top;
+        g_ui.rc_ctl  = left_bot;
+    }
+
+    g_ui.rc_ws     = (rect_t){ lw, body_y, W - lw, body_h };
+    g_ui.rc_telem  = (rect_t){ 0, telem_y, W, telem_h };
+    if (!g_prefs.telem_top && telem_y + telem_h < H)
+        g_ui.rc_telem.h = H - telem_y; /* absorb rounding at the bottom */
+
+    g_ui.rc_overlay = (rect_t){ 0, top, W, H - top };
 }
 
 static void draw_topbar(struct ncplane *n, unsigned dimy, unsigned dimx)
@@ -303,8 +320,10 @@ static void handle_mouse(struct ncplane *stdn, const struct ncinput *ni, uint32_
     if (key != NCKEY_BUTTON1)
         return;
 
-    /* fan graph hit test first (registered rect from last draw) */
-    if (g_ui.ws_view == WSV_FAN && g_ui.focus == FOC_WORKSPACE) {
+    /* fan graph hit test first (registered rect from last draw);
+     * meaningless while the settings overlay covers everything */
+    if (!g_ui.settings_overlay &&
+        g_ui.ws_view == WSV_FAN && g_ui.focus == FOC_WORKSPACE) {
         const rect_t *g = editor_fan_graph();
         if (g->w > 0 && mx >= g->x && mx < g->x + g->w && my >= g->y && my < g->y + g->h) {
             editor_fan_act(0, mx - g->x, my - g->y);
@@ -334,6 +353,9 @@ static void handle_mouse(struct ncplane *stdn, const struct ncinput *ni, uint32_
         g_ui.focus = FOC_WORKSPACE;
         panel_workspace_act(id);
         break;
+    case TGT_PANEL_SETTINGS:
+        panel_settings_act(id);
+        break;
     default:
         break;
     }
@@ -356,7 +378,20 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
         panel_workspace_key(key);
         return;
     }
-    if (g_ui.md_field >= 0 && g_ui.focus == FOC_WORKSPACE && g_ui.ws_view == WSV_MODEEDIT) {
+    if (g_ui.md_field >= 0 && g_ui.settings_overlay) {
+        panel_settings_key(key);
+        return;
+    }
+
+    if (g_ui.settings_overlay) {
+        if (key == NCKEY_ESC || key == 's' || key == 'S') {
+            g_ui.settings_overlay = false;
+            return;
+        }
+        if (key == 'q' || key == 'Q') {
+            g_ui.running = false;
+            return;
+        }
         panel_settings_key(key);
         return;
     }
@@ -366,6 +401,11 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
     case 'Q':
         g_ui.running = false;
         return;
+    case NCKEY_ESC:
+    case 's':
+    case 'S':
+        settings_open();
+        return;
     case NCKEY_TAB:
         g_ui.focus = (focus_t)((g_ui.focus + (ni->shift ? FOC_COUNT - 1 : 1)) % FOC_COUNT);
         return;
@@ -373,11 +413,6 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
     case '2': g_ui.focus = FOC_CONTROLS; return;
     case '3': g_ui.focus = FOC_WORKSPACE; return;
     case '4': g_ui.focus = FOC_TELEM; return;
-    case 's':
-    case 'S':
-        g_ui.focus = FOC_WORKSPACE;
-        ws_set_view(WSV_SETTINGS);
-        return;
     case '?':
         g_ui.focus = FOC_WORKSPACE;
         ws_set_view(WSV_HELP);
@@ -460,10 +495,14 @@ int ui_run(hw_state_t *hw)
         ui_layout(dimy, dimx);
         draw_topbar(stdn, dimy, dimx);
 
-        panel_profiles_draw(stdn, &g_ui.rc_prof);
-        panel_controls_draw(stdn, &g_ui.rc_ctl);
-        panel_workspace_draw(stdn, &g_ui.rc_ws);
-        panel_telemetry_draw(stdn, &g_ui.rc_telem);
+        if (g_ui.settings_overlay) {
+            panel_settings_draw(stdn, &g_ui.rc_overlay);
+        } else {
+            panel_profiles_draw(stdn, &g_ui.rc_prof);
+            panel_controls_draw(stdn, &g_ui.rc_ctl);
+            panel_workspace_draw(stdn, &g_ui.rc_ws);
+            panel_telemetry_draw(stdn, &g_ui.rc_telem);
+        }
 
         notcurses_render(nc);
 
@@ -484,8 +523,11 @@ int ui_run(hw_state_t *hw)
             hw_refresh_fast(hw);
             continue;
         }
-        if (key == 0x1b || key == '[' || key == ']')
-            continue; /* stray CSI / focus reporting */
+        /* lone '[' / ']' are CSI leftovers from focus reporting; a bare
+         * 0x1b here IS NCKEY_ESC (same value) and must reach the overlay
+         * dispatch, so it is deliberately not filtered. */
+        if (key == '[' || key == ']')
+            continue;
 
         if (nckey_mouse_p(key)) {
             if (ni.evtype != NCTYPE_RELEASE)

@@ -96,8 +96,7 @@ static void apply_row(int row)
         ctrl_set_kbd(hw, (hw_kbd_t)g_ui.ctl_kbd_idx);
         break;
     case 7:
-        g_ui.focus = FOC_WORKSPACE;
-        ws_set_view(WSV_SETTINGS);
+        settings_open();
         break;
     default:
         break;

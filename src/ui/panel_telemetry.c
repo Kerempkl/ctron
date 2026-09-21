@@ -47,7 +47,7 @@ void panel_telemetry_draw(struct ncplane *n, const rect_t *r)
         ui_putln(n, x, r->y + 1, w, l1, pal->text, true);
         ui_putln(n, x, r->y + 2, w, l2, pal->text, false);
         const char *lg = ut_log_get(0);
-        ui_putln(n, x, r->y + 3, w, lg[0] ? lg : "q quit · 1-4 focus · s settings · ? help",
+        ui_putln(n, x, r->y + 3, w, lg[0] ? lg : "q quit · 1-4 focus · esc settings · ? help",
                  pal->muted, false);
     }
 }

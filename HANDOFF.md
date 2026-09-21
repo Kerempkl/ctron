@@ -1,7 +1,23 @@
 # Ctron Handoff
 
-Latest session: **2026-09-21** (FA608PP / KDE / CachyOS, with the ZCode
-"GLM" agent). Previous session (FA507NVR / Hyprland) is below.
+Latest session: **2026-09-22** (FA608PP / KDE / CachyOS, with the ZCode
+"GLM" agent). Previous sessions below.
+
+## Session 2026-09-22 — settings overlay + live layout
+
+- ESC (or 's') opens a fullscreen **settings overlay**; ESC/s close, 'q'
+  always quits. Mode editor runs inside it. Lone-ESC swallowing filter
+  removed (0x1b == NCKEY_ESC).
+- New LAYOUT rows in the overlay, applied instantly and persisted:
+  swap_left, telem_top, left_pct, split_pct, telem_h. Placement is fully
+  data-driven from g_prefs in `ui_layout()`.
+- Also: per-CPU cpufreq writes (`--freq`/`--epp` walk cpu0..cpuN — the
+  cpu0-only write left 31 cores clamped at 2.4 GHz), 2.4 GHz clamp
+  diagnosis (see CHANGELOG 09-21), Refresh row starts on the live rate.
+- `~/.local/bin/ctron` is built from this tree (v1 backed up as
+  `ctron.v1.bak`).
+- Uncommitted in the worktree at handoff time: the 09-22 overlay/layout
+  changes plus these doc updates — commit as one unit.
 
 ## Session 2026-09-21 — v2 bugfixes on FA608PP
 

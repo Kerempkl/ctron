@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-09-22 — settings overlay (ESC) + live layout settings
+
+- Settings is now a **fullscreen overlay** opened with ESC or 's' (and the
+  SET tab / controls row). ESC/s close it; 'q' always quits. The mode
+  editor runs inside the overlay. Input-field ESC cancels keep priority.
+- New LAYOUT section in the overlay, applied instantly and persisted:
+  swap left panels, telemetry at top, left-column %, left split %,
+  telemetry height (`settings.ini`: swap_left/telem_top/left_pct/
+  split_pct/telem_h).
+- Fixed a v1-era input filter that swallowed lone ESC (`0x1b` == NCKEY_ESC)
+  as "stray CSI" — ESC could never reach the UI.
+- Mouse: settings rows now dispatch through TGT_PANEL_SETTINGS (previously
+  registered as workspace targets that the workspace ignored).
+
 ## 2026-09-21 — per-CPU cpufreq writes
 
 - `--freq` / `--epp` wrote only cpu0's cpufreq node ("governor mirrors

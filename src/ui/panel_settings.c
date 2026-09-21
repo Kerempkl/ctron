@@ -7,26 +7,30 @@
 #include <stdio.h>
 #include <string.h>
 
-/* Settings view (inside the workspace) and the mode ("CLI shortcut")
- * editor. Layout:
+/* Fullscreen settings overlay (ESC / 's'). Covers every panel:
  *
- *   PREFERENCES
- *     poll interval / write method / theme / gpu temp
- *   CLI SHORTCUTS
- *     list of modes -> Enter apply, n new, e edit, d delete
- *   MODE EDITOR (WSV_MODEEDIT)
- *     name field + steps field + save/apply */
+ *   LAYOUT            swap left panels, telemetry position, column/split
+ *                     ratios, telemetry height — applied live
+ *   PREFERENCES       poll interval / write method / theme / gpu temp
+ *   CLI SHORTCUTS     modes.ini list — Enter apply, n new, e edit, d del
+ *   MODE EDITOR       name + steps fields (runs inside the overlay) */
 
 enum {
-    SET_POLL = 0,
+    SET_SWAPLEFT = 0,
+    SET_TELEMTOP,
+    SET_LEFTPCT,
+    SET_SPLITPCT,
+    SET_TELEMH,
+    SET_POLL,
     SET_WRITE,
     SET_THEME,
     SET_GPUTEMP,
-    SET_PREF_ROWS
+    SET_ROW_COUNT      /* unified settings rows (LAYOUT + PREFERENCES) */
 };
+#define SET_PREF_FIRST SET_POLL
 
 enum {
-    ACT_SET_PREF_BASE = 1,  /* + row */
+    ACT_SET_ROW_BASE = 1,   /* + row (0..SET_ROW_COUNT-1) */
     ACT_SET_MODE_BASE = 20, /* + index */
     ACT_SET_MODE_NEW = 90,
     ACT_SET_MODE_EDIT,
@@ -38,11 +42,14 @@ enum {
 static const int POLL_OPTS[] = { 100, 250, 500, 1000 };
 #define POLL_OPTS_N 4
 static const char *const WRITE_OPTS[] = { "asusctl first", "sysfs first", "no sudo" };
-static const char *const WRITE_HINT[] = {
-    "asusctl when available, then direct sysfs, then sudo -n",
-    "direct sysfs first, then asusctl, then sudo -n",
-    "never escalate; only unprivileged sysfs writes",
-};
+
+static const char *onoff(bool v) { return v ? "on" : "off"; }
+
+void settings_open(void)
+{
+    g_ui.mode_n = modes_load(g_ui.modes, MODES_MAX);
+    g_ui.settings_overlay = true;
+}
 
 void ws_start_mode_edit(const mode_def_t *m)
 {
@@ -54,14 +61,29 @@ void ws_start_mode_edit(const mode_def_t *m)
         tin_clear(&g_ui.md_steps);
     }
     g_ui.md_field = 0;
-    g_ui.ws_view = WSV_MODEEDIT;
+    g_ui.settings_overlay = true;
 }
 
-/* ---- settings view ----------------------------------------------------- */
+/* ---- settings rows ------------------------------------------------------ */
 
-static void pref_apply(int row, int dir)
+static void row_apply(int row, int dir)
 {
     switch (row) {
+    case SET_SWAPLEFT:
+        g_prefs.swap_left = !g_prefs.swap_left;
+        break;
+    case SET_TELEMTOP:
+        g_prefs.telem_top = !g_prefs.telem_top;
+        break;
+    case SET_LEFTPCT:
+        g_prefs.left_pct = ut_clamp_i(g_prefs.left_pct + 2 * dir, 25, 50);
+        break;
+    case SET_SPLITPCT:
+        g_prefs.split_pct = ut_clamp_i(g_prefs.split_pct + 5 * dir, 25, 75);
+        break;
+    case SET_TELEMH:
+        g_prefs.telem_h = ut_clamp_i(g_prefs.telem_h + dir, 3, 10);
+        break;
     case SET_POLL: {
         int idx = 0;
         for (int i = 0; i < POLL_OPTS_N; i++)
@@ -97,52 +119,70 @@ static void mode_apply_idx(int i)
         ut_log("mode '%s': %s", g_ui.modes[i].name, err[0] ? err : "failed");
 }
 
+/* ---- settings view ------------------------------------------------------ */
+
 static void draw_settings(struct ncplane *n, const rect_t *r)
 {
     const palette_t *pal = ui_palette(g_prefs.theme);
     int x = r->x + 2, w = r->w - 4;
 
-    char pollv[16];
-    snprintf(pollv, sizeof(pollv), "%d ms", g_prefs.poll_ms);
-    char gpuv[8] = "on";
-    if (!g_prefs.gpu_temp)
-        snprintf(gpuv, sizeof(gpuv), "off");
+    char pollv[16], leftv[16], splitv[16], telemhv[16];
+    snprintf(pollv,   sizeof(pollv),   "%d ms", g_prefs.poll_ms);
+    snprintf(leftv,   sizeof(leftv),   "%d %%", g_prefs.left_pct);
+    snprintf(splitv,  sizeof(splitv),  "%d %%", g_prefs.split_pct);
+    snprintf(telemhv, sizeof(telemhv), "%d rows", g_prefs.telem_h);
 
-    const char *vals[SET_PREF_ROWS] = {
+    const char *vals[SET_ROW_COUNT] = {
+        onoff(g_prefs.swap_left),
+        onoff(g_prefs.telem_top),
+        leftv,
+        splitv,
+        telemhv,
         pollv,
         WRITE_OPTS[ut_clamp_i(g_prefs.write_pref, 0, 2)],
         THEME_NAMES[ut_clamp_i(g_prefs.theme, 0, THEME_COUNT - 1)],
-        gpuv,
+        onoff(g_prefs.gpu_temp),
     };
-    static const char *const labels[SET_PREF_ROWS] = {
+    static const char *const labels[SET_ROW_COUNT] = {
+        "Swap left panels", "Telemetry at top", "Left column",
+        "Left split (upper panel)", "Telemetry height",
         "Poll interval", "Write method", "Theme", "GPU temp (nvidia-smi)",
     };
 
     int y = r->y + 1;
+    ui_putln(n, x, y, w, "SETTINGS — Esc closes", pal->accent, true);
+    y += 2;
+
+    ui_putln(n, x, y, w, "LAYOUT (applied instantly)", pal->accent, true);
+    y += 1;
+    for (int i = 0; i < SET_PREF_FIRST; i++, y++) {
+        ui_row(n, x, y, w, labels[i], vals[i], g_ui.set_sel == i);
+        tgt_register(x, y, w, 1, TGT(TGT_PANEL_SETTINGS, ACT_SET_ROW_BASE + i));
+    }
+    y += 1;
+
     ui_putln(n, x, y, w, "PREFERENCES", pal->accent, true);
     y += 1;
-    for (int i = 0; i < SET_PREF_ROWS; i++, y++) {
-        bool sel = (g_ui.set_sel == i);
-        ui_row(n, x, y, w, labels[i], vals[i], sel);
-        tgt_register(x, y, w, 1, TGT(TGT_PANEL_WORKSPACE, ACT_SET_PREF_BASE + i));
+    for (int i = SET_PREF_FIRST; i < SET_ROW_COUNT; i++, y++) {
+        ui_row(n, x, y, w, labels[i], vals[i], g_ui.set_sel == i);
+        tgt_register(x, y, w, 1, TGT(TGT_PANEL_SETTINGS, ACT_SET_ROW_BASE + i));
     }
-    ui_putln(n, x, y, w, WRITE_HINT[ut_clamp_i(g_prefs.write_pref, 0, 2)], pal->muted, false);
     y += 2;
 
     ui_putln(n, x, y, w, "CLI SHORTCUTS (modes.ini) — Enter apply · n new · e edit · d del",
              pal->accent, true);
     y += 1;
-    int rows = r->y + r->h - 1;
-    for (int i = 0; i < g_ui.mode_n && y < rows; i++, y++) {
+    int last = r->y + r->h - 1;
+    for (int i = 0; i < g_ui.mode_n && y < last; i++, y++) {
         char label[96];
         snprintf(label, sizeof(label), "%s%s", i == g_ui.set_mode_sel ? "▸ " : "  ",
                  g_ui.modes[i].name);
         char val[128];
         snprintf(val, sizeof(val), "%s", g_ui.modes[i].steps);
         ui_row(n, x, y, w, label, val, i == g_ui.set_mode_sel);
-        tgt_register(x, y, w, 1, TGT(TGT_PANEL_WORKSPACE, ACT_SET_MODE_BASE + i));
+        tgt_register(x, y, w, 1, TGT(TGT_PANEL_SETTINGS, ACT_SET_MODE_BASE + i));
     }
-    if (g_ui.mode_n == 0 && y < rows)
+    if (g_ui.mode_n == 0 && y < last)
         ui_putln(n, x, y, w, "(no modes)", pal->muted, false);
 }
 
@@ -154,7 +194,6 @@ static void save_mode(bool also_apply)
     snprintf(name, sizeof(name), "%.23s", g_ui.md_name.buf);
     snprintf(steps, sizeof(steps), "%.219s", g_ui.md_steps.buf);
 
-    /* replace or append */
     int idx = mode_find(g_ui.modes, g_ui.mode_n, name);
     if (idx < 0 && g_ui.mode_n < MODES_MAX)
         idx = g_ui.mode_n++;
@@ -173,7 +212,6 @@ static void save_mode(bool also_apply)
         mode_apply_idx(idx);
 
     g_ui.md_field = -1;
-    g_ui.ws_view = WSV_SETTINGS;
 }
 
 static void draw_modeedit(struct ncplane *n, const rect_t *r)
@@ -200,16 +238,16 @@ static void draw_modeedit(struct ncplane *n, const rect_t *r)
              pal->muted, false);
 
     int by = r->y + 10;
-    ui_btn(n, x, by, " Save (Esc) ", false, false, TGT(TGT_PANEL_WORKSPACE, ACT_MD_SAVE));
-    ui_btn(n, x + 14, by, " Save & apply ", false, false,
-           TGT(TGT_PANEL_WORKSPACE, ACT_MD_SAVE_APPLY));
+    ui_btn(n, x, by, " Save ", false, false, TGT(TGT_PANEL_SETTINGS, ACT_MD_SAVE));
+    ui_btn(n, x + 9, by, " Save & apply ", false, false,
+           TGT(TGT_PANEL_SETTINGS, ACT_MD_SAVE_APPLY));
 }
 
 /* ---- dispatcher ---------------------------------------------------------- */
 
 void panel_settings_draw(struct ncplane *n, const rect_t *r)
 {
-    if (g_ui.ws_view == WSV_MODEEDIT)
+    if (g_ui.md_field >= 0)
         draw_modeedit(n, r);
     else
         draw_settings(n, r);
@@ -217,10 +255,9 @@ void panel_settings_draw(struct ncplane *n, const rect_t *r)
 
 void panel_settings_key(uint32_t key)
 {
-    if (g_ui.ws_view == WSV_MODEEDIT) {
+    if (g_ui.md_field >= 0) {
         if (key == NCKEY_ESC) {
             g_ui.md_field = -1;
-            g_ui.ws_view = WSV_SETTINGS;
             return;
         }
         if (g_ui.md_field == 2 || key == NCKEY_ENTER || key == '\r' || key == '\n') {
@@ -232,40 +269,31 @@ void panel_settings_key(uint32_t key)
             return;
         }
         tinput_t *t = g_ui.md_field == 0 ? &g_ui.md_name : &g_ui.md_steps;
-        if (!tin_key(t, key)) {
-            /* navigation keys leave the editor */
-            g_ui.md_field = -1;
-            g_ui.ws_view = WSV_SETTINGS;
-        }
+        if (!tin_key(t, key))
+            g_ui.md_field = -1; /* navigation keys leave the editor */
         return;
     }
 
     switch (key) {
     case 'j':
     case NCKEY_DOWN:
-        g_ui.set_mode_sel = (g_ui.set_mode_sel + 1) % (g_ui.mode_n > 0 ? g_ui.mode_n : 1);
+        g_ui.set_sel = (g_ui.set_sel + 1) % SET_ROW_COUNT;
         break;
     case 'k':
     case NCKEY_UP:
-        g_ui.set_mode_sel = (g_ui.set_mode_sel + (g_ui.mode_n > 0 ? g_ui.mode_n : 1) - 1) %
-                            (g_ui.mode_n > 0 ? g_ui.mode_n : 1);
+        g_ui.set_sel = (g_ui.set_sel + SET_ROW_COUNT - 1) % SET_ROW_COUNT;
         break;
     case 'h':
     case NCKEY_LEFT:
-        pref_apply(g_ui.set_sel, -1);
+        row_apply(g_ui.set_sel, -1);
         break;
     case 'l':
     case NCKEY_RIGHT:
-        pref_apply(g_ui.set_sel, 1);
-        break;
     case NCKEY_ENTER:
     case '\r':
     case '\n':
     case ' ':
-        if (g_ui.set_sel < SET_PREF_ROWS)
-            pref_apply(g_ui.set_sel, 1);
-        else
-            mode_apply_idx(g_ui.set_mode_sel);
+        row_apply(g_ui.set_sel, 1);
         break;
     case 'n':
     case 'N':
@@ -294,10 +322,10 @@ void panel_settings_key(uint32_t key)
 
 void panel_settings_act(int id)
 {
-    if (id >= ACT_SET_PREF_BASE && id < ACT_SET_PREF_BASE + SET_PREF_ROWS) {
-        int row = id - ACT_SET_PREF_BASE;
+    if (id >= ACT_SET_ROW_BASE && id < ACT_SET_ROW_BASE + SET_ROW_COUNT) {
+        int row = id - ACT_SET_ROW_BASE;
         g_ui.set_sel = row;
-        pref_apply(row, 1);
+        row_apply(row, 1);
         return;
     }
     if (id >= ACT_SET_MODE_BASE && id < ACT_SET_MODE_BASE + MODES_MAX) {

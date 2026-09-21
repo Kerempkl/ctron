@@ -45,7 +45,8 @@ ctron --battery 80
 ```
 
 TUI: `1-4` panel odaklanır · `j/k` gez · `h/l` değer değiştir · `Enter`
-uygular · `s` ayarlar · `?` yardım · `q` kaydet ve çık. Sol kolon profiller
+uygular · `ESC` (veya `s`) tam ekran ayarlar · `?` yardım · `q` kaydet ve çık.
+Ayarlar > LAYOUT bölümünden panellerin yerleri/oranları anında değişir. Sol kolon profiller
 ve hızlı kontroller, sağ üstte fan eğrisi editörü, sağ altta sürekli canlı
 telemetri.
 

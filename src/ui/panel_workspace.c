@@ -24,14 +24,12 @@ enum {
 };
 
 static const char *const WS_NAMES[WSV_COUNT] = {
-    "FAN CURVE", "POWER", "LIGHT", "SETTINGS", "MODE EDITOR", "HELP"
+    "FAN CURVE", "POWER", "LIGHT", "HELP"
 };
 
 void ws_set_view(ws_view_t v)
 {
     g_ui.ws_view = v;
-    if (v == WSV_SETTINGS)
-        g_ui.mode_n = modes_load(g_ui.modes, MODES_MAX);
 }
 
 /* ---- POWER view -------------------------------------------------------- */
@@ -245,7 +243,7 @@ static void draw_help(struct ncplane *n, const rect_t *r)
         "GLOBAL",
         "  q            quit (saves settings)",
         "  1..4 / Tab   focus: profiles, controls, workspace, telemetry",
-        "  s            settings view · ? this help",
+        "  esc / s      settings overlay · ? this help",
         "",
         "CONTROLS / LISTS",
         "  j k          move · h l change value · Enter apply",
@@ -286,7 +284,6 @@ void panel_workspace_draw(struct ncplane *n, const rect_t *r)
         { " FAN ", WSV_FAN, ACT_WS_TAB_FAN },
         { " POWER ", WSV_POWER, ACT_WS_TAB_POWER },
         { " LIGHT ", WSV_LIGHT, ACT_WS_TAB_LIGHT },
-        { " SET ", WSV_SETTINGS, ACT_WS_TAB_SETTINGS },
         { " ? ", WSV_HELP, ACT_WS_TAB_HELP },
     };
     for (size_t i = 0; i < sizeof(tabs) / sizeof(tabs[0]); i++) {
@@ -294,13 +291,14 @@ void panel_workspace_draw(struct ncplane *n, const rect_t *r)
                TGT(TGT_PANEL_WORKSPACE, tabs[i].id));
         tx += (int)strlen(tabs[i].label);
     }
+    /* SET opens the fullscreen settings overlay */
+    ui_btn(n, tx + 1, r->y, " SET ", g_ui.settings_overlay, false,
+           TGT(TGT_PANEL_WORKSPACE, ACT_WS_TAB_SETTINGS));
 
     switch (g_ui.ws_view) {
     case WSV_FAN:      editor_fan_draw(n, r); break;
     case WSV_POWER:    draw_power(n, r); break;
     case WSV_LIGHT:    draw_light(n, r); break;
-    case WSV_SETTINGS:
-    case WSV_MODEEDIT: panel_settings_draw(n, r); break;
     case WSV_HELP:     draw_help(n, r); break;
     default: break;
     }
@@ -331,7 +329,7 @@ void panel_workspace_key(uint32_t key)
     case 'l':
     case 'L': ws_set_view(WSV_LIGHT); return;
     case 'e':
-    case 'E': ws_set_view(WSV_SETTINGS); return;
+    case 'E': settings_open(); return;
     default:
         break;
     }
@@ -382,10 +380,6 @@ void panel_workspace_key(uint32_t key)
         default: return;
         }
     }
-    case WSV_SETTINGS:
-    case WSV_MODEEDIT:
-        panel_settings_key(key);
-        return;
     default:
         return;
     }
@@ -397,7 +391,7 @@ void panel_workspace_act(int id)
     case ACT_WS_TAB_FAN:      ws_set_view(WSV_FAN); return;
     case ACT_WS_TAB_POWER:    ws_set_view(WSV_POWER); return;
     case ACT_WS_TAB_LIGHT:    ws_set_view(WSV_LIGHT); return;
-    case ACT_WS_TAB_SETTINGS: ws_set_view(WSV_SETTINGS); return;
+    case ACT_WS_TAB_SETTINGS: settings_open(); return;
     case ACT_WS_TAB_HELP:     ws_set_view(WSV_HELP); return;
     default:
         break;
