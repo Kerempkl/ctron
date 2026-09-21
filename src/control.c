@@ -57,15 +57,21 @@ static bool use_asusctl_first(void)
     return g_prefs.write_pref == 0;
 }
 
-/* Write to every cpu's cpufreq node. */
+/* amd-pstate gives every CPU its own cpufreq policy (related_cpus holds a
+ * single member each), so a limit must be written to all of them. Writing
+ * cpu0 alone left 31 cores clamped at base on the FA608PP. */
 static int cpufreq_write_all(const char *leaf, const char *val)
 {
-    char path[300];
-    snprintf(path, sizeof(path),
-             "/sys/devices/system/cpu/cpu0/cpufreq/%s", leaf);
-    int rc = ut_priv_write(path, val);
-    /* The governor mirrors cpu0 to all CPUs on AMD PState; writing cpu0
-     * is enough. If it failed, nothing else will succeed either. */
+    int rc = -1;
+    for (int i = 0; i < 1024; i++) {
+        char path[300];
+        snprintf(path, sizeof(path),
+                 "/sys/devices/system/cpu/cpu%d/cpufreq/%s", i, leaf);
+        if (!ut_path_exists(path))
+            break;
+        if (ut_priv_write(path, val) == 0)
+            rc = 0; /* keep going: one bad node must not stop the rest */
+    }
     return rc;
 }
 

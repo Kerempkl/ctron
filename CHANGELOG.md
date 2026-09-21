@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-21 — per-CPU cpufreq writes
+
+- `--freq` / `--epp` wrote only cpu0's cpufreq node ("governor mirrors
+  cpu0"). On amd-pstate every CPU has its own policy (`related_cpus` is
+  single-member), so `sudo ctron --freq 5386` unlocked one core and left
+  the other 31 clamped at base (2.4 GHz). The helper now walks cpu0..cpuN
+  and writes each node.
+
 ## 2026-09-21 — Refresh row starts on the live rate
 
 - CONTROLS → Refresh row opened on the first mode (60) regardless of the
