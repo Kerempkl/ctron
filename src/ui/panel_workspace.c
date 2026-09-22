@@ -41,6 +41,7 @@ enum {
     PW_PRESET_Q,
     PW_PRESET_B,
     PW_PRESET_P,
+    PW_PPT_LIMITS,
     PW_NVBOOST,
     PW_NVTEMP,
     PW_PANEL_OD,
@@ -72,6 +73,12 @@ static void pw_apply_row(int row)
         break;
     case PW_PRESET_P:
         ctrl_set_ppt(hw, 80, 80, 80);
+        break;
+    case PW_PPT_LIMITS:
+        if (hw->ppt_off)
+            ctrl_ppt_restore(hw);
+        else
+            ctrl_ppt_off(hw);
         break;
     case PW_NVBOOST:
         ctrl_set_nv_boost(hw, (hw->nv_boost > 0 ? hw->nv_boost : 5) + 5);
@@ -112,6 +119,13 @@ static void pw_dec_row(int row)
     case PW_NVTEMP:
         ctrl_set_nv_temp(hw, (hw->nv_temp > 75 ? hw->nv_temp : 76) - 1);
         break;
+    case PW_PPT_LIMITS:
+        /* toggle row: both directions do the same */
+        if (hw->ppt_off)
+            ctrl_ppt_restore(hw);
+        else
+            ctrl_ppt_off(hw);
+        break;
     default:
         break;
     }
@@ -138,6 +152,7 @@ static void draw_power(struct ncplane *n, const rect_t *r)
     const char *vals[PW_ROWS] = {
         spl, sppt, fppt,
         "apply", "apply", "apply",
+        hw->ppt_off ? "removed (max)" : "on",
         nvb, nvt,
         hw->panel_od ? "on" : "off",
         hw->cpu_boost ? "on" : "off",
@@ -145,6 +160,7 @@ static void draw_power(struct ncplane *n, const rect_t *r)
     static const char *const labels[PW_ROWS] = {
         "SPL (sustained)", "SPPT (slow boost)", "FPPT (fast boost)",
         "Preset Q45", "Preset B60", "Preset P80",
+        "PPT limits",
         "NV dynamic boost", "NV temp target",
         "Panel overdrive", "CPU boost",
     };

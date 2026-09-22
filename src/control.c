@@ -193,10 +193,54 @@ int ctrl_set_ppt(hw_state_t *hw, int spl, int sppt, int fppt)
         hw->ppt_spl = spl;
         hw->ppt_sppt = sppt;
         hw->ppt_fppt = fppt;
+        hw->ppt_off = false;
         ut_log("ppt: %d/%d/%d W", spl, sppt, fppt);
     } else {
         ut_log("ppt: FAILED (needs root; no passwordless sudo)");
     }
+    return rc;
+}
+
+int ctrl_ppt_off(hw_state_t *hw)
+{
+    if (!hw->ppt_off) {
+        hw->ppt_saved_spl  = hw->ppt_spl;
+        hw->ppt_saved_sppt = hw->ppt_sppt;
+        hw->ppt_saved_fppt = hw->ppt_fppt;
+    }
+
+    int smin, smax, pmin, pmax, fmin, fmax;
+    ctrl_ppt_limits(hw, &smin, &smax, &pmin, &pmax, &fmin, &fmax);
+    int rc = 0;
+    if (nbwmi_write("ppt_pl1_spl", smax) != 0)   rc = -1;
+    if (nbwmi_write("ppt_pl2_sppt", pmax) != 0)  rc = -1;
+    if (nbwmi_write("ppt_fppt", fmax) != 0)      rc = -1;
+
+    if (rc == 0) {
+        hw->ppt_spl = smax;
+        hw->ppt_sppt = pmax;
+        hw->ppt_fppt = fmax;
+        hw->ppt_off = true;
+        ut_log("ppt: limits removed (%d/%d/%d W maxima)", smax, pmax, fmax);
+    } else {
+        ut_log("ppt: removing limits FAILED (needs root)");
+    }
+    return rc;
+}
+
+int ctrl_ppt_restore(hw_state_t *hw)
+{
+    if (hw->ppt_saved_spl <= 0 && hw->ppt_saved_sppt <= 0 && hw->ppt_saved_fppt <= 0) {
+        hw->ppt_off = false;
+        ut_log("ppt: no previous values — pick a preset (Q45/B60/P80)");
+        return 0;
+    }
+    int rc = ctrl_set_ppt(hw,
+                          hw->ppt_saved_spl  > 0 ? hw->ppt_saved_spl  : 45,
+                          hw->ppt_saved_sppt > 0 ? hw->ppt_saved_sppt : 55,
+                          hw->ppt_saved_fppt > 0 ? hw->ppt_saved_fppt : 55);
+    if (rc == 0)
+        hw->ppt_off = false;
     return rc;
 }
 

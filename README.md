@@ -67,7 +67,7 @@ profile apply|export|delete <name>
 --hz <rate|max>             display refresh
 --battery <20..100>         charge limit
 --battery-oneshot           charge to full once
---ppt Q45|B60|P80|<spl>,<sppt>,<fppt>
+--ppt Q45|B60|P80|off|on|<spl>,<sppt>,<fppt>   off = remove limits (platform max), on = restore
 --nv-boost <5..25>          NVIDIA dynamic boost (W)
 --nv-temp <75..87>          NVIDIA temp target (°C)
 --panel-od on|off           panel overdrive

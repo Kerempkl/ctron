@@ -59,6 +59,8 @@ typedef struct {
     bool ac_online;
     int bat_limit;         /* charge_control_end_threshold, 0 unknown */
     int ppt_spl, ppt_sppt, ppt_fppt;   /* W, 0 unknown/stale */
+    bool ppt_off;                       /* limits removed (platform maxima) */
+    int ppt_saved_spl, ppt_saved_sppt, ppt_saved_fppt; /* to restore */
     int nv_boost;          /* W, 0 unknown */
     int nv_temp;           /* °C, 0 unknown */
     bool panel_od;

@@ -25,6 +25,10 @@ void ctrl_ppt_limits(const hw_state_t *hw,
                      int *sppt_min, int *sppt_max,
                      int *fppt_min, int *fppt_max);
 int ctrl_set_ppt(hw_state_t *hw, int spl, int sppt, int fppt);
+/* Remove the watt limits (write the platform maxima, remembering the
+ * current values) and put them back afterwards. */
+int ctrl_ppt_off(hw_state_t *hw);
+int ctrl_ppt_restore(hw_state_t *hw);
 int ctrl_set_nv_boost(hw_state_t *hw, int watts);
 int ctrl_set_nv_temp(hw_state_t *hw, int celsius);
 int ctrl_set_panel_od(hw_state_t *hw, bool on);

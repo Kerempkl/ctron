@@ -27,6 +27,11 @@ work here in the repo.
 
 ### What landed
 
+- **PPT limits toggle** (POWER row + `--ppt off|on`): off remembers the
+  current SPL/SPPT/FPPT and writes the platform maxima — the clean
+  equivalent of the profile-flip trick that reset the EC limits. on
+  restores the remembered values. Session-only (PPT is firmware-default
+  after reboot). Makefile object files now depend on headers.
 - **tr_TR locale fix** (`src/ui/ui.c`): the TUI calls `setlocale(LC_ALL, "")`
   and on the Turkish locale `strtod("59.87")` stopped at 59 (decimal comma),
   corrupting the refresh list to `[59,60,164,165]`. Applied modes then tried

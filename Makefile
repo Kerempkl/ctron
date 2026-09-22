@@ -24,7 +24,9 @@ $(TARGET): $(OBJ)
 	@mkdir -p $(dir $@)
 	$(CC) $(OBJ) -o $@ $(LDLIBS)
 
-build/%.o: src/%.c
+HEADERS = $(wildcard src/*.h src/ui/*.h src/display/*.h)
+
+build/%.o: src/%.c $(HEADERS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 

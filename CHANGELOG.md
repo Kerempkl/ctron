@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-09-22 — PPT limits toggle (POWER row & --ppt off|on)
+
+- POWER view gains a "PPT limits" row and the CLI gains `--ppt off|on`:
+  off remembers the current SPL/SPPT/FPPT and writes the platform maxima
+  (the clean equivalent of the profile-flip trick that reset the limits);
+  on writes the remembered values back. Session-only state — PPT returns
+  to firmware defaults on reboot.
+- Makefile: object files now depend on the headers (a stale settings.o
+  with the old struct layout corrupted the persist tests).
+
 ## 2026-09-22 — settings window (btop-style) + live layout settings
 
 - The settings overlay is now a centred floating window (double frame,

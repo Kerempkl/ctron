@@ -33,7 +33,7 @@ static void errf(char *err, size_t errn, const char *fmt, ...)
     va_end(ap);
 }
 
-/* PPT token: Q45 | B60 | P80 | spl,sppt,fppt */
+/* PPT token: Q45 | B60 | P80 | off | on | spl,sppt,fppt */
 static int cmd_ppt(hw_state_t *hw, const char *val, char *err, size_t errn)
 {
     if (!strcasecmp(val, "Q45"))
@@ -42,10 +42,14 @@ static int cmd_ppt(hw_state_t *hw, const char *val, char *err, size_t errn)
         return ctrl_set_ppt(hw, 60, 75, 75);
     if (!strcasecmp(val, "P80"))
         return ctrl_set_ppt(hw, 80, 80, 80);
+    if (!strcasecmp(val, "off"))
+        return ctrl_ppt_off(hw);
+    if (!strcasecmp(val, "on"))
+        return ctrl_ppt_restore(hw);
     int a, b, c;
     if (sscanf(val, "%d,%d,%d", &a, &b, &c) == 3)
         return ctrl_set_ppt(hw, a, b, c);
-    errf(err, errn, "ppt: expected Q45|B60|P80 or spl,sppt,fppt");
+    errf(err, errn, "ppt: expected Q45|B60|P80|off|on or spl,sppt,fppt");
     return -1;
 }
 
