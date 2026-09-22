@@ -1,10 +1,16 @@
 # Changelog
 
-## 2026-09-22 — settings overlay (ESC) + live layout settings
+## 2026-09-22 — settings window (btop-style) + live layout settings
 
-- Settings is now a **fullscreen overlay** opened with ESC or 's' (and the
+- The settings overlay is now a centred floating window (double frame,
+  drop shadow) over the still-rendered main screen — ghost text fixed by
+  construction: panels and window each fill their area every frame.
+  Click outside the window closes it; mouse hits search newest-first so
+  background buttons cannot be clicked through the window.
+
+- Settings opens as a floating window with ESC or 's' (and the
   SET tab / controls row). ESC/s close it; 'q' always quits. The mode
-  editor runs inside the overlay. Input-field ESC cancels keep priority.
+  editor runs inside the window. Input-field ESC cancels keep priority.
 - New LAYOUT section in the overlay, applied instantly and persisted:
   swap left panels, telemetry at top, left-column %, left split %,
   telemetry height (`settings.ini`: swap_left/telem_top/left_pct/

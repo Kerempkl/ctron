@@ -126,6 +126,10 @@ static void draw_settings(struct ncplane *n, const rect_t *r)
     const palette_t *pal = ui_palette(g_prefs.theme);
     int x = r->x + 2, w = r->w - 4;
 
+    /* floating window: shadow + double frame + interior fill wipes the
+     * panels underneath every frame (no ghost text) */
+    ui_window(n, r, "SETTINGS");
+
     char pollv[16], leftv[16], splitv[16], telemhv[16];
     snprintf(pollv,   sizeof(pollv),   "%d ms", g_prefs.poll_ms);
     snprintf(leftv,   sizeof(leftv),   "%d %%", g_prefs.left_pct);
@@ -150,7 +154,8 @@ static void draw_settings(struct ncplane *n, const rect_t *r)
     };
 
     int y = r->y + 1;
-    ui_putln(n, x, y, w, "SETTINGS — Esc closes", pal->accent, true);
+    ui_putln(n, x, y, w, "Esc/s closes · click outside closes · changes persist on quit",
+             pal->muted, false);
     y += 2;
 
     ui_putln(n, x, y, w, "LAYOUT (applied instantly)", pal->accent, true);
@@ -219,8 +224,10 @@ static void draw_modeedit(struct ncplane *n, const rect_t *r)
     const palette_t *pal = ui_palette(g_prefs.theme);
     int x = r->x + 2, w = r->w - 4;
 
-    ui_putln(n, x, r->y + 1, w, "MODE EDITOR — Tab switches field, Esc cancels",
-             pal->accent, true);
+    ui_window(n, r, "MODE EDITOR");
+
+    ui_putln(n, x, r->y + 1, w, "Tab switches field · Esc cancels",
+             pal->muted, false);
 
     char name_l[96], steps_l[256];
     snprintf(name_l, sizeof(name_l), "Name : %s%s",

@@ -97,6 +97,8 @@ extern const char *const THEME_NAMES[];
 /* ---- draw helpers (single std plane) ------------------------------------ */
 
 void ui_box(struct ncplane *n, const rect_t *r, const char *title, bool focused);
+/* Floating btop-style window (shadow + double frame + interior fill). */
+void ui_window(struct ncplane *n, const rect_t *r, const char *title);
 void ui_btn(struct ncplane *n, int x, int y, const char *label,
             bool active, bool focused, int id);
 void ui_row(struct ncplane *n, int x, int y, int w,

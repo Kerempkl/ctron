@@ -99,6 +99,62 @@ void ui_box(struct ncplane *n, const rect_t *r, const char *title, bool focused)
     }
 }
 
+/* btop-style floating window: drop shadow one cell right/below, double
+ * frame, filled interior (wipes ghost text every frame), centred title. */
+void ui_window(struct ncplane *n, const rect_t *r, const char *title)
+{
+    if (r->w < 8 || r->h < 4)
+        return;
+
+    const palette_t *pal = ui_palette(g_prefs.theme);
+
+    /* shadow first (under the frame's right/bottom edge) */
+    uint64_t sh = 0;
+    ncchannels_set_bg_rgb(&sh, 0x05070a);
+    ncplane_set_channels(n, sh);
+    ncplane_cursor_move_yx(n, r->y + r->h, r->x + 2);
+    for (int x = 2; x < r->w + 1; x++)
+        ncplane_putchar(n, ' ');
+    for (int y = 1; y < r->h + 1; y++)
+        ncplane_putstr_yx(n, r->y + y, r->x + r->w, " ");
+
+    /* double frame */
+    uint64_t chb = 0, cht = 0;
+    ncchannels_set_fg_rgb(&chb, pal->accent);
+    ncchannels_set_bg_rgb(&chb, pal->bg);
+    ncchannels_set_fg_rgb(&cht, pal->accent);
+    ncchannels_set_bg_rgb(&cht, pal->bg);
+    ncplane_set_channels(n, chb);
+
+    for (int y = 1; y < r->h - 1; y++) {
+        ncplane_cursor_move_yx(n, r->y + y, r->x + 1);
+        for (int x = 1; x < r->w - 1; x++)
+            ncplane_putchar(n, ' ');
+    }
+    ncplane_putstr_yx(n, r->y, r->x, "╔");
+    for (int x = 1; x < r->w - 1; x++)
+        ncplane_putstr(n, "═");
+    ncplane_putstr(n, "╗");
+    for (int y = 1; y < r->h - 1; y++) {
+        ncplane_putstr_yx(n, r->y + y, r->x, "║");
+        ncplane_putstr_yx(n, r->y + y, r->x + r->w - 1, "║");
+    }
+    ncplane_putstr_yx(n, r->y + r->h - 1, r->x, "╚");
+    for (int x = 1; x < r->w - 1; x++)
+        ncplane_putstr(n, "═");
+    ncplane_putstr(n, "╝");
+
+    if (title) {
+        char t[64];
+        snprintf(t, sizeof(t), " %s ", title);
+        ui_trunc(t, r->w - 4);
+        ncplane_set_channels(n, cht);
+        ncplane_set_styles(n, NCSTYLE_BOLD);
+        ncplane_putstr_yx(n, r->y, r->x + (r->w - (int)strlen(t)) / 2, t);
+        ncplane_set_styles(n, NCSTYLE_NONE);
+    }
+}
+
 void ui_btn(struct ncplane *n, int x, int y, const char *label,
             bool active, bool focused, int id)
 {
@@ -176,7 +232,9 @@ void tgt_register(int x, int y, int w, int h, int encoded)
 
 int tgt_find(int x, int y)
 {
-    for (int i = 0; i < s_tg_n; i++)
+    /* search newest-first: the window drawn last (e.g. the settings
+     * overlay) wins over the panels underneath it */
+    for (int i = s_tg_n - 1; i >= 0; i--)
         if (x >= s_tg[i].x1 && x <= s_tg[i].x2 && y >= s_tg[i].y1 && y <= s_tg[i].y2)
             return s_tg[i].id;
     return 0;
@@ -255,7 +313,20 @@ static void ui_layout(unsigned dimy, unsigned dimx)
     if (!g_prefs.telem_top && telem_y + telem_h < H)
         g_ui.rc_telem.h = H - telem_y; /* absorb rounding at the bottom */
 
-    g_ui.rc_overlay = (rect_t){ 0, top, W, H - top };
+    /* settings overlay: centred floating window, not the whole screen */
+    {
+        int ow = W - 6;
+        if (ow > 96)
+            ow = 96;
+        if (ow < 20)
+            ow = W;
+        int oh = H - 4;
+        if (oh > 30)
+            oh = 30;
+        if (oh < 8)
+            oh = H;
+        g_ui.rc_overlay = (rect_t){ (W - ow) / 2, top + (H - top - oh) / 2, ow, oh };
+    }
 }
 
 static void draw_topbar(struct ncplane *n, unsigned dimy, unsigned dimx)
@@ -320,10 +391,23 @@ static void handle_mouse(struct ncplane *stdn, const struct ncinput *ni, uint32_
     if (key != NCKEY_BUTTON1)
         return;
 
+    /* while the settings window is open, it is the only clickable layer:
+     * a click outside closes it (btop habit), inside only its rows act */
+    if (g_ui.settings_overlay) {
+        const rect_t *w = &g_ui.rc_overlay;
+        if (mx < w->x || mx >= w->x + w->w || my < w->y || my >= w->y + w->h) {
+            g_ui.settings_overlay = false;
+            return;
+        }
+        int t = tgt_find(mx, my);
+        if (((t >> 24) & 0x7f) == TGT_PANEL_SETTINGS)
+            panel_settings_act(t & TGT_ID_MASK);
+        return;
+    }
+
     /* fan graph hit test first (registered rect from last draw);
      * meaningless while the settings overlay covers everything */
-    if (!g_ui.settings_overlay &&
-        g_ui.ws_view == WSV_FAN && g_ui.focus == FOC_WORKSPACE) {
+    if (g_ui.ws_view == WSV_FAN && g_ui.focus == FOC_WORKSPACE) {
         const rect_t *g = editor_fan_graph();
         if (g->w > 0 && mx >= g->x && mx < g->x + g->w && my >= g->y && my < g->y + g->h) {
             editor_fan_act(0, mx - g->x, my - g->y);
@@ -495,14 +579,14 @@ int ui_run(hw_state_t *hw)
         ui_layout(dimy, dimx);
         draw_topbar(stdn, dimy, dimx);
 
-        if (g_ui.settings_overlay) {
+        /* background panels always render (each fills its own box, so the
+         * whole screen is wiped); the settings window floats on top */
+        panel_profiles_draw(stdn, &g_ui.rc_prof);
+        panel_controls_draw(stdn, &g_ui.rc_ctl);
+        panel_workspace_draw(stdn, &g_ui.rc_ws);
+        panel_telemetry_draw(stdn, &g_ui.rc_telem);
+        if (g_ui.settings_overlay)
             panel_settings_draw(stdn, &g_ui.rc_overlay);
-        } else {
-            panel_profiles_draw(stdn, &g_ui.rc_prof);
-            panel_controls_draw(stdn, &g_ui.rc_ctl);
-            panel_workspace_draw(stdn, &g_ui.rc_ws);
-            panel_telemetry_draw(stdn, &g_ui.rc_telem);
-        }
 
         notcurses_render(nc);
 

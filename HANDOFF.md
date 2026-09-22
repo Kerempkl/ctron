@@ -5,8 +5,7 @@ Latest session: **2026-09-22** (FA608PP / KDE / CachyOS, with the ZCode
 
 ## Session 2026-09-22 — settings overlay + live layout
 
-- ESC (or 's') opens a fullscreen **settings overlay**; ESC/s close, 'q'
-  always quits. Mode editor runs inside it. Lone-ESC swallowing filter
+- ESC (or 's') opens a centred floating **settings window** (double frame, drop shadow, main screen still visible behind it); ESC/s close, 'q' always quits. Click outside closes it too. Mode editor runs inside it. Lone-ESC swallowing filter
   removed (0x1b == NCKEY_ESC).
 - New LAYOUT rows in the overlay, applied instantly and persisted:
   swap_left, telem_top, left_pct, split_pct, telem_h. Placement is fully
