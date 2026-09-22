@@ -245,9 +245,11 @@ static void draw_modeedit(struct ncplane *n, const rect_t *r)
              pal->muted, false);
 
     int by = r->y + 10;
-    ui_btn(n, x, by, " Save ", false, false, TGT(TGT_PANEL_SETTINGS, ACT_MD_SAVE));
-    ui_btn(n, x + 9, by, " Save & apply ", false, false,
-           TGT(TGT_PANEL_SETTINGS, ACT_MD_SAVE_APPLY));
+    const ui_btndef_t row[] = {
+        { " Save ",         false, TGT(TGT_PANEL_SETTINGS, ACT_MD_SAVE) },
+        { " Save & apply ", false, TGT(TGT_PANEL_SETTINGS, ACT_MD_SAVE_APPLY) },
+    };
+    ui_btn_row(n, by, x, w, row, 2);
 }
 
 /* ---- dispatcher ---------------------------------------------------------- */

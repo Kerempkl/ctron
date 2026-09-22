@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-09-22 — fragile-idiom cleanup (no behaviour change)
+
+- `ut_path_join()` (bounds-checked) replaces the five
+  `strcat(strcpy(...))` chains in `hw.c` — sysfs path building can no
+  longer overflow.
+- New `ui_btn_row()` flow helper replaces hand-counted button offsets
+  (`x+9`, `x+17`, ...) in the profiles panel, the fan editor's two rows
+  and the mode editor's save row; labels can now change freely and
+  buttons that do not fit are skipped instead of overlapping.
+- `dash_if()` in `--status`/`--watch`/`--doctor` no longer returns slots
+  from a static 4-entry ring; callers pass their own buffers.
+
 ## 2026-09-22 — PPT limits toggle (POWER row & --ppt off|on)
 
 - POWER view gains a "PPT limits" row and the CLI gains `--ppt off|on`:

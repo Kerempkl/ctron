@@ -41,6 +41,8 @@ bool ut_have_cmd(const char *name);
 
 int ut_mkdir_p(const char *path);
 bool ut_path_exists(const char *path);
+/* base + "/" + leaf into out, bounds-checked. 0 ok, -1 truncated. */
+int ut_path_join(char *out, size_t n, const char *base, const char *leaf);
 
 /* ---- strings --------------------------------------------------------- */
 

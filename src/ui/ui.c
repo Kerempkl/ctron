@@ -183,6 +183,20 @@ void ui_btn(struct ncplane *n, int x, int y, const char *label,
     tgt_register(x, y, (int)strlen(label), 1, id);
 }
 
+int ui_btn_row(struct ncplane *n, int y, int x, int w,
+               const ui_btndef_t *btns, int count)
+{
+    int cx = x;
+    for (int i = 0; i < count; i++) {
+        int len = (int)strlen(btns[i].label);
+        if (cx + len > x + w)
+            break; /* does not fit: skip the rest */
+        ui_btn(n, cx, y, btns[i].label, btns[i].active, false, btns[i].id);
+        cx += len + 1;
+    }
+    return cx;
+}
+
 void ui_row(struct ncplane *n, int x, int y, int w,
             const char *label, const char *value, bool selected)
 {

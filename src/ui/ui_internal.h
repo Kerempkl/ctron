@@ -101,6 +101,15 @@ void ui_box(struct ncplane *n, const rect_t *r, const char *title, bool focused)
 void ui_window(struct ncplane *n, const rect_t *r, const char *title);
 void ui_btn(struct ncplane *n, int x, int y, const char *label,
             bool active, bool focused, int id);
+typedef struct {
+    const char *label;
+    bool active;
+    int id;      /* encoded TGT(...) value */
+} ui_btndef_t;
+/* Draw buttons left-to-right from x with one space between; buttons that
+ * do not fit within w columns are skipped. Returns the next free column. */
+int ui_btn_row(struct ncplane *n, int y, int x, int w,
+               const ui_btndef_t *btns, int count);
 void ui_row(struct ncplane *n, int x, int y, int w,
             const char *label, const char *value, bool selected);
 void ui_putln(struct ncplane *n, int x, int y, int w,

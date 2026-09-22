@@ -333,11 +333,11 @@ void hw_init(hw_state_t *hw)
 
 void hw_refresh_fast(hw_state_t *hw)
 {
-    char p[256];
+    char p[320], q[320];
 
-    if (hw_hwmon_path("k10temp", p, sizeof(p)) == 0) {
-        snprintf(p + strlen(p), sizeof(p) - strlen(p), "/temp1_input");
-        int t = ut_read_int(p);
+    if (hw_hwmon_path("k10temp", p, sizeof(p)) == 0 &&
+        ut_path_join(q, sizeof(q), p, "temp1_input") == 0) {
+        int t = ut_read_int(q);
         if (t > 0)
             hw->cpu_temp = t / 1000;
     }
@@ -351,24 +351,30 @@ void hw_refresh_fast(hw_state_t *hw)
 
     char bat[256];
     if (power_supply_find("Battery", bat, sizeof(bat)) == 0) {
-        int pct = ut_read_int(strcat(strcpy(p, bat), "/capacity"));
-        if (pct >= 0)
-            hw->bat_pct = pct;
+        if (ut_path_join(p, sizeof(p), bat, "capacity") == 0) {
+            int pct = ut_read_int(p);
+            if (pct >= 0)
+                hw->bat_pct = pct;
+        }
         char st[16] = {0};
-        ut_read_file(strcat(strcpy(p, bat), "/status"), st, sizeof(st));
+        if (ut_path_join(p, sizeof(p), bat, "status") == 0)
+            ut_read_file(p, st, sizeof(st));
         if (st[0])
             snprintf(hw->bat_status, sizeof(hw->bat_status), "%s", st);
     }
 
     char ac[256];
-    if (power_supply_find("Mains", ac, sizeof(ac)) == 0)
-        hw->ac_online = (ut_read_int(strcat(strcpy(p, ac), "/online")) == 1);
+    if (power_supply_find("Mains", ac, sizeof(ac)) == 0 &&
+        ut_path_join(p, sizeof(p), ac, "online") == 0)
+        hw->ac_online = (ut_read_int(p) == 1);
 
     if (hw_hwmon_path("asus", p, sizeof(p)) == 0) {
         hw->has_fan_rpm = true;
-        char q[300];
-        int r1 = ut_read_int(strcat(strcpy(q, p), "/fan1_input"));
-        int r2 = ut_read_int(strcat(strcpy(q, p), "/fan2_input"));
+        int r1 = -1, r2 = -1;
+        if (ut_path_join(q, sizeof(q), p, "fan1_input") == 0)
+            r1 = ut_read_int(q);
+        if (ut_path_join(q, sizeof(q), p, "fan2_input") == 0)
+            r2 = ut_read_int(q);
         hw->rpm_cpu = r1 > 0 ? r1 : -1;
         hw->rpm_gpu = r2 > 0 ? r2 : -1;
     } else {
@@ -402,11 +408,12 @@ void hw_refresh_live(hw_state_t *hw)
 
     char bat[256];
     if (power_supply_find("Battery", bat, sizeof(bat)) == 0) {
-        char p[300];
-        snprintf(p, sizeof(p), "%s/charge_control_end_threshold", bat);
-        int lim = ut_read_int(p);
-        if (lim >= 20 && lim <= 100)
-            hw->bat_limit = lim;
+        char p[340];
+        if (ut_path_join(p, sizeof(p), bat, "charge_control_end_threshold") == 0) {
+            int lim = ut_read_int(p);
+            if (lim >= 20 && lim <= 100)
+                hw->bat_limit = lim;
+        }
     }
 
     int lim_apply = ut_read_int("/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq");

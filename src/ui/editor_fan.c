@@ -116,17 +116,20 @@ void editor_fan_draw(struct ncplane *n, const rect_t *r)
     }
 
     int x = r->x + 2;
+    int w = r->w - 4;
 
     /* control row */
     int cy = r->y + 1;
-    ui_btn(n, x, cy, "CPU", !g_ui.fe_gpu, false, TGT(TGT_PANEL_WORKSPACE, ACT_FE_CPU));
-    ui_btn(n, x + 5, cy, "GPU", g_ui.fe_gpu, false, TGT(TGT_PANEL_WORKSPACE, ACT_FE_GPU));
-    ui_btn(n, x + 11, cy, "+", false, false, TGT(TGT_PANEL_WORKSPACE, ACT_FE_ADD));
-    ui_btn(n, x + 14, cy, "-", false, false, TGT(TGT_PANEL_WORKSPACE, ACT_FE_DEL));
-    ui_btn(n, x + 19, cy, " Write ", false, false, TGT(TGT_PANEL_WORKSPACE, ACT_FE_WRITE));
     bool on = g_ui.fe_gpu ? hw->fan_gpu_on : hw->fan_cpu_on;
-    ui_btn(n, x + 28, cy, on ? " ON " : " OFF ", on, false,
-           TGT(TGT_PANEL_WORKSPACE, ACT_FE_TOGGLE));
+    const ui_btndef_t ctl[] = {
+        { "CPU",    !g_ui.fe_gpu, TGT(TGT_PANEL_WORKSPACE, ACT_FE_CPU) },
+        { "GPU",     g_ui.fe_gpu, TGT(TGT_PANEL_WORKSPACE, ACT_FE_GPU) },
+        { "+",       false,       TGT(TGT_PANEL_WORKSPACE, ACT_FE_ADD) },
+        { "-",       false,       TGT(TGT_PANEL_WORKSPACE, ACT_FE_DEL) },
+        { " Write ", false,       TGT(TGT_PANEL_WORKSPACE, ACT_FE_WRITE) },
+        { on ? " ON " : " OFF ", on, TGT(TGT_PANEL_WORKSPACE, ACT_FE_TOGGLE) },
+    };
+    ui_btn_row(n, cy, x, w, ctl, 6);
 
     /* graph area */
     s_graph.x = r->x + 6;
@@ -202,14 +205,16 @@ void editor_fan_draw(struct ncplane *n, const rect_t *r)
     char tb[24], pb[24];
     snprintf(tb, sizeof(tb), "T[%.6s%s]", g_ui.fe_x.buf, g_ui.fe_input == 1 ? "_" : "");
     snprintf(pb, sizeof(pb), "P[%.6s%s]", g_ui.fe_y.buf, g_ui.fe_input == 2 ? "_" : "");
-    ui_btn(n, x, iy, tb, g_ui.fe_input == 1, false, TGT(TGT_PANEL_WORKSPACE, ACT_FE_T_FIELD));
-    ui_btn(n, x + 10, iy, pb, g_ui.fe_input == 2, false, TGT(TGT_PANEL_WORKSPACE, ACT_FE_P_FIELD));
-    ui_btn(n, x + 20, iy, "Set", false, false, TGT(TGT_PANEL_WORKSPACE, ACT_FE_SET));
-
-    static const char *const presets[4] = { "Stk", "Sil", "Col", "Ful" };
-    for (int i = 0; i < 4; i++)
-        ui_btn(n, x + 27 + i * 5, iy, presets[i], false, false,
-               TGT(TGT_PANEL_WORKSPACE, ACT_FE_PRESET_BASE + i));
+    const ui_btndef_t xy[] = {
+        { tb,    g_ui.fe_input == 1, TGT(TGT_PANEL_WORKSPACE, ACT_FE_T_FIELD) },
+        { pb,    g_ui.fe_input == 2, TGT(TGT_PANEL_WORKSPACE, ACT_FE_P_FIELD) },
+        { "Set", false,              TGT(TGT_PANEL_WORKSPACE, ACT_FE_SET) },
+        { "Stk",  false,             TGT(TGT_PANEL_WORKSPACE, ACT_FE_PRESET_BASE + 0) },
+        { "Sil",  false,             TGT(TGT_PANEL_WORKSPACE, ACT_FE_PRESET_BASE + 1) },
+        { "Col",  false,             TGT(TGT_PANEL_WORKSPACE, ACT_FE_PRESET_BASE + 2) },
+        { "Ful",  false,             TGT(TGT_PANEL_WORKSPACE, ACT_FE_PRESET_BASE + 3) },
+    };
+    ui_btn_row(n, iy, x, w, xy, 7);
 }
 
 /* ---- input -------------------------------------------------------------- */

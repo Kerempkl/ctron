@@ -65,28 +65,30 @@ static void print_usage(const char *prog)
 
 /* ---- status / doctor / watch --------------------------------------------- */
 
-static const char *dash_if(int v)
+/* "--" for unknown values, else the number — into the caller's buffer
+ * (no static ring: a printf with several of these cannot collide). */
+static const char *dash_if(char *buf, size_t n, int v)
 {
-    static char b[4][16];
-    static int i = 0;
-    i = (i + 1) % 4;
     if (v < 0)
         return "--";
-    snprintf(b[i], sizeof(b[i]), "%d", v);
-    return b[i];
+    snprintf(buf, n, "%d", v);
+    return buf;
 }
 
 static int cmd_status(hw_state_t *hw)
 {
+    char v1[16], v2[16], v3[16], v4[16], v5[16];
     printf("ctron — %s\n", hw->model);
     printf("  CPU            : %s\n", hw->cpu);
-    printf("  CPU temp       : %s °C (k10temp)\n", dash_if(hw->cpu_temp));
-    printf("  GPU temp       : %s °C (nvidia-smi)\n", dash_if(hw->gpu_temp));
+    printf("  CPU temp       : %s °C (k10temp)\n", dash_if(v1, sizeof(v1), hw->cpu_temp));
+    printf("  GPU temp       : %s °C (nvidia-smi)\n", dash_if(v2, sizeof(v2), hw->gpu_temp));
     printf("  CPU clock      : %d MHz (limit %d MHz)\n", hw->cpu_mhz_cur, hw->cpu_mhz_limit);
-    printf("  Fan RPM        : %s / %s (cpu/gpu)\n", dash_if(hw->rpm_cpu), dash_if(hw->rpm_gpu));
+    printf("  Fan RPM        : %s / %s (cpu/gpu)\n",
+           dash_if(v3, sizeof(v3), hw->rpm_cpu), dash_if(v4, sizeof(v4), hw->rpm_gpu));
     printf("  Profile        : %s\n", hw_profile_name(hw->profile));
     printf("  EPP            : %s\n", hw_epp_name(hw->epp));
-    printf("  Display        : %s Hz (%s)\n", hw->hz_cur > 0 ? dash_if(hw->hz_cur) : "--",
+    printf("  Display        : %s Hz (%s)\n",
+           hw->hz_cur > 0 ? dash_if(v5, sizeof(v5), hw->hz_cur) : "--",
            display_get() ? display_get()->name : "no backend");
     if (hw->hz_count > 0) {
         printf("  Modes          : ");
@@ -97,8 +99,11 @@ static int cmd_status(hw_state_t *hw)
     printf("  Battery        : %d%% %s%s limit %d%%\n", hw->bat_pct,
            hw->bat_status, hw->ac_online ? " (AC)" : "", hw->bat_limit);
     printf("  PPT            : %s / %s / %s W (SPL/SPPT/FPPT; -- until written)\n",
-           dash_if(hw->ppt_spl), dash_if(hw->ppt_sppt), dash_if(hw->ppt_fppt));
-    printf("  NV boost/temp  : %s W / %s °C\n", dash_if(hw->nv_boost), dash_if(hw->nv_temp));
+           dash_if(v1, sizeof(v1), hw->ppt_spl),
+           dash_if(v2, sizeof(v2), hw->ppt_sppt),
+           dash_if(v3, sizeof(v3), hw->ppt_fppt));
+    printf("  NV boost/temp  : %s W / %s °C\n",
+           dash_if(v4, sizeof(v4), hw->nv_boost), dash_if(v5, sizeof(v5), hw->nv_temp));
     printf("  Panel OD       : %s   CPU boost: %s\n",
            hw->panel_od ? "on" : "off", hw->cpu_boost ? "on" : "off");
     printf("  Keyboard       : %s\n", hw_kbd_name(hw->kbd));
@@ -125,10 +130,11 @@ static int cmd_watch(hw_state_t *hw)
     setvbuf(stdout, NULL, _IONBF, 0);
     printf("ctron watch — Ctrl-C stops\n");
     while (s_watch_run) {
+        char rc[16], rg[16];
         hw_refresh_fast(hw);
         printf("\r %3d°C  GPU %2d°C  %4d MHz  fan %4s/%4s rpm  BAT %3d%% %-11s %s   ",
                hw->cpu_temp, hw->gpu_temp, hw->cpu_mhz_cur,
-               dash_if(hw->rpm_cpu), dash_if(hw->rpm_gpu),
+               dash_if(rc, sizeof(rc), hw->rpm_cpu), dash_if(rg, sizeof(rg), hw->rpm_gpu),
                hw->bat_pct, hw->bat_status, hw_profile_name(hw->profile));
         usleep((useconds_t)g_prefs.poll_ms * 1000);
     }
@@ -168,9 +174,12 @@ static int cmd_doctor(hw_state_t *hw)
     printf("  asus-armoury  : %s\n", hw->has_armoury ? "yes" : "no");
     printf("  fan curve     : %s\n", hw->has_fan_curve ? "hwmon asus_custom_fan_curve" : "missing");
     printf("  fan rpm       : %s\n", hw->has_fan_rpm ? "hwmon asus" : "missing");
-    printf("  k10temp       : %s °C\n", dash_if(hw->cpu_temp));
-    printf("  nvidia-smi    : %s (%s °C)\n", hw->has_nvidia_smi ? "yes" : "no",
-           dash_if(hw->gpu_temp));
+    {
+        char t1[16], t2[16];
+        printf("  k10temp       : %s °C\n", dash_if(t1, sizeof(t1), hw->cpu_temp));
+        printf("  nvidia-smi    : %s (%s °C)\n", hw->has_nvidia_smi ? "yes" : "no",
+               dash_if(t2, sizeof(t2), hw->gpu_temp));
+    }
     printf("  kbd led       : %s\n", hw->has_kbd_led ? "asus::kbd_backlight" : "missing");
     printf("  ppt sysfs     : %s\n",
            ut_path_exists("/sys/devices/platform/asus-nb-wmi/ppt_pl1_spl") ? "yes" : "no");

@@ -73,10 +73,13 @@ void panel_profiles_draw(struct ncplane *n, const rect_t *r)
     }
 
     int by = r->y + r->h - 2;
-    ui_btn(n, x, by, " Apply ", false, false, TGT(TGT_PANEL_PROFILES, ACT_PL_APPLY));
-    ui_btn(n, x + 9, by, " Save ", false, false, TGT(TGT_PANEL_PROFILES, ACT_PL_SAVE));
-    ui_btn(n, x + 17, by, " Del ", false, false, TGT(TGT_PANEL_PROFILES, ACT_PL_DEL));
-    ui_btn(n, x + 24, by, " New ", g_ui.prof_typing, false, TGT(TGT_PANEL_PROFILES, ACT_PL_NEW));
+    const ui_btndef_t row[] = {
+        { " Apply ", false, TGT(TGT_PANEL_PROFILES, ACT_PL_APPLY) },
+        { " Save ",  false, TGT(TGT_PANEL_PROFILES, ACT_PL_SAVE) },
+        { " Del ",   false, TGT(TGT_PANEL_PROFILES, ACT_PL_DEL) },
+        { " New ",   g_ui.prof_typing, TGT(TGT_PANEL_PROFILES, ACT_PL_NEW) },
+    };
+    ui_btn_row(n, by, x, w, row, 4);
     (void)hw;
 }
 

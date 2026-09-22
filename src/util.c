@@ -163,6 +163,16 @@ bool ut_path_exists(const char *path)
     return access(path, F_OK) == 0;
 }
 
+int ut_path_join(char *out, size_t n, const char *base, const char *leaf)
+{
+    if (!out || n == 0)
+        return -1;
+    int w = snprintf(out, n, "%s/%s", base ? base : "", leaf ? leaf : "");
+    if (w < 0 || (size_t)w >= n)
+        return -1;
+    return 0;
+}
+
 /* ---- strings --------------------------------------------------------- */
 
 char *ut_trim(char *s)
