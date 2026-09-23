@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-09-24 — POWER view follow-ups (critique fixes)
+
+- View-switch keys no longer shadow editor keys: lowercase f/p/l/e
+  yield to the active view's bindings (fan editor 'p'/'l', POWER and
+  LIGHT 'l'); uppercase always switches. POWER staging answers 'l'
+  like 'h', and the fan editor's 'p' (type pwm) and 'l' (nudge) work
+  again after being shadowed by the workspace shortcuts.
+- Staged watt triples are clamped and ordered at stage time via the
+  new shared `ctrl_ppt_order()` (extracted from `ctrl_set_ppt`), so
+  the staged numbers are exactly what Apply writes — unit-tested in
+  `test_core` (clamp, order, clamp-then-order, passthrough).
+- Staging "PPT limits → removed" now stages the platform maxima,
+  mirroring `ctrl_ppt_off`, so pending watts never show values that
+  cannot apply while the limits are off.
+- Entering the POWER view (with nothing staged) runs `hw_refresh_live`
+  + restage, picking up external changes (CLI, asusctl) instead of a
+  stale "live" column.
+- Rows show `value (?)` when the live read is unknown/stale but a
+  staged/written value exists (was a bare `--`). Apply logs a one-line
+  ok/FAILED summary; the cpu-clock row skips the no-op privileged
+  write when no limit is set and staging equals the cpuinfo max.
+- `make` warning-free outside `editor_daeboard.c` (its warnings came
+  with the daeboard ship, left for the FA507NVR line); `make test` ok;
+  `--status` live on FA608PP.
+
 ## 2026-09-23 — daeboard editor
 
 - LIGHT view, **b**, opens the macro editor. Down and Up are side by side.

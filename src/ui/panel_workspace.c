@@ -34,7 +34,27 @@ static const char *const WS_NAMES[WSV_COUNT] = {
 
 void ws_set_view(ws_view_t v)
 {
+    if (g_ui.ws_view == v)
+        return;
     g_ui.ws_view = v;
+    /* entering POWER: pick up external changes (CLI, asusctl) unless
+     * the user has staged edits pending */
+    if (v == WSV_POWER && !g_ui.pw_dirty) {
+        hw_refresh_live(g_ui.hw);
+        pw_sync_from_hw();
+    }
+}
+
+/* Lowercase f/p/l/e yield to keys the active view binds (fan editor
+ * 'p'/'l', POWER/LIGHT 'l'); uppercase always switches views. */
+static bool view_binds_key(ws_view_t v, uint32_t key)
+{
+    switch (v) {
+    case WSV_FAN:   return key == 'p' || key == 'l';
+    case WSV_POWER: return key == 'l';
+    case WSV_LIGHT: return key == 'l';
+    default:        return false; /* help view binds none */
+    }
 }
 
 /* ---- POWER view -------------------------------------------------------- */
@@ -99,6 +119,9 @@ void pw_sync_from_hw(void)
 
 static void pw_stage_preset(int spl, int sppt, int fppt)
 {
+    int smin, smax, pmin, pmax, fmin, fmax;
+    ctrl_ppt_limits(g_ui.hw, &smin, &smax, &pmin, &pmax, &fmin, &fmax);
+    ctrl_ppt_order(&spl, &sppt, &fppt, smin, smax, pmin, pmax, fmin, fmax);
     g_ui.pwv_spl = spl;
     g_ui.pwv_sppt = sppt;
     g_ui.pwv_fppt = fppt;
@@ -113,18 +136,35 @@ static void pw_nudge_row(int row, int dir)
         int smin, smax, pmin, pmax, fmin, fmax;
         ctrl_ppt_limits(hw, &smin, &smax, &pmin, &pmax, &fmin, &fmax);
         if (row == PW_SPL)
-            g_ui.pwv_spl = ut_clamp_i(g_ui.pwv_spl + 5 * dir, smin, smax);
+            g_ui.pwv_spl += 5 * dir;
         else if (row == PW_SPPT)
-            g_ui.pwv_sppt = ut_clamp_i(g_ui.pwv_sppt + 5 * dir, pmin, pmax);
+            g_ui.pwv_sppt += 5 * dir;
         else
-            g_ui.pwv_fppt = ut_clamp_i(g_ui.pwv_fppt + 5 * dir, fmin, fmax);
+            g_ui.pwv_fppt += 5 * dir;
         g_ui.pwv_ppt_off = false;
+        /* clamp + order exactly as the write path will, so the staged
+         * triple is what Apply writes */
+        ctrl_ppt_order(&g_ui.pwv_spl, &g_ui.pwv_sppt, &g_ui.pwv_fppt,
+                       smin, smax, pmin, pmax, fmin, fmax);
         break;
     }
     case PW_PRESET_Q: pw_stage_preset(45, 55, 55); break;
     case PW_PRESET_B: pw_stage_preset(60, 75, 75); break;
     case PW_PRESET_P: pw_stage_preset(80, 80, 80); break;
-    case PW_PPT_LIMITS: g_ui.pwv_ppt_off = !g_ui.pwv_ppt_off; break;
+    case PW_PPT_LIMITS:
+        if (!g_ui.pwv_ppt_off) {
+            /* staging "removed" mirrors ctrl_ppt_off: it writes the
+             * platform maxima, so stage exactly those */
+            int smin, smax, pmin, pmax, fmin, fmax;
+            ctrl_ppt_limits(hw, &smin, &smax, &pmin, &pmax, &fmin, &fmax);
+            g_ui.pwv_spl = smax;
+            g_ui.pwv_sppt = pmax;
+            g_ui.pwv_fppt = fmax;
+            g_ui.pwv_ppt_off = true;
+        } else {
+            g_ui.pwv_ppt_off = false;
+        }
+        break;
     case PW_NVBOOST:
         g_ui.pwv_nvboost = ut_clamp_i(g_ui.pwv_nvboost + 5 * dir, 5, 25);
         break;
@@ -149,33 +189,56 @@ static void pw_nudge_row(int row, int dir)
 static void pw_apply(void)
 {
     hw_state_t *hw = g_ui.hw;
+    int fails = 0;
 
     if (g_ui.pwv_ppt_off != hw->ppt_off) {
-        if (g_ui.pwv_ppt_off)
-            ctrl_ppt_off(hw);
-        else
-            ctrl_ppt_restore(hw);
+        if (g_ui.pwv_ppt_off) {
+            if (ctrl_ppt_off(hw) != 0)
+                fails++;
+        } else {
+            if (ctrl_ppt_restore(hw) != 0)
+                fails++;
+        }
     }
     if (!g_ui.pwv_ppt_off &&
         (g_ui.pwv_spl != hw->ppt_spl || g_ui.pwv_sppt != hw->ppt_sppt ||
-         g_ui.pwv_fppt != hw->ppt_fppt))
-        ctrl_set_ppt(hw, g_ui.pwv_spl, g_ui.pwv_sppt, g_ui.pwv_fppt);
-    if (g_ui.pwv_nvboost != hw->nv_boost)
-        ctrl_set_nv_boost(hw, g_ui.pwv_nvboost);
-    if (g_ui.pwv_nvtemp != hw->nv_temp)
-        ctrl_set_nv_temp(hw, g_ui.pwv_nvtemp);
-    if (g_ui.pwv_panel_od != hw->panel_od)
-        ctrl_set_panel_od(hw, g_ui.pwv_panel_od);
-    if (g_ui.pwv_cpuboost != hw->cpu_boost)
-        ctrl_set_cpu_boost(hw, g_ui.pwv_cpuboost);
-    if (g_ui.pwv_mhz > 0 && g_ui.pwv_mhz != hw->cpu_mhz_limit)
-        ctrl_set_cpu_max_mhz(hw, g_ui.pwv_mhz);
+         g_ui.pwv_fppt != hw->ppt_fppt)) {
+        if (ctrl_set_ppt(hw, g_ui.pwv_spl, g_ui.pwv_sppt, g_ui.pwv_fppt) != 0)
+            fails++;
+    }
+    if (g_ui.pwv_nvboost != hw->nv_boost) {
+        if (ctrl_set_nv_boost(hw, g_ui.pwv_nvboost) != 0)
+            fails++;
+    }
+    if (g_ui.pwv_nvtemp != hw->nv_temp) {
+        if (ctrl_set_nv_temp(hw, g_ui.pwv_nvtemp) != 0)
+            fails++;
+    }
+    if (g_ui.pwv_panel_od != hw->panel_od) {
+        if (ctrl_set_panel_od(hw, g_ui.pwv_panel_od) != 0)
+            fails++;
+    }
+    if (g_ui.pwv_cpuboost != hw->cpu_boost) {
+        if (ctrl_set_cpu_boost(hw, g_ui.pwv_cpuboost) != 0)
+            fails++;
+    }
+    /* skip the privileged no-op when no limit is set and the staging
+     * is just the cpuinfo maximum */
+    if (g_ui.pwv_mhz > 0 && g_ui.pwv_mhz != hw->cpu_mhz_limit &&
+        !(hw->cpu_mhz_limit <= 0 && g_ui.pwv_mhz >= hw->cpu_mhz_max)) {
+        if (ctrl_set_cpu_max_mhz(hw, g_ui.pwv_mhz) != 0)
+            fails++;
+    }
+
+    ut_log("power apply: %s", fails ? "some fields FAILED (privilege?)" : "ok");
 
     hw_refresh_live(hw); /* verify the writes by reading back */
     pw_sync_from_hw();
 }
 
-/* "live" / "--", with "live → staged ●" while an edit is pending */
+/* "live" / "--", with "live → staged ●" while an edit is pending and
+ * "staged (?)" when the live read is unknown/stale but a staged or just
+ * written value exists */
 static void pw_val(char *out, size_t n, int live, int staged, const char *unit)
 {
     char lb[14], sb[14];
@@ -185,6 +248,8 @@ static void pw_val(char *out, size_t n, int live, int staged, const char *unit)
     else            snprintf(sb, sizeof(sb), "--");
     if (live > 0 && staged != live)
         snprintf(out, n, "%s → %s ●", lb, sb);
+    else if (live <= 0 && staged > 0)
+        snprintf(out, n, "%s (?)", sb);
     else
         snprintf(out, n, "%s", lb);
 }
@@ -238,7 +303,7 @@ static void draw_power(struct ncplane *n, const rect_t *r)
     };
 
     ui_putln(n, x, r->y + 1, w,
-             "h/←→ stage · w apply · r revert — nothing writes until apply",
+             "h/l stage · w apply · r revert — nothing writes until apply · (?) unverified",
              pal->muted, false);
     int rows = r->h - 4;
     for (int i = 0; i < PW_ROWS && i < rows; i++) {
@@ -390,7 +455,7 @@ static void draw_help(struct ncplane *n, const rect_t *r)
         "  j k          move · h l change value · Enter apply",
         "",
         "POWER",
-        "  j k          move · h / arrows stage the value (nothing writes)",
+        "  j k          move · h/l (or arrows) stage the value (nothing writes)",
         "  w r          apply all staged edits · revert to live values",
         "",
         "FAN EDITOR",
@@ -469,17 +534,19 @@ void panel_workspace_key(uint32_t key)
         return;
     }
 
-    switch (key) {
-    case 'f':
-    case 'F': ws_set_view(WSV_FAN); return;
-    case 'p':
-    case 'P': ws_set_view(WSV_POWER); return;
-    case 'l':
-    case 'L': ws_set_view(WSV_LIGHT); return;
-    case 'e':
-    case 'E': settings_open(); return;
-    default:
-        break;
+    if (!view_binds_key(g_ui.ws_view, key)) {
+        switch (key) {
+        case 'f':
+        case 'F': ws_set_view(WSV_FAN); return;
+        case 'p':
+        case 'P': ws_set_view(WSV_POWER); return;
+        case 'l':
+        case 'L': ws_set_view(WSV_LIGHT); return;
+        case 'e':
+        case 'E': settings_open(); return;
+        default:
+            break;
+        }
     }
 
     switch (g_ui.ws_view) {
@@ -491,7 +558,7 @@ void panel_workspace_key(uint32_t key)
         case 'j': case NCKEY_DOWN: g_ui.pw_sel = (g_ui.pw_sel + 1) % PW_ROWS; return;
         case 'k': case NCKEY_UP:   g_ui.pw_sel = (g_ui.pw_sel + PW_ROWS - 1) % PW_ROWS; return;
         case 'h': case NCKEY_LEFT: pw_nudge_row(g_ui.pw_sel, -1); return;
-        case NCKEY_RIGHT:
+        case 'l': case NCKEY_RIGHT:
         case NCKEY_ENTER: case '\r': case '\n': case ' ':
             /* values step up; presets stage their bundle; toggles flip */
             pw_nudge_row(g_ui.pw_sel, +1);

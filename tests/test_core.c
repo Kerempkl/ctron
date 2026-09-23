@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 
+#include "control.h"
 #include "fan.h"
 #include "hw.h"
 #include "modes.h"
@@ -175,6 +176,29 @@ static void check_power_fmt(void)
     CHECK(!strcmp(b, "0.0W"), "idle watts");
 }
 
+static void check_ppt_order(void)
+{
+    /* staging SPL above the others pulls the chain up, like the write */
+    int spl = 80, sppt = 60, fppt = 60;
+    ctrl_ppt_order(&spl, &sppt, &fppt, 15, 90, 35, 120, 35, 120);
+    CHECK(spl == 80 && sppt == 80 && fppt == 80, "order pulls up");
+
+    /* out-of-window values clamp to the firmware limits */
+    spl = 5; sppt = 60; fppt = 200;
+    ctrl_ppt_order(&spl, &sppt, &fppt, 15, 90, 35, 120, 35, 120);
+    CHECK(spl == 15 && sppt == 60 && fppt == 120, "clamp to limits");
+
+    /* clamping happens before ordering: the chain stays sorted */
+    spl = 45; sppt = 30; fppt = 20;
+    ctrl_ppt_order(&spl, &sppt, &fppt, 15, 90, 35, 120, 35, 120);
+    CHECK(spl == 45 && sppt == 45 && fppt == 45, "clamp then order");
+
+    /* an ordered triple inside the windows passes untouched */
+    spl = 45; sppt = 55; fppt = 55;
+    ctrl_ppt_order(&spl, &sppt, &fppt, 15, 90, 35, 120, 35, 120);
+    CHECK(spl == 45 && sppt == 55 && fppt == 55, "ordered stays");
+}
+
 int main(void)
 {
     check_fan_csv();
@@ -184,6 +208,7 @@ int main(void)
     check_profiles();
     check_kde_parser();
     check_power_fmt();
+    check_ppt_order();
 
     if (failures) {
         fprintf(stderr, "%d failure(s)\n", failures);

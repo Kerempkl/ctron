@@ -1,9 +1,26 @@
 # Ctron Handoff
 
-Latest sessions — **2026-09-23**, two machines in parallel: **Grok /
-FA507NVR / NixOS** (daeboard editor, signed below) and **Kerempkl + GLM /
-FA608PP** (POWER staged-apply). **Read `NEXT.md` first** — it carries the
-prioritized todo list and the distilled session lessons.
+Latest sessions — **2026-09-24** **Kerempkl + GLM / FA608PP** (POWER
+critique fixes) and **2026-09-23** in parallel: **Grok / FA507NVR / NixOS**
+(daeboard editor, signed below) and **Kerempkl + GLM / FA608PP** (POWER
+staged-apply). **Read `NEXT.md` first** — it carries the prioritized todo
+list and the distilled session lessons.
+
+## Session 2026-09-24 — POWER critique fixes (Kerempkl + GLM, FA608PP)
+
+- Follow-ups to the 09-23 staged-apply, from a self-critique pass:
+  view keys yield to editor keys (fan 'p'/'l' and power/light 'l' now
+  reach their handlers; uppercase F/P/L/E always switch), stage-time
+  clamp+order through the shared `ctrl_ppt_order()` (unit-tested in
+  test_core), PPT-off staging mirrors the `ctrl_ppt_off` maxima, a
+  live refresh when entering POWER with nothing staged, `value (?)`
+  for rows whose live read is stale, a one-line apply ok/FAILED log,
+  and a cpu-clock no-op write guard.
+- Note for the FA507NVR line: `src/ui/editor_daeboard.c` ships
+  format-truncation warnings (came with b931cd0); left untouched here.
+- Verified: `make` (ctron-side files clean), `make test` incl.
+  daeboard, `--status` live. Interactive TUI field-test on a real
+  terminal still pending.
 
 ## Signed 2026-09-23 — Grok, FA507NVR, NixOS
 

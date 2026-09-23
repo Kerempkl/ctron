@@ -24,6 +24,12 @@ void ctrl_ppt_limits(const hw_state_t *hw,
                      int *spl_min, int *spl_max,
                      int *sppt_min, int *sppt_max,
                      int *fppt_min, int *fppt_max);
+/* Clamp each value into its window, then enforce fppt >= sppt >= spl —
+ * exactly what the write path will do. Shared with the POWER staging
+ * so what is staged is what gets written. */
+void ctrl_ppt_order(int *spl, int *sppt, int *fppt,
+                    int smin, int smax, int pmin, int pmax,
+                    int fmin, int fmax);
 int ctrl_set_ppt(hw_state_t *hw, int spl, int sppt, int fppt);
 /* Remove the watt limits (write the platform maxima, remembering the
  * current values) and put them back afterwards. */

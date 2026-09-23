@@ -173,17 +173,23 @@ void ctrl_ppt_limits(const hw_state_t *hw,
     }
 }
 
+void ctrl_ppt_order(int *spl, int *sppt, int *fppt,
+                    int smin, int smax, int pmin, int pmax, int fmin, int fmax)
+{
+    *spl  = ut_clamp_i(*spl,  smin, smax);
+    *sppt = ut_clamp_i(*sppt, pmin, pmax);
+    *fppt = ut_clamp_i(*fppt, fmin, fmax);
+    if (*sppt < *spl)
+        *sppt = *spl;
+    if (*fppt < *sppt)
+        *fppt = *sppt;
+}
+
 int ctrl_set_ppt(hw_state_t *hw, int spl, int sppt, int fppt)
 {
     int smin, smax, pmin, pmax, fmin, fmax;
     ctrl_ppt_limits(hw, &smin, &smax, &pmin, &pmax, &fmin, &fmax);
-    spl  = ut_clamp_i(spl,  smin, smax);
-    sppt = ut_clamp_i(sppt, pmin, pmax);
-    fppt = ut_clamp_i(fppt, fmin, fmax);
-    if (sppt < spl)
-        sppt = spl;
-    if (fppt < sppt)
-        fppt = sppt;
+    ctrl_ppt_order(&spl, &sppt, &fppt, smin, smax, pmin, pmax, fmin, fmax);
 
     int rc = 0;
     if (nbwmi_write("ppt_pl1_spl", spl) != 0)  rc = -1;
