@@ -70,6 +70,7 @@ static void apply_row(int row)
                 ut_log("mode '%s': %s", g_ui.modes[g_ui.ctl_mode_idx].name,
                        err[0] ? err : "failed");
             hw_refresh_live(hw);
+            pw_sync_from_hw(); /* the bundle may have changed power fields */
         }
         break;
     case 1:

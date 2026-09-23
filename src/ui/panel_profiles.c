@@ -93,6 +93,7 @@ static void apply_selected(void)
     else
         ut_log("apply failed: %s", err[0] ? err : "?");
     ctrl_fan_write(g_ui.hw); /* curves ride along in the profile */
+    pw_sync_from_hw();       /* the profile may have changed power fields */
 }
 
 static void save_current(void)

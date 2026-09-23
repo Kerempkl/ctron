@@ -19,6 +19,9 @@ enum {
     ACT_WS_TAB_LIGHT,
     ACT_WS_TAB_SETTINGS,
     ACT_WS_TAB_HELP,
+    /* power view buttons */
+    ACT_WS_PW_APPLY = 15,
+    ACT_WS_PW_REVERT,
     /* power view rows */
     ACT_WS_PW_BASE = 20,   /* + row index */
     /* light view rows */
@@ -36,6 +39,9 @@ void ws_set_view(ws_view_t v)
 
 /* ---- POWER view -------------------------------------------------------- */
 
+/* Staged edits: h/arrows only mutate the pwv_* staging fields; nothing
+ * reaches the hardware until Apply (w / Apply button). Revert drops them. */
+
 enum {
     PW_SPL = 0,
     PW_SPPT,
@@ -48,133 +54,205 @@ enum {
     PW_NVTEMP,
     PW_PANEL_OD,
     PW_CPUBOOST,
+    PW_CPUFREQ,
     PW_ROWS
 };
 
-static void pw_apply_row(int row)
+static void pw_recompute_dirty(void)
 {
-    hw_state_t *hw = g_ui.hw;
-    switch (row) {
-    case PW_SPL:
-        ctrl_set_ppt(hw, (hw->ppt_spl > 0 ? hw->ppt_spl : 45) + 5,
-                     hw->ppt_sppt, hw->ppt_fppt);
-        break;
-    case PW_SPPT:
-        ctrl_set_ppt(hw, hw->ppt_spl,
-                     (hw->ppt_sppt > 0 ? hw->ppt_sppt : 55) + 5, hw->ppt_fppt);
-        break;
-    case PW_FPPT:
-        ctrl_set_ppt(hw, hw->ppt_spl, hw->ppt_sppt,
-                     (hw->ppt_fppt > 0 ? hw->ppt_fppt : 55) + 5);
-        break;
-    case PW_PRESET_Q:
-        ctrl_set_ppt(hw, 45, 55, 55);
-        break;
-    case PW_PRESET_B:
-        ctrl_set_ppt(hw, 60, 75, 75);
-        break;
-    case PW_PRESET_P:
-        ctrl_set_ppt(hw, 80, 80, 80);
-        break;
-    case PW_PPT_LIMITS:
-        if (hw->ppt_off)
-            ctrl_ppt_restore(hw);
-        else
-            ctrl_ppt_off(hw);
-        break;
-    case PW_NVBOOST:
-        ctrl_set_nv_boost(hw, (hw->nv_boost > 0 ? hw->nv_boost : 5) + 5);
-        break;
-    case PW_NVTEMP:
-        ctrl_set_nv_temp(hw, (hw->nv_temp > 0 ? hw->nv_temp : 75) + 1);
-        break;
-    case PW_PANEL_OD:
-        ctrl_set_panel_od(hw, !hw->panel_od);
-        break;
-    case PW_CPUBOOST:
-        ctrl_set_cpu_boost(hw, !hw->cpu_boost);
-        break;
-    default:
-        break;
-    }
+    const hw_state_t *hw = g_ui.hw;
+    g_ui.pw_dirty =
+        (hw->ppt_spl > 0 && g_ui.pwv_spl != hw->ppt_spl) ||
+        (hw->ppt_sppt > 0 && g_ui.pwv_sppt != hw->ppt_sppt) ||
+        (hw->ppt_fppt > 0 && g_ui.pwv_fppt != hw->ppt_fppt) ||
+        g_ui.pwv_ppt_off != hw->ppt_off ||
+        (hw->nv_boost > 0 && g_ui.pwv_nvboost != hw->nv_boost) ||
+        (hw->nv_temp > 0 && g_ui.pwv_nvtemp != hw->nv_temp) ||
+        g_ui.pwv_panel_od != hw->panel_od ||
+        g_ui.pwv_cpuboost != hw->cpu_boost ||
+        (hw->cpu_mhz_limit > 0 && g_ui.pwv_mhz != hw->cpu_mhz_limit);
 }
 
-static void pw_dec_row(int row)
+void pw_sync_from_hw(void)
+{
+    const hw_state_t *hw = g_ui.hw;
+    /* unknown/stale reads (0) keep the current staged value: the defaults
+     * on the very first sync, the written values right after an apply
+     * whose read-back is still kernel-cache stale */
+    g_ui.pwv_spl  = hw->ppt_spl  > 0 ? hw->ppt_spl
+                  : (g_ui.pwv_spl  > 0 ? g_ui.pwv_spl  : 45);
+    g_ui.pwv_sppt = hw->ppt_sppt > 0 ? hw->ppt_sppt
+                  : (g_ui.pwv_sppt > 0 ? g_ui.pwv_sppt : 55);
+    g_ui.pwv_fppt = hw->ppt_fppt > 0 ? hw->ppt_fppt
+                  : (g_ui.pwv_fppt > 0 ? g_ui.pwv_fppt : 55);
+    g_ui.pwv_nvboost = hw->nv_boost > 0 ? hw->nv_boost
+                     : (g_ui.pwv_nvboost > 0 ? g_ui.pwv_nvboost : 5);
+    g_ui.pwv_nvtemp = hw->nv_temp > 0 ? hw->nv_temp
+                    : (g_ui.pwv_nvtemp > 0 ? g_ui.pwv_nvtemp : 75);
+    g_ui.pwv_mhz = hw->cpu_mhz_limit > 0 ? hw->cpu_mhz_limit
+                 : (g_ui.pwv_mhz > 0 ? g_ui.pwv_mhz : hw->cpu_mhz_max);
+    g_ui.pwv_panel_od = hw->panel_od;
+    g_ui.pwv_cpuboost = hw->cpu_boost;
+    g_ui.pwv_ppt_off = hw->ppt_off;
+    pw_recompute_dirty();
+}
+
+static void pw_stage_preset(int spl, int sppt, int fppt)
+{
+    g_ui.pwv_spl = spl;
+    g_ui.pwv_sppt = sppt;
+    g_ui.pwv_fppt = fppt;
+    g_ui.pwv_ppt_off = false; /* staging watts implies limits back on */
+}
+
+static void pw_nudge_row(int row, int dir)
 {
     hw_state_t *hw = g_ui.hw;
     switch (row) {
-    case PW_SPL:
-        ctrl_set_ppt(hw, (hw->ppt_spl > 0 ? hw->ppt_spl : 45) - 5,
-                     hw->ppt_sppt, hw->ppt_fppt);
+    case PW_SPL: case PW_SPPT: case PW_FPPT: {
+        int smin, smax, pmin, pmax, fmin, fmax;
+        ctrl_ppt_limits(hw, &smin, &smax, &pmin, &pmax, &fmin, &fmax);
+        if (row == PW_SPL)
+            g_ui.pwv_spl = ut_clamp_i(g_ui.pwv_spl + 5 * dir, smin, smax);
+        else if (row == PW_SPPT)
+            g_ui.pwv_sppt = ut_clamp_i(g_ui.pwv_sppt + 5 * dir, pmin, pmax);
+        else
+            g_ui.pwv_fppt = ut_clamp_i(g_ui.pwv_fppt + 5 * dir, fmin, fmax);
+        g_ui.pwv_ppt_off = false;
         break;
-    case PW_SPPT:
-        ctrl_set_ppt(hw, hw->ppt_spl,
-                     (hw->ppt_sppt > 0 ? hw->ppt_sppt : 55) - 5, hw->ppt_fppt);
-        break;
-    case PW_FPPT:
-        ctrl_set_ppt(hw, hw->ppt_spl, hw->ppt_sppt,
-                     (hw->ppt_fppt > 0 ? hw->ppt_fppt : 55) - 5);
-        break;
+    }
+    case PW_PRESET_Q: pw_stage_preset(45, 55, 55); break;
+    case PW_PRESET_B: pw_stage_preset(60, 75, 75); break;
+    case PW_PRESET_P: pw_stage_preset(80, 80, 80); break;
+    case PW_PPT_LIMITS: g_ui.pwv_ppt_off = !g_ui.pwv_ppt_off; break;
     case PW_NVBOOST:
-        ctrl_set_nv_boost(hw, (hw->nv_boost > 5 ? hw->nv_boost : 10) - 5);
+        g_ui.pwv_nvboost = ut_clamp_i(g_ui.pwv_nvboost + 5 * dir, 5, 25);
         break;
     case PW_NVTEMP:
-        ctrl_set_nv_temp(hw, (hw->nv_temp > 75 ? hw->nv_temp : 76) - 1);
+        g_ui.pwv_nvtemp = ut_clamp_i(g_ui.pwv_nvtemp + dir, 75, 87);
         break;
-    case PW_PPT_LIMITS:
-        /* toggle row: both directions do the same */
-        if (hw->ppt_off)
-            ctrl_ppt_restore(hw);
-        else
-            ctrl_ppt_off(hw);
+    case PW_PANEL_OD: g_ui.pwv_panel_od = !g_ui.pwv_panel_od; break;
+    case PW_CPUBOOST: g_ui.pwv_cpuboost = !g_ui.pwv_cpuboost; break;
+    case PW_CPUFREQ: {
+        int v = g_ui.pwv_mhz + 100 * dir;
+        if (hw->cpu_mhz_max > 0)
+            v = ut_clamp_i(v, hw->cpu_mhz_min, hw->cpu_mhz_max);
+        g_ui.pwv_mhz = v;
         break;
+    }
     default:
         break;
     }
+    pw_recompute_dirty();
+}
+
+static void pw_apply(void)
+{
+    hw_state_t *hw = g_ui.hw;
+
+    if (g_ui.pwv_ppt_off != hw->ppt_off) {
+        if (g_ui.pwv_ppt_off)
+            ctrl_ppt_off(hw);
+        else
+            ctrl_ppt_restore(hw);
+    }
+    if (!g_ui.pwv_ppt_off &&
+        (g_ui.pwv_spl != hw->ppt_spl || g_ui.pwv_sppt != hw->ppt_sppt ||
+         g_ui.pwv_fppt != hw->ppt_fppt))
+        ctrl_set_ppt(hw, g_ui.pwv_spl, g_ui.pwv_sppt, g_ui.pwv_fppt);
+    if (g_ui.pwv_nvboost != hw->nv_boost)
+        ctrl_set_nv_boost(hw, g_ui.pwv_nvboost);
+    if (g_ui.pwv_nvtemp != hw->nv_temp)
+        ctrl_set_nv_temp(hw, g_ui.pwv_nvtemp);
+    if (g_ui.pwv_panel_od != hw->panel_od)
+        ctrl_set_panel_od(hw, g_ui.pwv_panel_od);
+    if (g_ui.pwv_cpuboost != hw->cpu_boost)
+        ctrl_set_cpu_boost(hw, g_ui.pwv_cpuboost);
+    if (g_ui.pwv_mhz > 0 && g_ui.pwv_mhz != hw->cpu_mhz_limit)
+        ctrl_set_cpu_max_mhz(hw, g_ui.pwv_mhz);
+
+    hw_refresh_live(hw); /* verify the writes by reading back */
+    pw_sync_from_hw();
+}
+
+/* "live" / "--", with "live → staged ●" while an edit is pending */
+static void pw_val(char *out, size_t n, int live, int staged, const char *unit)
+{
+    char lb[14], sb[14];
+    if (live > 0)   snprintf(lb, sizeof(lb), "%d%s", live, unit);
+    else            snprintf(lb, sizeof(lb), "--");
+    if (staged > 0) snprintf(sb, sizeof(sb), "%d%s", staged, unit);
+    else            snprintf(sb, sizeof(sb), "--");
+    if (live > 0 && staged != live)
+        snprintf(out, n, "%s → %s ●", lb, sb);
+    else
+        snprintf(out, n, "%s", lb);
+}
+
+static void pw_val_b(char *out, size_t n, bool live, bool staged)
+{
+    if (staged != live)
+        snprintf(out, n, "%s → %s ●", live ? "on" : "off",
+                 staged ? "on" : "off");
+    else
+        snprintf(out, n, "%s", live ? "on" : "off");
 }
 
 static void draw_power(struct ncplane *n, const rect_t *r)
 {
     const palette_t *pal = ui_palette(g_prefs.theme);
-    hw_state_t *hw = g_ui.hw;
+    const hw_state_t *hw = g_ui.hw;
     int x = r->x + 2, w = r->w - 4;
 
-    char spl[16], sppt[16], fppt[16], nvb[16], nvt[16];
-    if (hw->ppt_spl > 0)  snprintf(spl,  sizeof(spl),  "%d W",  hw->ppt_spl);
-    else                  snprintf(spl,  sizeof(spl),  "--");
-    if (hw->ppt_sppt > 0) snprintf(sppt, sizeof(sppt), "%d W",  hw->ppt_sppt);
-    else                  snprintf(sppt, sizeof(sppt), "--");
-    if (hw->ppt_fppt > 0) snprintf(fppt, sizeof(fppt), "%d W",  hw->ppt_fppt);
-    else                  snprintf(fppt, sizeof(fppt), "--");
-    if (hw->nv_boost > 0) snprintf(nvb, sizeof(nvb), "%d W", hw->nv_boost);
-    else                  snprintf(nvb, sizeof(nvb), "--");
-    if (hw->nv_temp > 0)  snprintf(nvt, sizeof(nvt), "%d °C", hw->nv_temp);
-    else                  snprintf(nvt, sizeof(nvt), "--");
+    char spl[48], sppt[48], fppt[48], nvb[48], nvt[48], cfq[48];
+    char pod[32], cb[32], lim[48];
+    pw_val(spl,  sizeof(spl),  hw->ppt_spl,  g_ui.pwv_spl,  " W");
+    pw_val(sppt, sizeof(sppt), hw->ppt_sppt, g_ui.pwv_sppt, " W");
+    pw_val(fppt, sizeof(fppt), hw->ppt_fppt, g_ui.pwv_fppt, " W");
+    pw_val(nvb,  sizeof(nvb),  hw->nv_boost, g_ui.pwv_nvboost, " W");
+    pw_val(nvt,  sizeof(nvt),  hw->nv_temp,  g_ui.pwv_nvtemp, " °C");
+    pw_val(cfq,  sizeof(cfq),  hw->cpu_mhz_limit, g_ui.pwv_mhz, " MHz");
+    pw_val_b(pod, sizeof(pod), hw->panel_od, g_ui.pwv_panel_od);
+    pw_val_b(cb,  sizeof(cb),  hw->cpu_boost, g_ui.pwv_cpuboost);
+    if (g_ui.pwv_ppt_off != hw->ppt_off)
+        snprintf(lim, sizeof(lim), "%s → %s ●",
+                 hw->ppt_off ? "removed (max)" : "on",
+                 g_ui.pwv_ppt_off ? "removed (max)" : "on");
+    else
+        snprintf(lim, sizeof(lim), "%s", hw->ppt_off ? "removed (max)" : "on");
 
     const char *vals[PW_ROWS] = {
         spl, sppt, fppt,
-        "apply", "apply", "apply",
-        hw->ppt_off ? "removed (max)" : "on",
+        "45/55/55", "60/75/75", "80/80/80",
+        lim,
         nvb, nvt,
-        hw->panel_od ? "on" : "off",
-        hw->cpu_boost ? "on" : "off",
+        pod, cb,
+        cfq,
     };
     static const char *const labels[PW_ROWS] = {
         "SPL (sustained)", "SPPT (slow boost)", "FPPT (fast boost)",
         "Preset Q45", "Preset B60", "Preset P80",
         "PPT limits",
         "NV dynamic boost", "NV temp target",
-        "Panel overdrive", "CPU boost",
+        "Panel overdrive", "CPU boost", "CPU clock limit",
     };
 
-    ui_putln(n, x, r->y + 1, w, "h/l adjust · Enter apply (presets/toggles)", pal->muted, false);
-    int rows = r->h - 3;
+    ui_putln(n, x, r->y + 1, w,
+             "h/←→ stage · w apply · r revert — nothing writes until apply",
+             pal->muted, false);
+    int rows = r->h - 4;
     for (int i = 0; i < PW_ROWS && i < rows; i++) {
         int y = r->y + 2 + i;
         bool sel = (i == g_ui.pw_sel);
         ui_row(n, x, y, w, labels[i], vals[i], sel);
         tgt_register(x, y, w, 1, TGT(TGT_PANEL_WORKSPACE, ACT_WS_PW_BASE + i));
     }
+
+    int by = r->y + r->h - 2;
+    ui_btn(n, x, by, " Apply ", g_ui.pw_dirty, false,
+           TGT(TGT_PANEL_WORKSPACE, ACT_WS_PW_APPLY));
+    ui_btn(n, x + 10, by, " Revert ", false, false,
+           TGT(TGT_PANEL_WORKSPACE, ACT_WS_PW_REVERT));
 }
 
 /* ---- LIGHT view -------------------------------------------------------- */
@@ -311,6 +389,10 @@ static void draw_help(struct ncplane *n, const rect_t *r)
         "CONTROLS / LISTS",
         "  j k          move · h l change value · Enter apply",
         "",
+        "POWER",
+        "  j k          move · h / arrows stage the value (nothing writes)",
+        "  w r          apply all staged edits · revert to live values",
+        "",
         "FAN EDITOR",
         "  c g          switch cpu/gpu curve",
         "  + -          add/remove point · w write to EC",
@@ -336,8 +418,11 @@ static void draw_help(struct ncplane *n, const rect_t *r)
 
 void panel_workspace_draw(struct ncplane *n, const rect_t *r)
 {
-    ui_box(n, r, WS_NAMES[ut_clamp_i(g_ui.ws_view, 0, WSV_COUNT - 1)],
-           g_ui.focus == FOC_WORKSPACE);
+    char title[32];
+    snprintf(title, sizeof(title), "%s%s",
+             WS_NAMES[ut_clamp_i(g_ui.ws_view, 0, WSV_COUNT - 1)],
+             (g_ui.ws_view == WSV_POWER && g_ui.pw_dirty) ? " ●" : "");
+    ui_box(n, r, title, g_ui.focus == FOC_WORKSPACE);
 
     /* view tabs on the border row */
     int tx = r->x + r->w - 42;
@@ -405,11 +490,14 @@ void panel_workspace_key(uint32_t key)
         switch (key) {
         case 'j': case NCKEY_DOWN: g_ui.pw_sel = (g_ui.pw_sel + 1) % PW_ROWS; return;
         case 'k': case NCKEY_UP:   g_ui.pw_sel = (g_ui.pw_sel + PW_ROWS - 1) % PW_ROWS; return;
-        case 'h': case NCKEY_LEFT: pw_dec_row(g_ui.pw_sel); return;
-        case 'l': case NCKEY_RIGHT:
+        case 'h': case NCKEY_LEFT: pw_nudge_row(g_ui.pw_sel, -1); return;
+        case NCKEY_RIGHT:
         case NCKEY_ENTER: case '\r': case '\n': case ' ':
-            pw_apply_row(g_ui.pw_sel);
+            /* values step up; presets stage their bundle; toggles flip */
+            pw_nudge_row(g_ui.pw_sel, +1);
             return;
+        case 'w': case 'W': pw_apply(); return;
+        case 'r': case 'R': pw_sync_from_hw(); return; /* revert staged */
         default: return;
         }
     }
@@ -466,10 +554,16 @@ void panel_workspace_act(int id)
     if (id >= ACT_WS_PW_BASE && id < ACT_WS_PW_BASE + PW_ROWS) {
         int row = id - ACT_WS_PW_BASE;
         if (row == g_ui.pw_sel)
-            pw_apply_row(row);
+            pw_nudge_row(row, +1); /* second click stages/toggles the row */
         else
             g_ui.pw_sel = row;
         return;
+    }
+    switch (id) {
+    case ACT_WS_PW_APPLY: pw_apply(); return;
+    case ACT_WS_PW_REVERT: pw_sync_from_hw(); return;
+    default:
+        break;
     }
     if (id >= ACT_WS_LT_BASE && id < ACT_WS_LT_BASE + LT_ROWS) {
         int row = id - ACT_WS_LT_BASE;

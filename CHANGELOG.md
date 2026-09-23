@@ -8,6 +8,35 @@
 - `--follow`, `--daeboard-start`, `--daeboard-stop`, `--daeboard-reload`.
 - Brightness and static color go through the daemon socket when it is up.
 
+## 2026-09-23 — POWER view: staged edits + Apply/Revert
+
+- h/arrows no longer write per keypress: edits land in `g_ui.pwv_*`
+  staging fields and nothing reaches the hardware until `w` / the
+  ` Apply ` button. One `ctrl_set_ppt` covers the SPL/SPPT/FPPT triple;
+  NV boost/temp, panel OD, CPU boost and clock limit write only when
+  changed. PPT-limit toggle rides along (off writes maxima, restore
+  then values).
+- `r` / ` Revert ` drops staged values back to live. Dirty rows render
+  `live → staged ●`; the panel title shows `POWER ●` while pending.
+- `pw_sync_from_hw()` re-stages from hw at TUI start, after mode or
+  profile apply, and after Apply (read-back verify). Stale nb-wmi reads
+  (≤5 W) keep the written values instead of collapsing to defaults.
+- Mouse: second click on a row stages/toggles it; Apply/Revert are
+  registered click targets. Help view gained a POWER section.
+- Key landscape: 'l' remains the workspace LIGHT switch, so staging is
+  h / ← → / Enter / Space; ESC remains the settings-overlay key, so
+  revert is 'r'. CLI and the CONTROLS panel are unchanged.
+- `make` warning-free, `make test` ok, `--status` live on FA608PP.
+  Interactive TUI field-test on a real terminal still pending.
+
+## 2026-09-23 — CPU clock limit row in the POWER view
+
+- The TUI POWER view gains a "CPU clock limit" row: h/l (or Enter)
+  steps the cpufreq ceiling ±100 MHz through `ctrl_set_cpu_max_mhz`,
+  which walks cpu0..cpuN (the per-CPU path from 09-21). Display reads
+  the live `scaling_max_freq`; `--` when unknown. CLI `--freq` already
+  existed; this is the missing TUI counterpart.
+
 ## 2026-09-22 — battery watts on FA507NVR
 
 - `--status`, `--watch`, and the LIVE strip show battery power.

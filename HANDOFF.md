@@ -1,5 +1,10 @@
 # Ctron Handoff
 
+Latest sessions — **2026-09-23**, two machines in parallel: **Grok /
+FA507NVR / NixOS** (daeboard editor, signed below) and **Kerempkl + GLM /
+FA608PP** (POWER staged-apply). **Read `NEXT.md` first** — it carries the
+prioritized todo list and the distilled session lessons.
+
 ## Signed 2026-09-23 — Grok, FA507NVR, NixOS
 
 Status: **installed** at `~/.local/bin/ctron`. Not left running.
@@ -49,6 +54,42 @@ Checked on the 2026-09-20 binary, then restored:
 - Do not run `--ppt off` on this machine until the ceiling is checked.
   No `asus-armoury`, so the new toggle's maxima are the generic
   90/120/120 W, above the old FA507 80 W cap. Live PPT still reads `--`.
+
+## Session 2026-09-23 — POWER view staged-apply (FA608PP, third session today)
+
+- POWER view no longer writes on every keypress: edits stage in
+  `g_ui.pwv_*` until `w` / ` Apply `; `r` / ` Revert ` reloads from hw.
+  Dirty rows render `live → staged ●`, title shows `POWER ●`. Presets
+  stage their triple (staged watts imply limits back on).
+- `pw_sync_from_hw()` runs at TUI start, after mode apply (controls
+  panel) and profile apply, and after power Apply (which ends with a
+  `hw_refresh_live` read-back). Stale nb-wmi reads keep the written
+  values, not defaults.
+- 'l' stays the LIGHT view-switch (workspace level), so staging uses
+  h/←/→/Enter/Space; ESC stays the settings-overlay key, revert is 'r'.
+- Verified: warning-free `make`, `make test`, `--status` on FA608PP.
+  Interactive TUI field-test on a real terminal pending at handoff
+  (plain-pty smoke still blocked by the known harness issue, NEXT.md
+  item 2). Committed and rebased over the daeboard line (b931cd0);
+  doc conflicts with the Grok session resolved keeping both records.
+
+## Session 2026-09-23 — fragile-idiom cleanup + NEXT.md
+
+- No behaviour changes: `ut_path_join()` replaced the `strcat(strcpy())`
+  chains in `hw.c`; `ui_btn_row()` replaced hand-counted button offsets;
+  `dash_if()` no longer uses a static ring. All committed by the user as
+  "Session 2026-09-22 4".
+- Arcioth added `PLANS.md` (fullscreen dashboard telemetry, daeboard
+  client/control) — later-stage add-ons, see NEXT.md ordering.
+- Worktree clean at `4db3e96`; next work starts from NEXT.md items 1-2
+  (hwmon path caching, repo pty harness).
+- Same day, second ZCode session: POWER view gained a "CPU clock limit"
+  row — NEXT.md item 3 — h/l/Enter steps ±100 MHz through the per-CPU
+  `ctrl_set_cpu_max_mhz`; value is the live `scaling_max_freq` (`--`
+  when unknown). `make` warning-free, `make test` ok, `--status` live
+  on FA608PP (limit 2401 MHz). The "tctl-vari gösterge" half of item 3
+  stays open. Uncommitted at handoff: this row + the NEXT/HANDOFF/
+  CHANGELOG doc edits — commit as one unit.
 
 ## Session 2026-09-22 — settings overlay + live layout
 

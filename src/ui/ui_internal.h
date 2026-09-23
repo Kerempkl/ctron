@@ -70,6 +70,12 @@ typedef struct ui_ctx {
 
     /* power view */
     int pw_sel;
+    /* staged edits — h/arrows only mutate these; nothing is written
+     * until Apply (w key / button) */
+    int pwv_spl, pwv_sppt, pwv_fppt;   /* W */
+    int pwv_nvboost, pwv_nvtemp, pwv_mhz;
+    bool pwv_panel_od, pwv_cpuboost, pwv_ppt_off;
+    bool pw_dirty;
 
     /* light view */
     int lt_sel, lt_eff, lt_col;
@@ -157,6 +163,10 @@ void panel_controls_act(int id);
 void panel_workspace_draw(struct ncplane *n, const rect_t *r);
 void panel_workspace_key(uint32_t key);
 void panel_workspace_act(int id);
+/* (Re)stage power-view values from the live hw state. Unknown/stale
+ * reads keep the current staged value. Callers: TUI start, mode/profile
+ * apply, power Apply/Revert. */
+void pw_sync_from_hw(void);
 
 void panel_telemetry_draw(struct ncplane *n, const rect_t *r);
 
