@@ -117,3 +117,138 @@ Commands the daemon accepts today:
 - starting the daemon
 - a NixOS unit
 - rainbow, breathe, or pulse through the socket
+
+## daeboard control
+
+Not built. This is the step after the client above. ctron can start the
+daemon, stop it, and edit what a key does. The daemon still owns the
+keys and the LED. ctron does not read evdev.
+
+Two kinds of action, stored in one file
+`~/.config/ctron/daeboard.binds`. A light bind is a macro: a list of
+color shifts and pauses, played when the key goes down and, if wanted,
+when it comes up. A ctron line is a `cmd_run` pair. The same key may
+have both. The root daemon never execs the ctron line.
+
+```
+[enter]
+down = color 000000 120, color ccfffe 120, color 000000 120, color ccfffe 120
+
+[backspace]
+down = color ff0000 0
+up = fade 2000
+
+[leftmeta]
+down = breathe 0
+up = color ccfffe 0
+
+[f6]
+ctron = profile performance
+```
+
+A step is one of:
+
+| Step | Meaning |
+|---|---|
+| `color RRGGBB ms` | one static write, then hold `ms` |
+| `brightness N ms` | `N` is 0–3, then hold `ms` |
+| `breathe ms` | firmware breathe; `0` means until the key comes up |
+| `fade ms` | move from the color on screen to the resting color across `ms` |
+| `rest` | the saved static color, no pause |
+
+`ms` is the pause. `0` holds that step until the matching key-up, or
+until a newer key takes the LED. The examples above are the three
+gestures the daemon does today, written as macros, not special cases.
+
+ctron is the only writer of the file. The daemon runs as root, so it
+does not look at `$HOME`. It is started with
+`--binds ~/.config/ctron/daeboard.binds`. After a change ctron sends
+`reload`. The daemon compiles each macro into a short frame list at
+reload and does not parse text when a key arrives. One `timerfd` stays
+armed only while a pause is running. No malloc on the key path. A cap
+of 32 steps per edge is enough for a backlight macro; longer files are
+`err` at reload. Smoother fades and tighter scheduling wait until the
+editor works.
+
+A `ctron` line runs only when a user-level follower is connected.
+`ctron --follow` is that follower: headless, not root, started from the
+user session. The open TUI can be the follower instead, so a second
+process is not required while ctron is on screen. If nobody is
+listening, the light half still happens and the ctron half does not.
+
+The daemon tells followers `fire f6`. It does not send the key code,
+and it does not send keys that are not in the file.
+
+### Why not the other two shapes
+
+Socket-only, as the daemon is today (`color`, `brightness`, `quit`),
+can start and stop and can set the resting color. It cannot rebind a
+key. The gestures stay compiled in.
+
+Letting the daemon run `ctron --profile …` itself would work with the
+TUI closed and with no follower. It also makes a root process a
+launcher. That stays out.
+
+### Start, stop, install
+
+ctron already refuses a write when `sudo -n` is missing. Same rule here.
+The TUI does not compile daeboard.
+
+How a machine gets the binary, in the order a packager should document:
+
+1. **Install script** in the daeboard repo, for any systemd distro that
+   is not NixOS. It installs the built binary and a system unit.
+   Passwordless sudo only when ctron launches it.
+2. **AUR** (`daeboard`, and `daeboard-git` if a VCS package is worth
+   it). Not published yet. ctron's Install row can say the package name
+   and stop. It does not run `yay`.
+3. **NixOS**, this machine. No unit dropped into `/etc`, no
+   `nixos-rebuild` from the TUI. Start is the transient unit below.
+   A module under `~/Documents/nixos` stays a hand edit.
+4. **Flatpak.** Not a target. The daemon needs root writes to
+   `asus::kbd_backlight` and a read of the real keyboard evdev node.
+   A sandbox that can do both is not a Flatpak anymore. The docs should
+   say that in one paragraph so nobody files it as a missing package.
+
+- **Start.** `sudo -n systemd-run --unit=daeboard --collect` on the
+  binary path. Probe with `ping` afterwards. The path is
+  `daeboard` on `PATH`, or `daeboard_bin` in `settings.ini`.
+- **Stop.** One explicit control sends `quit`. Modes and profiles do
+  not. `quit` restores the resting color and exits. This is the
+  exception to "do not send quit" in the client section above.
+
+### What the socket grows
+
+`reload` is the edit path. The macro does not ride inside one command.
+Still `ok` / `err`. `err` names the line when the file does not compile.
+
+| Send | Reply |
+|---|---|
+| `reload` | `ok`, or `err` plus a line number |
+| `color RRGGBB` | `ok`, resting color, already implemented |
+| `brightness N` | `ok`, already implemented |
+| `quit` | `ok`, stop, from the Stop control only |
+
+`ping` stays the running check.
+
+### Editor in the TUI
+
+A row on the LIGHT view, not a new screen.
+
+- Running or stopped, from `ping`.
+- Start, Stop, and Install. Install runs the script when the binary is
+  missing and sudo -n works, or names the AUR package. It does not
+  compile, and it does not touch NixOS.
+- Resting color and brightness.
+- Per key: a down list and an up list of steps (color, brightness,
+  breathe, fade, rest, each with a pause). Plus an optional `cmd_run`
+  pair. Saving writes `daeboard.binds` and sends `reload`.
+
+### First cut of this section does not include
+
+- the daemon executing ctron
+- a raw key stream on the socket
+- compiling daeboard from the TUI
+- `nixos-rebuild` or Flatpak
+- per-key color (this keyboard is one zone)
+- tightening the frame clock beyond the 32-step list
