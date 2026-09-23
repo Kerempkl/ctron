@@ -149,6 +149,77 @@ static int ppt_from_node(const char *attr)
     return v;
 }
 
+/* Battery power. ASUS reports current_now as a positive magnitude and
+ * puts the direction in `status`, so the sign is applied here.
+ * power_now is µW; otherwise µA * µV. */
+static void read_bat_power(hw_state_t *hw, const char *bat)
+{
+    char path[340];
+    long long uw = 0;
+    bool have = false;
+
+    hw->bat_mw_known = false;
+    hw->bat_mw = 0;
+
+    if (ut_path_join(path, sizeof(path), bat, "power_now") == 0) {
+        int v = ut_read_int(path);
+        if (v >= 0) {
+            uw = v;
+            have = true;
+        }
+    }
+    if (!have &&
+        ut_path_join(path, sizeof(path), bat, "current_now") == 0) {
+        int ua = ut_read_int(path);
+        int uv = -1;
+        if (ut_path_join(path, sizeof(path), bat, "voltage_now") == 0)
+            uv = ut_read_int(path);
+        if (ua >= 0 && uv > 0) {
+            uw = (long long)ua * (long long)uv / 1000000LL; /* µW */
+            have = true;
+        }
+    }
+    if (!have)
+        return;
+
+    int mag = (int)(uw / 1000LL); /* mW */
+    if (mag < 0)
+        mag = 0;
+    if (!strcasecmp(hw->bat_status, "Charging"))
+        hw->bat_mw = -mag;
+    else if (!strcasecmp(hw->bat_status, "Discharging"))
+        hw->bat_mw = mag;
+    else
+        hw->bat_mw = 0;
+    hw->bat_mw_known = true;
+}
+
+void hw_fmt_power(char *out, size_t n, bool known, int mw)
+{
+    if (!out || n == 0)
+        return;
+    if (!known) {
+        snprintf(out, n, "--");
+        return;
+    }
+    const char *tag;
+    int mag;
+    if (mw >= 100) {
+        tag = "dis";
+        mag = mw;
+    } else if (mw <= -100) {
+        tag = "chg";
+        mag = -mw;
+    } else {
+        snprintf(out, n, "0.0W");
+        return;
+    }
+    int tenths = (mag + 50) / 100;
+    if (tenths < 1)
+        tenths = 1;
+    snprintf(out, n, "%s %d.%dW", tag, tenths / 10, tenths % 10);
+}
+
 /* ---- fan curve hwmon -------------------------------------------------- */
 
 static void fan_read_one(const char *base, const char *pwm, fan_curve_t *fc)
@@ -361,6 +432,7 @@ void hw_refresh_fast(hw_state_t *hw)
             ut_read_file(p, st, sizeof(st));
         if (st[0])
             snprintf(hw->bat_status, sizeof(hw->bat_status), "%s", st);
+        read_bat_power(hw, bat);
     }
 
     char ac[256];

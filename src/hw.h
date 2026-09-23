@@ -57,6 +57,8 @@ typedef struct {
     int bat_pct;
     char bat_status[16];
     bool ac_online;
+    bool bat_mw_known;     /* bat_mw valid */
+    int bat_mw;            /* mW, >0 discharging, <0 charging */
     int bat_limit;         /* charge_control_end_threshold, 0 unknown */
     int ppt_spl, ppt_sppt, ppt_fppt;   /* W, 0 unknown/stale */
     bool ppt_off;                       /* limits removed (platform maxima) */
@@ -93,5 +95,8 @@ int hw_armoury_read(const char *attr, char *out, size_t n);
 
 /* hwmon path lookup by name (e.g. "k10temp"). 0 on success. */
 int hw_hwmon_path(const char *name, char *out, size_t n);
+
+/* "dis 31.6W", "chg 12.0W", "0.0W", or "--" when unknown. */
+void hw_fmt_power(char *out, size_t n, bool known, int mw);
 
 #endif /* CTRON_HW_H */

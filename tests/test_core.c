@@ -162,6 +162,19 @@ static void check_kde_parser(void)
     CHECK(cur == 165, "kde current hz (marked with *)");
 }
 
+static void check_power_fmt(void)
+{
+    char b[32];
+    hw_fmt_power(b, sizeof(b), false, 0);
+    CHECK(!strcmp(b, "--"), "power unknown");
+    hw_fmt_power(b, sizeof(b), true, 31558);
+    CHECK(!strcmp(b, "dis 31.6W"), "discharge watts");
+    hw_fmt_power(b, sizeof(b), true, -12040);
+    CHECK(!strcmp(b, "chg 12.0W"), "charge watts");
+    hw_fmt_power(b, sizeof(b), true, 40);
+    CHECK(!strcmp(b, "0.0W"), "idle watts");
+}
+
 int main(void)
 {
     check_fan_csv();
@@ -170,6 +183,7 @@ int main(void)
     check_modes();
     check_profiles();
     check_kde_parser();
+    check_power_fmt();
 
     if (failures) {
         fprintf(stderr, "%d failure(s)\n", failures);

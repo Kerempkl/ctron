@@ -327,8 +327,17 @@ static void ui_layout(unsigned dimy, unsigned dimx)
     if (!g_prefs.telem_top && telem_y + telem_h < H)
         g_ui.rc_telem.h = H - telem_y; /* absorb rounding at the bottom */
 
-    /* settings overlay: centred floating window, not the whole screen */
-    {
+    /* settings overlay: centred floating window, not the whole screen.
+     * the daeboard editor uses the same slot but nearly the full frame. */
+    if (g_ui.db_overlay) {
+        int ow = W - 4;
+        int oh = H - top - 2;
+        if (ow < 20)
+            ow = W;
+        if (oh < 8)
+            oh = H - top;
+        g_ui.rc_overlay = (rect_t){ (W - ow) / 2, top, ow, oh };
+    } else {
         int ow = W - 6;
         if (ow > 96)
             ow = 96;
@@ -407,6 +416,18 @@ static void handle_mouse(struct ncplane *stdn, const struct ncinput *ni, uint32_
 
     /* while the settings window is open, it is the only clickable layer:
      * a click outside closes it (btop habit), inside only its rows act */
+    if (g_ui.db_overlay) {
+        const rect_t *w = &g_ui.rc_overlay;
+        int t;
+        if (mx < w->x || mx >= w->x + w->w || my < w->y || my >= w->y + w->h) {
+            g_ui.db_overlay = false;
+            return;
+        }
+        t = tgt_find(mx, my);
+        if (((t >> 24) & 0x7f) == TGT_PANEL_DAEBOARD)
+            editor_daeboard_act(t & TGT_ID_MASK);
+        return;
+    }
     if (g_ui.settings_overlay) {
         const rect_t *w = &g_ui.rc_overlay;
         if (mx < w->x || mx >= w->x + w->w || my < w->y || my >= w->y + w->h) {
@@ -481,6 +502,10 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
         return;
     }
 
+    if (g_ui.db_overlay) {
+        editor_daeboard_key(key);
+        return;
+    }
     if (g_ui.settings_overlay) {
         if (key == NCKEY_ESC || key == 's' || key == 'S') {
             g_ui.settings_overlay = false;
@@ -599,7 +624,9 @@ int ui_run(hw_state_t *hw)
         panel_controls_draw(stdn, &g_ui.rc_ctl);
         panel_workspace_draw(stdn, &g_ui.rc_ws);
         panel_telemetry_draw(stdn, &g_ui.rc_telem);
-        if (g_ui.settings_overlay)
+        if (g_ui.db_overlay)
+            editor_daeboard_draw(stdn, &g_ui.rc_overlay);
+        else if (g_ui.settings_overlay)
             panel_settings_draw(stdn, &g_ui.rc_overlay);
 
         notcurses_render(nc);

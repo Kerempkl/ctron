@@ -45,6 +45,7 @@ typedef struct ui_ctx {
     focus_t focus;
     ws_view_t ws_view;
     bool settings_overlay; /* ESC: fullscreen settings over everything */
+    bool db_overlay;       /* dedicated daeboard editor / installer */
     rect_t rc_overlay;     /* settings overlay rectangle (below top bar) */
 
     rect_t rc_prof, rc_ctl, rc_ws, rc_telem;
@@ -129,6 +130,7 @@ enum {
     TGT_PANEL_CONTROLS,
     TGT_PANEL_WORKSPACE,
     TGT_PANEL_SETTINGS,
+    TGT_PANEL_DAEBOARD,
 };
 
 void tgt_clear(void);
@@ -166,6 +168,11 @@ void panel_settings_act(int id);
 
 /* Open the settings overlay (from the SET tab / controls row / 's'). */
 void settings_open(void);
+
+void editor_daeboard_open(void);
+void editor_daeboard_draw(struct ncplane *n, const rect_t *r);
+void editor_daeboard_key(uint32_t key);
+void editor_daeboard_act(int id);
 
 void editor_fan_draw(struct ncplane *n, const rect_t *r);
 void editor_fan_key(uint32_t key);

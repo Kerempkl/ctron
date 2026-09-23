@@ -10,6 +10,7 @@
 
 #include "cmds.h"
 #include "control.h"
+#include "daeboard.h"
 #include "hw.h"
 #include "modes.h"
 #include "profile.h"
@@ -56,6 +57,10 @@ static void print_usage(const char *prog)
     printf("  --panel-od on|off       panel overdrive\n");
     printf("  --cpu-boost on|off      cpufreq boost\n");
     printf("  --kbd off|low|med|high  keyboard backlight\n");
+    printf("  --follow            run ctron actions from daeboard binds\n");
+    printf("  --daeboard-start    start the daemon (sudo -n systemd-run)\n");
+    printf("  --daeboard-stop     ask the daemon to quit\n");
+    printf("  --daeboard-reload   recompile ~/.config/ctron/daeboard.binds\n");
     printf("  --aura <effect> [color|hex]\n");
     printf("  --fan stock|silent|cool|full|on|off\n");
     printf("  --fan-curve cpu|gpu <temps> <pwms>\n");
@@ -96,8 +101,10 @@ static int cmd_status(hw_state_t *hw)
             printf("%s%d", i ? ", " : "", hw->hz_modes[i]);
         printf(" Hz\n");
     }
-    printf("  Battery        : %d%% %s%s limit %d%%\n", hw->bat_pct,
-           hw->bat_status, hw->ac_online ? " (AC)" : "", hw->bat_limit);
+    char pwr[24];
+    hw_fmt_power(pwr, sizeof(pwr), hw->bat_mw_known, hw->bat_mw);
+    printf("  Battery        : %d%% %s %s%s limit %d%%\n", hw->bat_pct,
+           hw->bat_status, pwr, hw->ac_online ? " (AC)" : "", hw->bat_limit);
     printf("  PPT            : %s / %s / %s W (SPL/SPPT/FPPT; -- until written)\n",
            dash_if(v1, sizeof(v1), hw->ppt_spl),
            dash_if(v2, sizeof(v2), hw->ppt_sppt),
@@ -130,12 +137,13 @@ static int cmd_watch(hw_state_t *hw)
     setvbuf(stdout, NULL, _IONBF, 0);
     printf("ctron watch — Ctrl-C stops\n");
     while (s_watch_run) {
-        char rc[16], rg[16];
+        char rc[16], rg[16], pwr[24];
         hw_refresh_fast(hw);
-        printf("\r %3d°C  GPU %2d°C  %4d MHz  fan %4s/%4s rpm  BAT %3d%% %-11s %s   ",
+        hw_fmt_power(pwr, sizeof(pwr), hw->bat_mw_known, hw->bat_mw);
+        printf("\r %3d°C  GPU %2d°C  %4d MHz  fan %4s/%4s rpm  BAT %3d%% %-11s %s  %s   ",
                hw->cpu_temp, hw->gpu_temp, hw->cpu_mhz_cur,
                dash_if(rc, sizeof(rc), hw->rpm_cpu), dash_if(rg, sizeof(rg), hw->rpm_gpu),
-               hw->bat_pct, hw->bat_status, hw_profile_name(hw->profile));
+               hw->bat_pct, hw->bat_status, pwr, hw_profile_name(hw->profile));
         usleep((useconds_t)g_prefs.poll_ms * 1000);
     }
     printf("\n");
@@ -303,6 +311,32 @@ static int run_flag(hw_state_t *hw, const char *key, const char *val)
     return rc;
 }
 
+static int follow_fire(const char *key, void *ud)
+{
+    hw_state_t *hw = ud;
+    char path[512];
+    char text[8192];
+    char cmd[64];
+    char val[128];
+    FILE *f;
+    size_t n;
+
+    db_binds_path(path, (int)sizeof path);
+    f = fopen(path, "r");
+    if (!f) {
+        fprintf(stderr, "ctron: no %s\n", path);
+        return 0;
+    }
+    n = fread(text, 1, sizeof text - 1, f);
+    fclose(f);
+    text[n] = 0;
+    if (db_action_in(text, key, cmd, (int)sizeof cmd, val, (int)sizeof val) != 0)
+        return 0;
+    fprintf(stderr, "ctron: fire %s -> %s %s\n", key, cmd, val);
+    run_flag(hw, cmd, val);
+    return 0;
+}
+
 /* ---- main ------------------------------------------------------------------ */
 
 int main(int argc, char *argv[])
@@ -378,6 +412,22 @@ int main(int argc, char *argv[])
         return cmd_profile(argc, argv, &hw);
 
     /* status / watch need a live snapshot */
+    if (!strcmp(argv[1], "--follow")) {
+        return db_follow(follow_fire, &hw);
+    }
+    if (!strcmp(argv[1], "--daeboard-start")) {
+        return db_start() == 0 ? 0 : 1;
+    }
+    if (!strcmp(argv[1], "--daeboard-stop")) {
+        return db_quit() == 0 ? 0 : 1;
+    }
+    if (!strcmp(argv[1], "--daeboard-reload")) {
+        char err[64];
+        if (db_reload(err, (int)sizeof err) == 0)
+            return 0;
+        fprintf(stderr, "ctron: daeboard %s\n", err[0] ? err : "reload failed");
+        return 1;
+    }
     if (!strcmp(argv[1], "--status") || !strcmp(argv[1], "-s")) {
         hw_refresh_live(&hw);
         return cmd_status(&hw);

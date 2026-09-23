@@ -3,17 +3,17 @@ CFLAGS ?= -std=c11 -Wall -Wextra -O2 -Isrc -D_GNU_SOURCE \
           $(shell pkg-config --cflags notcurses 2>/dev/null)
 LDLIBS ?= $(shell pkg-config --libs notcurses 2>/dev/null || echo -lnotcurses)
 
-SRC = src/main.c src/util.c src/hw.c src/control.c src/fan.c src/cmds.c \
+SRC = src/main.c src/util.c src/hw.c src/control.c src/daeboard.c src/fan.c src/cmds.c \
       src/modes.c src/profile.c src/settings.c \
       src/ui/ui.c src/ui/panel_profiles.c src/ui/panel_controls.c \
       src/ui/panel_workspace.c src/ui/panel_telemetry.c src/ui/panel_settings.c \
-      src/ui/editor_fan.c \
+      src/ui/editor_fan.c src/ui/editor_daeboard.c \
       src/display/display.c src/display/display_kde.c src/display/display_hypr.c
 OBJ = $(SRC:src/%.c=build/%.o)
 TARGET = build/ctron
 
 TEST_SRC = tests/test_core.c
-TEST_OBJ = util hw control fan cmds modes profile settings \
+TEST_OBJ = util hw control daeboard fan cmds modes profile settings \
            display/display display/display_kde display/display_hypr
 TEST_LIBOBJ = $(addprefix build/,$(addsuffix .o,$(TEST_OBJ)))
 TEST_BIN = build/test_core
@@ -30,8 +30,13 @@ build/%.o: src/%.c $(HEADERS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-test: $(TEST_BIN)
+test: $(TEST_BIN) build/test_daeboard
 	$(TEST_BIN)
+	./build/test_daeboard
+
+build/test_daeboard: tests/test_daeboard.c src/daeboard.c src/util.c src/daeboard.h src/util.h
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -o $@ tests/test_daeboard.c src/daeboard.c src/util.c
 
 $(TEST_BIN): $(TEST_SRC) $(TEST_LIBOBJ)
 	@mkdir -p $(dir $@)

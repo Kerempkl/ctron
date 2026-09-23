@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-09-23 — daeboard editor
+
+- LIGHT view, **b**, opens the macro editor. Down and Up are side by side.
+  Presets append. Add key and Change key take the next keypress.
+  Del key removes the row. Save writes `daeboard.binds` and reloads.
+- `--follow`, `--daeboard-start`, `--daeboard-stop`, `--daeboard-reload`.
+- Brightness and static color go through the daemon socket when it is up.
+
+## 2026-09-22 — battery watts on FA507NVR
+
+- `--status`, `--watch`, and the LIVE strip show battery power.
+  `power_now` when present, otherwise `current_now` × `voltage_now`.
+  Discharging is `dis 31.6W`, charging is `chg 12.0W`.
+- Rebuilt and installed to `~/.local/bin/ctron`. On this machine,
+  discharging at about 33 W. `--epp` now lands on all 16 CPUs.
+
 ## 2026-09-22 — fragile-idiom cleanup (no behaviour change)
 
 - `ut_path_join()` (bounds-checked) replaces the five

@@ -2,11 +2,13 @@
 #define _GNU_SOURCE
 #endif
 #include "ui_internal.h"
+#include "daeboard.h"
 #include "../control.h"
 #include "../util.h"
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 /* Right-top workspace. The left column decides what is shown here via
  * ws_set_view(); workspace-local keys F/P/L/S/E switch views directly. */
@@ -182,6 +184,12 @@ enum {
     LT_EFFECT,
     LT_COLOR,
     LT_HEX,
+    LT_DAEMON,
+    LT_START,
+    LT_STOP,
+    LT_INSTALL,
+    LT_RELOAD,
+    LT_EDITOR,
     LT_ROWS
 };
 
@@ -202,6 +210,29 @@ static void lt_apply_row(int row)
         else
             ut_log("hex: need 6 digits");
         break;
+    case LT_START:
+        if (db_start() != 0)
+            ut_log("daeboard: start failed");
+        break;
+    case LT_STOP:
+        if (db_quit() != 0)
+            ut_log("daeboard: stop failed");
+        break;
+    case LT_INSTALL:
+        if (db_install() != 0)
+            ut_log("daeboard: install failed");
+        break;
+    case LT_EDITOR:
+        editor_daeboard_open();
+        break;
+    case LT_RELOAD: {
+        char err[64];
+        if (db_reload(err, (int)sizeof err) != 0)
+            ut_log("daeboard: %s", err[0] ? err : "reload failed");
+        else
+            ut_log("daeboard: binds reloaded");
+        break;
+    }
     default:
         break;
     }
@@ -220,17 +251,33 @@ static void draw_light(struct ncplane *n, const rect_t *r)
         snprintf(hexline, sizeof(hexline), "#%s (type 0-9a-f, Enter applies)",
                  g_ui.lt_hex.buf);
 
+    static time_t probed;
+    static int up;
+    time_t now = time(NULL);
+    char note[160];
+    if (now != probed) {
+        up = db_up();
+        probed = now;
+    }
+    db_install_note(note, (int)sizeof note);
     const char *vals[LT_ROWS] = {
         KBDS[ut_clamp_i(g_ui.ctl_kbd_idx, 0, 3)],
         AURA_EFFECTS[ut_clamp_i(g_ui.lt_eff, 0, AURA_EFFECT_COUNT - 1)],
         AURA_COLOR_NAMES[ut_clamp_i(g_ui.lt_col, 0, AURA_COLOR_COUNT - 1)],
         hexline,
+        up ? "running" : "stopped",
+        "systemd-run",
+        "quit",
+        note,
+        "daeboard.binds",
+        "b",
     };
     static const char *const labels[LT_ROWS] = {
         "Kbd brightness", "Aura effect", "Aura color", "Custom hex",
+        "Daemon", "Start", "Stop", "Install", "Reload binds", "Editor",
     };
 
-    ui_putln(n, x, r->y + 1, w, "h/l change · Enter apply · x to type hex", pal->muted, false);
+    ui_putln(n, x, r->y + 1, w, "h/l change · Enter apply · b editor", pal->muted, false);
     int rows = r->h - 3;
     for (int i = 0; i < LT_ROWS && i < rows; i++) {
         int y = r->y + 2 + i;
@@ -385,6 +432,9 @@ void panel_workspace_key(uint32_t key)
             case LT_COLOR:  g_ui.lt_col = (g_ui.lt_col + 1) % AURA_COLOR_COUNT; break;
             default: break;
             }
+            return;
+        case 'b': case 'B':
+            editor_daeboard_open();
             return;
         case 'x': case 'X':
             g_ui.lt_hex_active = 1;

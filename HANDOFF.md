@@ -1,7 +1,54 @@
 # Ctron Handoff
 
-Latest session: **2026-09-22** (FA608PP / KDE / CachyOS, with the ZCode
-"GLM" agent). Previous sessions below.
+## Signed 2026-09-23 — Grok, FA507NVR, NixOS
+
+Status: **installed** at `~/.local/bin/ctron`. Not left running.
+
+Last ship: LIGHT view, **b**, opens the daeboard editor. Down and Up are side by side. Presets append. Add key and Change key wait for a real keypress; Change key keeps the steps. Del key removes the row. Del on a step removes the step. Start, Stop, Install, Save. `--follow`, `--daeboard-start`, `--daeboard-stop`, `--daeboard-reload`. While the daemon answers ping, brightness and static color use the socket. Other aura effects are refused.
+
+Known issues:
+
+- Quit any ctron that was already open before using this binary. An old process will save a chopped binds line.
+- `key6` in `~/.config/ctron/daeboard.binds` is not a real key. Del key it, or Change key it.
+- A step cannot be moved from Down to Up.
+- Install on this NixOS machine starts the daemon. It does not run `install.sh`.
+- Battery watts (2026-09-22, previously uncommitted) are in this same tree: `--status`, `--watch`, and the LIVE strip.
+
+Resume: open ctron, LIGHT, **b**, Save after edits. Plan text is `PLANS.md`.
+
+Latest earlier session: **2026-09-22** (FA608PP / KDE / CachyOS, with the ZCode
+"GLM" agent). Pulled to `68de7e6` on FA507NVR, then rebuilt and installed
+to `~/.local/bin/ctron` (still reports `2.0.0-deno`). Previous sessions below.
+
+## FA507NVR — 2026-09-22, installed build
+
+- Battery power is in `--status`, `--watch`, and the LIVE strip.
+  This pack has no `power_now`; watts are `current_now` × `voltage_now`.
+  Sample while unplugged: `BAT 41% Discharging dis 33.6W`.
+- Retest on that binary, then restored to the state found at the start
+  of the run (not Quiet): profile **Performance**, EPP `performance` on
+  all 16 CPUs, keyboard off. `--epp balance_performance` reached all 16
+  CPUs and restored. `--kbd low` → brightness `1` → off.
+  `--profile balanced` swapped in the Balanced fan curve and
+  `balance_power` on all 16; `--profile performance` put both back.
+- PPT was already `60/75/75` before this run and was not written.
+  Readback works. Do not run `--ppt off` here: no `asus-armoury`, so the
+  generic ceiling is 90/120/120 W.
+
+## FA507NVR — 2026-09-22, old binary
+
+Checked on the 2026-09-20 binary, then restored:
+
+- `--kbd low` → brightness `1`, restored `off`.
+- `--profile balanced` loads that profile's fan curve and sets EPP
+  `balance_power` on all 16 CPUs. `--profile quiet` put both back.
+  Quiet curve: CPU `42,44,49,63,65,67,80,86` / `0,31,63,127,159,191,223,255`,
+  GPU `40,42,43,60,65,69,74,78` / `5,20,38,43,255,255,255,255`, both on.
+- `--epp` on that binary wrote cpu0 only. `68de7e6` walks every CPU;
+  not rebuilt here yet.
+- Do not run `--ppt off` on this machine until the ceiling is checked.
+  No `asus-armoury`, so the new toggle's maxima are the generic
+  90/120/120 W, above the old FA507 80 W cap. Live PPT still reads `--`.
 
 ## Session 2026-09-22 — settings overlay + live layout
 

@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #endif
 #include "control.h"
+#include "daeboard.h"
 #include "util.h"
 #include "settings.h"
 #include "display/display.h"
@@ -345,6 +346,15 @@ int ctrl_set_kbd(hw_state_t *hw, hw_kbd_t lvl)
 {
     if (lvl < 0 || lvl >= HW_KBD_COUNT)
         return -1;
+    if (db_up()) {
+        if (db_set_brightness((int)lvl) == 0) {
+            hw->kbd = lvl;
+            ut_log("kbd backlight: %s via daeboard", hw_kbd_name(lvl));
+            return 0;
+        }
+        ut_log("kbd backlight: daeboard refused");
+        return -1;
+    }
     int rc = -1;
 
     if (hw->has_asusctl && use_asusctl_first()) {
@@ -371,13 +381,26 @@ int ctrl_set_aura(hw_state_t *hw, int effect_idx, int color_idx)
     if (color_idx < 0 || color_idx >= AURA_COLOR_COUNT)
         color_idx = 0;
 
+    const char *effect = AURA_EFFECTS[effect_idx];
+    const char *hex = AURA_COLOR_HEX[color_idx];
+
+    if (db_up()) {
+        if (!strcmp(effect, "static")) {
+            if (db_set_color(hex) == 0) {
+                ut_log("aura: static via daeboard");
+                return 0;
+            }
+            ut_log("aura: daeboard color failed");
+            return -1;
+        }
+        ut_log("aura: %s stays with daeboard macros, not asusctl", effect);
+        return -1;
+    }
+
     if (!hw->has_asusctl) {
         ut_log("aura: asusctl not available");
         return -1;
     }
-
-    const char *effect = AURA_EFFECTS[effect_idx];
-    const char *hex = AURA_COLOR_HEX[color_idx];
     char cmd[192];
 
     if (!strcmp(effect, "static") || !strcmp(effect, "pulse") ||
@@ -409,6 +432,14 @@ int ctrl_set_aura_hex(hw_state_t *hw, const char *hex)
 {
     if (!hex || strlen(hex) < 6 || strspn(hex, "0123456789abcdefABCDEF") != strlen(hex))
         return -1;
+    if (db_up()) {
+        if (db_set_color(hex) == 0) {
+            ut_log("aura: static #%s via daeboard", hex);
+            return 0;
+        }
+        ut_log("aura: daeboard color failed");
+        return -1;
+    }
     if (!hw->has_asusctl) {
         ut_log("aura: asusctl not available");
         return -1;
