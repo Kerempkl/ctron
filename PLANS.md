@@ -74,3 +74,46 @@ Missing file or unknown name falls back to `none` and logs one line.
 - a new library (still notcurses only)
 - history on disk
 - per-core graphs (one clock and one temp is enough until the layout holds)
+
+## daeboard client
+
+Not built. daeboard is a separate root daemon
+(`~/Documents/daeboard`, socket `/run/daeboard/daeboard.sock`). While it
+is running it owns the FA507NVR keyboard color. ctron must not also call
+`asusctl aura` or write `kbd_rgb_mode` in that same action.
+
+The socket is `AF_UNIX` `SOCK_SEQPACKET`, mode `0660`, group `wheel`.
+ctron stays unprivileged. One `send` is one command, at most 64 bytes.
+One `recv` is the reply: `pong`, `ok`, or `err`. No new library.
+
+Commands the daemon accepts today:
+
+| Send | Reply | Effect |
+|---|---|---|
+| `ping` | `pong` | daemon is up |
+| `brightness N` | `ok` | `N` is `0`–`3` |
+| `color RRGGBB` | `ok` | six hex digits, sets the normal static color |
+| `quit` | `ok` | daemon restores the normal color and exits |
+
+`brightness` maps onto the existing levels: off `0`, low `1`, med `2`, high `3`.
+
+### Steps
+
+1. Add `src/daeboard.c` / `daeboard.h`. Connect, send, recv, close. No link to the daemon tree.
+2. Probe once when a light command runs, and when the LIGHT view opens. `ping` / `pong` means use the socket. Any failure means keep `ctrl_set_kbd` and `ctrl_set_aura` as they are.
+3. `ctrl_set_kbd`: if the probe worked, send `brightness` and the digit. Do not also run `asusctl leds` or the sysfs write.
+4. `ctrl_set_aura_hex`, and `ctrl_set_aura` when the effect is `static`: send `color` plus the six hex digits. Do not also run `asusctl aura`.
+5. Any other aura effect (breathe, rainbow, pulse, and the rest) has no socket command yet. If the probe worked, log one line and refuse. Do not fall through to asusctl, or the two writers fight.
+6. Do not send `quit` from a panel or a mode. Stopping the daemon is not a light change.
+7. The poll loop stays read-only. Brightness can still be read from `/sys/class/leds/asus::kbd_backlight/brightness`. `kbd_rgb_mode` is write-only; do not read it.
+8. A color sent while Meta or Backspace is held is stored as the normal color and shows when that gesture ends. The TUI does not need a special case beyond not expecting the keys to change mid-hold.
+9. Unit-test the bytes that would be sent (`brightness 3`, `color ccfffe`) in `tests/test_core.c`. No live socket in that test.
+10. `EACCES` on the socket means the user is not in `wheel`. Log it. Do not sudo.
+
+### First cut does not include
+
+- editing daeboard's gestures
+- reading keystrokes
+- starting the daemon
+- a NixOS unit
+- rainbow, breathe, or pulse through the socket
