@@ -63,6 +63,18 @@ static bool view_binds_key(ws_view_t v, uint32_t key)
  * reaches the hardware until Apply (Enter / w / Apply button). Revert
  * drops them. */
 
+/* semantic colors for the apply toast (theme-independent) */
+#define PW_OK_RGB  0x33FF66
+#define PW_ERR_RGB 0xFF4D5E
+#define PW_TOAST_MS 5000
+
+static long now_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
+}
+
 enum {
     PW_PROFILE = 0,
     PW_EPP,
@@ -122,6 +134,7 @@ void pw_sync_from_hw(void)
     g_ui.pwv_cpuboost = hw->cpu_boost;
     g_ui.pwv_ppt_off = hw->ppt_off;
     g_ui.pw_quit_warned = false;
+    g_ui.pw_touched = 0;
     pw_recompute_dirty();
 }
 
@@ -134,19 +147,23 @@ static void pw_stage_preset(int spl, int sppt, int fppt)
     g_ui.pwv_sppt = sppt;
     g_ui.pwv_fppt = fppt;
     g_ui.pwv_ppt_off = false; /* staging watts implies limits back on */
+    g_ui.pw_touched |= PW_T_PPT;
 }
 
 static void pw_nudge_row(int row, int dir)
 {
     hw_state_t *hw = g_ui.hw;
+    g_ui.pw_msg_ms = 0; /* new staging dismisses the apply toast */
     switch (row) {
     case PW_PROFILE:
         g_ui.pwv_profile = (g_ui.pwv_profile +
                             (dir > 0 ? 1 : HW_PROF_COUNT - 1)) % HW_PROF_COUNT;
+        g_ui.pw_touched |= PW_T_PROFILE;
         break;
     case PW_EPP:
         g_ui.pwv_epp = (g_ui.pwv_epp +
                         (dir > 0 ? 1 : HW_EPP_COUNT - 1)) % HW_EPP_COUNT;
+        g_ui.pw_touched |= PW_T_EPP;
         break;
     case PW_SPL: case PW_SPPT: case PW_FPPT: {
         int smin, smax, pmin, pmax, fmin, fmax;
@@ -162,6 +179,7 @@ static void pw_nudge_row(int row, int dir)
          * triple is what Apply writes */
         ctrl_ppt_order(&g_ui.pwv_spl, &g_ui.pwv_sppt, &g_ui.pwv_fppt,
                        smin, smax, pmin, pmax, fmin, fmax);
+        g_ui.pw_touched |= PW_T_PPT;
         break;
     }
     case PW_PRESET_Q: pw_stage_preset(45, 55, 55); break;
@@ -180,12 +198,15 @@ static void pw_nudge_row(int row, int dir)
         } else {
             g_ui.pwv_ppt_off = false;
         }
+        g_ui.pw_touched |= PW_T_PPT_OFF;
         break;
     case PW_NVBOOST:
         g_ui.pwv_nvboost = ut_clamp_i(g_ui.pwv_nvboost + 5 * dir, 5, 25);
+        g_ui.pw_touched |= PW_T_NVBOOST;
         break;
     case PW_NVTEMP:
         g_ui.pwv_nvtemp = ut_clamp_i(g_ui.pwv_nvtemp + dir, 75, 87);
+        g_ui.pw_touched |= PW_T_NVTEMP;
         break;
     case PW_PANEL_OD: g_ui.pwv_panel_od = !g_ui.pwv_panel_od; break;
     case PW_CPUBOOST: g_ui.pwv_cpuboost = !g_ui.pwv_cpuboost; break;
@@ -194,6 +215,7 @@ static void pw_nudge_row(int row, int dir)
         if (hw->cpu_mhz_max > 0)
             v = ut_clamp_i(v, hw->cpu_mhz_min, hw->cpu_mhz_max);
         g_ui.pwv_mhz = v;
+        g_ui.pw_touched |= PW_T_CPUFREQ;
         break;
     }
     default:
@@ -202,10 +224,87 @@ static void pw_nudge_row(int row, int dir)
     pw_recompute_dirty();
 }
 
+/* append one summary entry, " · " separated; entries that do not fit
+ * are skipped (caller adds an ellipsis) */
+static void pw_app(char *out, size_t n, int *off, const char *entry)
+{
+    const char *sep = *off > 0 ? " · " : "";
+    if (*off + (int)strlen(sep) + (int)strlen(entry) >= (int)n - 2)
+        return;
+    *off += snprintf(out + *off, n - (size_t)*off, "%s%s", sep, entry);
+}
+
+/* "what Apply will change", captured before the writes collapse the
+ * staging back onto the live values */
+static void pw_diff_summary(char *out, size_t n)
+{
+    const hw_state_t *hw = g_ui.hw;
+    char e[48];
+    int off = 0;
+    out[0] = '\0';
+
+    if (g_ui.pwv_profile != (int)hw->profile) {
+        snprintf(e, sizeof(e), "profile %s",
+                 hw_profile_name((hw_profile_t)g_ui.pwv_profile));
+        pw_app(out, n, &off, e);
+    }
+    if (g_ui.pwv_epp != (int)hw->epp) {
+        snprintf(e, sizeof(e), "EPP %s", hw_epp_name((hw_epp_t)g_ui.pwv_epp));
+        pw_app(out, n, &off, e);
+    }
+    if (g_ui.pwv_ppt_off != hw->ppt_off) {
+        pw_app(out, n, &off, g_ui.pwv_ppt_off ? "PPT limits off" : "PPT limits on");
+    } else if (!g_ui.pwv_ppt_off && (g_ui.pw_touched & PW_T_PPT)) {
+        if (hw->ppt_spl > 0 && g_ui.pwv_spl != hw->ppt_spl) {
+            snprintf(e, sizeof(e), "SPL %d→%d W", hw->ppt_spl, g_ui.pwv_spl);
+            pw_app(out, n, &off, e);
+        } else if (hw->ppt_spl <= 0 && g_ui.pwv_spl > 0) {
+            snprintf(e, sizeof(e), "SPL →%d W", g_ui.pwv_spl);
+            pw_app(out, n, &off, e);
+        }
+        if (hw->ppt_sppt > 0 && g_ui.pwv_sppt != hw->ppt_sppt) {
+            snprintf(e, sizeof(e), "SPPT %d→%d W", hw->ppt_sppt, g_ui.pwv_sppt);
+            pw_app(out, n, &off, e);
+        }
+        if (hw->ppt_fppt > 0 && g_ui.pwv_fppt != hw->ppt_fppt) {
+            snprintf(e, sizeof(e), "FPPT %d→%d W", hw->ppt_fppt, g_ui.pwv_fppt);
+            pw_app(out, n, &off, e);
+        }
+    }
+    if ((g_ui.pw_touched & PW_T_NVBOOST) || hw->nv_boost > 0) {
+        if (g_ui.pwv_nvboost != hw->nv_boost) {
+            if (hw->nv_boost > 0)
+                snprintf(e, sizeof(e), "NV boost %d→%d W", hw->nv_boost, g_ui.pwv_nvboost);
+            else
+                snprintf(e, sizeof(e), "NV boost →%d W", g_ui.pwv_nvboost);
+            pw_app(out, n, &off, e);
+        }
+    }
+    if ((g_ui.pw_touched & PW_T_NVTEMP) || hw->nv_temp > 0) {
+        if (g_ui.pwv_nvtemp != hw->nv_temp) {
+            if (hw->nv_temp > 0)
+                snprintf(e, sizeof(e), "NV temp %d→%d °C", hw->nv_temp, g_ui.pwv_nvtemp);
+            else
+                snprintf(e, sizeof(e), "NV temp →%d °C", g_ui.pwv_nvtemp);
+            pw_app(out, n, &off, e);
+        }
+    }
+    if (g_ui.pwv_panel_od != hw->panel_od)
+        pw_app(out, n, &off, g_ui.pwv_panel_od ? "panel OD on" : "panel OD off");
+    if (g_ui.pwv_cpuboost != hw->cpu_boost)
+        pw_app(out, n, &off, g_ui.pwv_cpuboost ? "CPU boost on" : "CPU boost off");
+    if (hw->cpu_mhz_limit > 0 && g_ui.pwv_mhz != hw->cpu_mhz_limit) {
+        snprintf(e, sizeof(e), "CPU %d→%d MHz", hw->cpu_mhz_limit, g_ui.pwv_mhz);
+        pw_app(out, n, &off, e);
+    }
+}
+
 static void pw_apply(void)
 {
     hw_state_t *hw = g_ui.hw;
     int fails = 0;
+    char sum[160];
+    pw_diff_summary(sum, sizeof(sum));
 
     /* profile first: it can move the EPP too, and an explicitly staged
      * EPP must win over the profile-implied one */
@@ -226,17 +325,23 @@ static void pw_apply(void)
                 fails++;
         }
     }
+    /* the watt triple only when touched or known-different — a stale
+     * nb-wmi read (0 W) must not turn defaults into writes */
     if (!g_ui.pwv_ppt_off &&
-        (g_ui.pwv_spl != hw->ppt_spl || g_ui.pwv_sppt != hw->ppt_sppt ||
-         g_ui.pwv_fppt != hw->ppt_fppt)) {
+        ((g_ui.pw_touched & PW_T_PPT) ||
+         (hw->ppt_spl > 0 && g_ui.pwv_spl != hw->ppt_spl) ||
+         (hw->ppt_sppt > 0 && g_ui.pwv_sppt != hw->ppt_sppt) ||
+         (hw->ppt_fppt > 0 && g_ui.pwv_fppt != hw->ppt_fppt))) {
         if (ctrl_set_ppt(hw, g_ui.pwv_spl, g_ui.pwv_sppt, g_ui.pwv_fppt) != 0)
             fails++;
     }
-    if (g_ui.pwv_nvboost != hw->nv_boost) {
+    if (((g_ui.pw_touched & PW_T_NVBOOST) || hw->nv_boost > 0) &&
+        g_ui.pwv_nvboost != hw->nv_boost) {
         if (ctrl_set_nv_boost(hw, g_ui.pwv_nvboost) != 0)
             fails++;
     }
-    if (g_ui.pwv_nvtemp != hw->nv_temp) {
+    if (((g_ui.pw_touched & PW_T_NVTEMP) || hw->nv_temp > 0) &&
+        g_ui.pwv_nvtemp != hw->nv_temp) {
         if (ctrl_set_nv_temp(hw, g_ui.pwv_nvtemp) != 0)
             fails++;
     }
@@ -260,6 +365,17 @@ static void pw_apply(void)
 
     hw_refresh_live(hw); /* verify the writes by reading back */
     pw_sync_from_hw();
+
+    /* toast: what just got applied (green) or what failed (red) */
+    if (sum[0]) {
+        if (fails)
+            snprintf(g_ui.pw_msg, sizeof(g_ui.pw_msg), "⚠ %s · %d failed",
+                     sum, fails);
+        else
+            snprintf(g_ui.pw_msg, sizeof(g_ui.pw_msg), "✓ %s", sum);
+        g_ui.pw_msg_fail = fails > 0;
+        g_ui.pw_msg_ms = now_ms();
+    }
 }
 
 /* "live" / "--", with "live → staged ●" while an edit is pending and
@@ -350,13 +466,22 @@ static void draw_power(struct ncplane *n, const rect_t *r)
     ui_putln(n, x, r->y + 1, w,
              "h/l stage · Enter apply · r revert · q quits twice when staged",
              pal->muted, false);
-    int rows = r->h - 4;
+    /* while the toast is up, one list row yields its place to it */
+    bool toast = g_ui.pw_msg_ms > 0 && now_ms() - g_ui.pw_msg_ms < PW_TOAST_MS;
+    int rows = r->h - (toast ? 5 : 4);
+    if (rows < 0)
+        rows = 0;
     for (int i = 0; i < PW_ROWS && i < rows; i++) {
         int y = r->y + 2 + i;
         bool sel = (i == g_ui.pw_sel);
         ui_row(n, x, y, w, labels[i], vals[i], sel);
         tgt_register(x, y, w, 1, TGT(TGT_PANEL_WORKSPACE, ACT_WS_PW_BASE + i));
     }
+
+    /* apply toast: what the last Apply changed, fading after PW_TOAST_MS */
+    if (toast)
+        ui_putln(n, x, r->y + r->h - 3, w, g_ui.pw_msg,
+                 g_ui.pw_msg_fail ? PW_ERR_RGB : PW_OK_RGB, true);
 
     int by = r->y + r->h - 2;
     ui_btn(n, x, by, " Apply ", g_ui.pw_dirty, false,

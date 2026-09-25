@@ -79,6 +79,10 @@ typedef struct ui_ctx {
     bool pwv_panel_od, pwv_cpuboost, pwv_ppt_off;
     bool pw_dirty;
     bool pw_quit_warned;   /* q pressed once with staged edits pending */
+    unsigned pw_touched;   /* PW_T_* bits: fields the user actually edited */
+    char pw_msg[160];      /* apply toast: what changed */
+    long pw_msg_ms;        /* CLOCK_MONOTONIC ms when set, 0 = none */
+    bool pw_msg_fail;      /* red variant (some writes failed) */
 
     /* light view */
     int lt_sel, lt_eff, lt_col;
@@ -93,6 +97,21 @@ typedef struct ui_ctx {
 } ui_ctx_t;
 
 extern ui_ctx_t g_ui;
+
+/* pw_touched bits — a field is only written on Apply when the user
+ * edited it (or its live value is known and differs). Keeps a stale
+ * nb-wmi read (0 W) from turning defaults into unwanted writes. */
+enum {
+    PW_T_PROFILE   = 1 << 0,
+    PW_T_EPP       = 1 << 1,
+    PW_T_PPT       = 1 << 2,  /* SPL/SPPT/FPPT as one triple */
+    PW_T_PPT_OFF   = 1 << 3,
+    PW_T_NVBOOST   = 1 << 4,
+    PW_T_NVTEMP    = 1 << 5,
+    PW_T_PANEL_OD  = 1 << 6,
+    PW_T_CPUBOOST  = 1 << 7,
+    PW_T_CPUFREQ   = 1 << 8,
+};
 
 /* ---- palette ----------------------------------------------------------- */
 

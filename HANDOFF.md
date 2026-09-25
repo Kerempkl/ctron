@@ -1,11 +1,27 @@
 # Ctron Handoff
 
-Latest sessions — **2026-09-24** **Kerempkl + GLM / FA608PP** (POWER:
-profile/EPP rows, Enter-applies, q guard, on top of the critique fixes)
-and **2026-09-23** in parallel: **Grok / FA507NVR / NixOS** (daeboard
-editor, signed below) and **Kerempkl + GLM / FA608PP** (POWER
-staged-apply). **Read `NEXT.md` first** — it carries the prioritized todo
-list and the distilled session lessons.
+Latest sessions — **2026-09-24** **Kerempkl + GLM / FA608PP** (POWER
+round: staged-apply → critique fixes → profile/EPP + Enter-applies +
+q guard → apply toast), and **2026-09-23** in parallel: **Grok /
+FA507NVR / NixOS** (daeboard editor, signed below). **Read `NEXT.md`
+first** — it carries the prioritized todo list and the distilled
+session lessons.
+
+## Session 2026-09-24 — POWER apply toast (Kerempkl + GLM, FA608PP)
+
+- Apply now answers visually: a 5 s toast above the Apply/Revert
+  buttons lists what changed (`✓ SPL 65→80 W · EPP performance`),
+  red with `· N failed` when writes fail. Theme-independent green
+  `0x33FF66` / red `0xFF4D5E`; a list row yields its place while the
+  toast is up so small terminals don't overlap. `pw_msg`/`pw_msg_ms`/
+  `pw_msg_fail` in ui_ctx_t; `pw_diff_summary()` captures the diff
+  before apply collapses staging onto live values.
+- Fixed on the way: `pw_touched` bitmask (PW_T_*) marks user-edited
+  fields; stale nb-wmi reads (0 W) no longer turn staged defaults into
+  writes (EPP-only staging used to rewrite PPT).
+- Verified: warning-free `make` (ctron side), `make test` ok,
+  installed to `~/.local/bin/ctron`, `--status` live. Interactive TUI
+  field-test on a real terminal pending at handoff.
 
 ## Session 2026-09-24 — POWER usability round (Kerempkl + GLM, FA608PP)
 

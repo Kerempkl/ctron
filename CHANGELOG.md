@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-09-24 — POWER apply toast (what changed, in colour)
+
+- After Apply, the POWER panel shows a toast above the buttons for
+  5 s: green `✓ SPL 65→80 W · EPP performance` listing every field
+  that changed (old→new; `→80 W` when the live read was stale), red
+  `⚠ … · N failed` when writes failed. New staging or Revert dismisses
+  it; the plain `ut_log` line stays as history in the telemetry panel.
+- Semantic, theme-independent colors: ok `0x33FF66`, fail `0xFF4D5E`.
+  While the toast is up, one list row yields its place so small
+  terminals do not overlap.
+- **Stale-read fix found on the way:** Apply no longer writes watt/NV
+  defaults just because the live nb-wmi read is 0/stale. A new
+  `pw_touched` bitmask tracks the fields the user actually edited;
+  writes happen only for touched fields or known-different values —
+  staging only an EPP no longer rewrites PPT.
+- `make` warning-free (ctron side), `make test` ok, installed to
+  `~/.local/bin/ctron`.
+
 ## 2026-09-24 — POWER: profile/EPP rows, Enter applies, q guard
 
 - Two new staged rows at the top: **Platform profile**
