@@ -1,10 +1,26 @@
 # Ctron Handoff
 
-Latest sessions — **2026-09-24** **Kerempkl + GLM / FA608PP** (POWER
-critique fixes) and **2026-09-23** in parallel: **Grok / FA507NVR / NixOS**
-(daeboard editor, signed below) and **Kerempkl + GLM / FA608PP** (POWER
+Latest sessions — **2026-09-24** **Kerempkl + GLM / FA608PP** (POWER:
+profile/EPP rows, Enter-applies, q guard, on top of the critique fixes)
+and **2026-09-23** in parallel: **Grok / FA507NVR / NixOS** (daeboard
+editor, signed below) and **Kerempkl + GLM / FA608PP** (POWER
 staged-apply). **Read `NEXT.md` first** — it carries the prioritized todo
 list and the distilled session lessons.
+
+## Session 2026-09-24 — POWER usability round (Kerempkl + GLM, FA608PP)
+
+- POWER gained two staged rows: Platform profile and EPP preference
+  (first TUI editor for EPP). Apply order: profile, then EPP, so a
+  staged EPP beats the profile-implied one.
+- Enter applies the staged bundle (was: steps the value like
+  right-arrow); h/l/←/→ are the only staging keys, `w` stays as an
+  alias. Mouse second-click on a row still stages it; the Apply button
+  remains the click target.
+- q with staged edits warns once and needs a second press (any panel);
+  the warned flag resets in `pw_sync_from_hw()`.
+- Verified: warning-free `make` (ctron side), `make test` ok,
+  installed to `~/.local/bin/ctron`, `--status` live. Interactive TUI
+  field-test on a real terminal pending at handoff.
 
 ## Session 2026-09-24 — POWER critique fixes (Kerempkl + GLM, FA608PP)
 

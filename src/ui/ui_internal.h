@@ -71,11 +71,14 @@ typedef struct ui_ctx {
     /* power view */
     int pw_sel;
     /* staged edits — h/arrows only mutate these; nothing is written
-     * until Apply (w key / button) */
+     * until Apply (Enter / w / button) */
     int pwv_spl, pwv_sppt, pwv_fppt;   /* W */
     int pwv_nvboost, pwv_nvtemp, pwv_mhz;
+    int pwv_profile;                   /* hw_profile_t */
+    int pwv_epp;                       /* hw_epp_t */
     bool pwv_panel_od, pwv_cpuboost, pwv_ppt_off;
     bool pw_dirty;
+    bool pw_quit_warned;   /* q pressed once with staged edits pending */
 
     /* light view */
     int lt_sel, lt_eff, lt_col;

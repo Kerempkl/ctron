@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-09-24 — POWER: profile/EPP rows, Enter applies, q guard
+
+- Two new staged rows at the top: **Platform profile**
+  (Quiet/Balanced/Performance) and **EPP preference** — EPP finally has
+  a TUI editor (was CLI/mode-only). Both ride the same staging: h/l
+  stage, one Apply writes everything; the profile write goes first so
+  an explicitly staged EPP wins over the profile-implied one.
+- **Enter now applies** the staged bundle (like every other panel);
+  the old "Enter steps the value up like right-arrow" behaviour is
+  gone. h/l and ←/→ remain the only staging keys, `w` stays as an
+  apply alias. That also answers "the Apply button has no keyboard
+  path": Enter is it.
+- **q guard**: quitting with staged edits pending warns once
+  ("staged edits pending — q again to quit") and quits on the second
+  press; the warning state resets on apply/revert. Works from any
+  panel, not just the POWER view.
+- `make` warning-free (ctron side), `make test` ok, installed to
+  `~/.local/bin/ctron`, `--status` live on FA608PP.
+
 ## 2026-09-24 — POWER view follow-ups (critique fixes)
 
 - View-switch keys no longer shadow editor keys: lowercase f/p/l/e

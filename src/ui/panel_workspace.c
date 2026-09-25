@@ -59,11 +59,14 @@ static bool view_binds_key(ws_view_t v, uint32_t key)
 
 /* ---- POWER view -------------------------------------------------------- */
 
-/* Staged edits: h/arrows only mutate the pwv_* staging fields; nothing
- * reaches the hardware until Apply (w / Apply button). Revert drops them. */
+/* Staged edits: h/l only mutate the pwv_* staging fields; nothing
+ * reaches the hardware until Apply (Enter / w / Apply button). Revert
+ * drops them. */
 
 enum {
-    PW_SPL = 0,
+    PW_PROFILE = 0,
+    PW_EPP,
+    PW_SPL,
     PW_SPPT,
     PW_FPPT,
     PW_PRESET_Q,
@@ -82,6 +85,8 @@ static void pw_recompute_dirty(void)
 {
     const hw_state_t *hw = g_ui.hw;
     g_ui.pw_dirty =
+        g_ui.pwv_profile != (int)hw->profile ||
+        g_ui.pwv_epp != (int)hw->epp ||
         (hw->ppt_spl > 0 && g_ui.pwv_spl != hw->ppt_spl) ||
         (hw->ppt_sppt > 0 && g_ui.pwv_sppt != hw->ppt_sppt) ||
         (hw->ppt_fppt > 0 && g_ui.pwv_fppt != hw->ppt_fppt) ||
@@ -99,6 +104,8 @@ void pw_sync_from_hw(void)
     /* unknown/stale reads (0) keep the current staged value: the defaults
      * on the very first sync, the written values right after an apply
      * whose read-back is still kernel-cache stale */
+    g_ui.pwv_profile = (int)hw->profile;
+    g_ui.pwv_epp = (int)hw->epp;
     g_ui.pwv_spl  = hw->ppt_spl  > 0 ? hw->ppt_spl
                   : (g_ui.pwv_spl  > 0 ? g_ui.pwv_spl  : 45);
     g_ui.pwv_sppt = hw->ppt_sppt > 0 ? hw->ppt_sppt
@@ -114,6 +121,7 @@ void pw_sync_from_hw(void)
     g_ui.pwv_panel_od = hw->panel_od;
     g_ui.pwv_cpuboost = hw->cpu_boost;
     g_ui.pwv_ppt_off = hw->ppt_off;
+    g_ui.pw_quit_warned = false;
     pw_recompute_dirty();
 }
 
@@ -132,6 +140,14 @@ static void pw_nudge_row(int row, int dir)
 {
     hw_state_t *hw = g_ui.hw;
     switch (row) {
+    case PW_PROFILE:
+        g_ui.pwv_profile = (g_ui.pwv_profile +
+                            (dir > 0 ? 1 : HW_PROF_COUNT - 1)) % HW_PROF_COUNT;
+        break;
+    case PW_EPP:
+        g_ui.pwv_epp = (g_ui.pwv_epp +
+                        (dir > 0 ? 1 : HW_EPP_COUNT - 1)) % HW_EPP_COUNT;
+        break;
     case PW_SPL: case PW_SPPT: case PW_FPPT: {
         int smin, smax, pmin, pmax, fmin, fmax;
         ctrl_ppt_limits(hw, &smin, &smax, &pmin, &pmax, &fmin, &fmax);
@@ -191,6 +207,16 @@ static void pw_apply(void)
     hw_state_t *hw = g_ui.hw;
     int fails = 0;
 
+    /* profile first: it can move the EPP too, and an explicitly staged
+     * EPP must win over the profile-implied one */
+    if (g_ui.pwv_profile != (int)hw->profile) {
+        if (ctrl_set_profile(hw, (hw_profile_t)g_ui.pwv_profile) != 0)
+            fails++;
+    }
+    if (g_ui.pwv_epp != (int)hw->epp) {
+        if (ctrl_set_epp(hw, (hw_epp_t)g_ui.pwv_epp) != 0)
+            fails++;
+    }
     if (g_ui.pwv_ppt_off != hw->ppt_off) {
         if (g_ui.pwv_ppt_off) {
             if (ctrl_ppt_off(hw) != 0)
@@ -263,6 +289,16 @@ static void pw_val_b(char *out, size_t n, bool live, bool staged)
         snprintf(out, n, "%s", live ? "on" : "off");
 }
 
+/* enum-valued rows (profile / EPP): live, with "live → staged ●" */
+static void pw_val_e(char *out, size_t n,
+                     const char *live, const char *staged)
+{
+    if (strcmp(live, staged) != 0)
+        snprintf(out, n, "%s → %s ●", live, staged);
+    else
+        snprintf(out, n, "%s", live);
+}
+
 static void draw_power(struct ncplane *n, const rect_t *r)
 {
     const palette_t *pal = ui_palette(g_prefs.theme);
@@ -286,7 +322,15 @@ static void draw_power(struct ncplane *n, const rect_t *r)
     else
         snprintf(lim, sizeof(lim), "%s", hw->ppt_off ? "removed (max)" : "on");
 
+    char prof[48], epp[64];
+    pw_val_e(prof, sizeof(prof),
+             hw_profile_name(hw->profile),
+             hw_profile_name((hw_profile_t)g_ui.pwv_profile));
+    pw_val_e(epp, sizeof(epp),
+             hw_epp_name(hw->epp), hw_epp_name((hw_epp_t)g_ui.pwv_epp));
+
     const char *vals[PW_ROWS] = {
+        prof, epp,
         spl, sppt, fppt,
         "45/55/55", "60/75/75", "80/80/80",
         lim,
@@ -295,6 +339,7 @@ static void draw_power(struct ncplane *n, const rect_t *r)
         cfq,
     };
     static const char *const labels[PW_ROWS] = {
+        "Platform profile", "EPP preference",
         "SPL (sustained)", "SPPT (slow boost)", "FPPT (fast boost)",
         "Preset Q45", "Preset B60", "Preset P80",
         "PPT limits",
@@ -303,7 +348,7 @@ static void draw_power(struct ncplane *n, const rect_t *r)
     };
 
     ui_putln(n, x, r->y + 1, w,
-             "h/l stage · w apply · r revert — nothing writes until apply · (?) unverified",
+             "h/l stage · Enter apply · r revert · q quits twice when staged",
              pal->muted, false);
     int rows = r->h - 4;
     for (int i = 0; i < PW_ROWS && i < rows; i++) {
@@ -456,7 +501,8 @@ static void draw_help(struct ncplane *n, const rect_t *r)
         "",
         "POWER",
         "  j k          move · h/l (or arrows) stage the value (nothing writes)",
-        "  w r          apply all staged edits · revert to live values",
+        "  Enter/w      apply all staged edits · r reverts to live values",
+        "  q            quits; with staged edits pending it asks twice",
         "",
         "FAN EDITOR",
         "  c g          switch cpu/gpu curve",
@@ -559,11 +605,13 @@ void panel_workspace_key(uint32_t key)
         case 'k': case NCKEY_UP:   g_ui.pw_sel = (g_ui.pw_sel + PW_ROWS - 1) % PW_ROWS; return;
         case 'h': case NCKEY_LEFT: pw_nudge_row(g_ui.pw_sel, -1); return;
         case 'l': case NCKEY_RIGHT:
-        case NCKEY_ENTER: case '\r': case '\n': case ' ':
-            /* values step up; presets stage their bundle; toggles flip */
+            /* values step; presets stage their bundle; toggles flip */
             pw_nudge_row(g_ui.pw_sel, +1);
             return;
-        case 'w': case 'W': pw_apply(); return;
+        case NCKEY_ENTER: case '\r': case '\n': case ' ':
+        case 'w': case 'W':
+            pw_apply();
+            return;
         case 'r': case 'R': pw_sync_from_hw(); return; /* revert staged */
         default: return;
         }

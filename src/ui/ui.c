@@ -482,6 +482,18 @@ static void handle_mouse(struct ncplane *stdn, const struct ncinput *ni, uint32_
 
 /* ---- main loop ------------------------------------------------------------ */
 
+/* Quit with a guard: staged POWER edits are dropped silently otherwise,
+ * so the first q just warns and the second one quits. */
+static void try_quit(void)
+{
+    if (g_ui.pw_dirty && !g_ui.pw_quit_warned) {
+        g_ui.pw_quit_warned = true;
+        ut_log("POWER: staged edits pending — q again to quit");
+        return;
+    }
+    g_ui.running = false;
+}
+
 static void dispatch_key(uint32_t key, const struct ncinput *ni)
 {
     /* typing modes swallow printable keys first */
@@ -512,7 +524,7 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
             return;
         }
         if (key == 'q' || key == 'Q') {
-            g_ui.running = false;
+            try_quit();
             return;
         }
         panel_settings_key(key);
@@ -522,7 +534,7 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
     switch (key) {
     case 'q':
     case 'Q':
-        g_ui.running = false;
+        try_quit();
         return;
     case NCKEY_ESC:
     case 's':
