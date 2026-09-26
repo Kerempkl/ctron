@@ -8,6 +8,28 @@ fixes → profile/EPP + Enter-applies + q guard → apply toast), and
 editor, signed below). **Read `NEXT.md` first** — it carries the
 prioritized todo list and the distilled session lessons.
 
+## Session 2026-09-26 — amd-pstate clock window refresh (Kerempkl + GLM, FA608PP)
+
+- User bug: on battery (EPP power / quiet) the CPU clock window stayed
+  "300–2400" after changing EPP. Two causes: `cpu_mhz_min/max` were
+  read once at startup from cpu0 only, while amd-pstate re-negotiates
+  per-core ceilings dynamically (2401↔5386 MHz observed within
+  seconds, cores diverging); and the quiet platform profile itself
+  holds the ceiling at the base clock (2401) regardless of EPP, on AC
+  or battery — Balanced/Performance widen to 5386 in ~3 s. Fix:
+  `hw_refresh_fast` sweeps cpuinfo/scaling across all present CPUs and
+  keeps the widest window; polls, Apply and view entries follow the
+  kernel. KDE ppd re-asserts its EPP on profile changes — ctron's EPP
+  row overrides on Apply.
+- Commit protocol change (user's rule from today): I do NOT run
+  `git commit` anymore — hand over a ready commit message, the user
+  reviews and commits. This fix is uncommitted in the worktree with
+  its CHANGELOG/HANDOFF entries.
+- Verified: warning-free `make`, `make test` ok, installed to
+  `~/.local/bin/ctron`. TUI field-test (window refresh after EPP/
+  profile change) pending on the real terminal — the running TUI must
+  be restarted to pick the fix up.
+
 ## Session 2026-09-26 — POWER t-typing + range hints (Kerempkl + GLM, FA608PP)
 
 - The last two items of the POWER usability list: `t` on a numeric

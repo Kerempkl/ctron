@@ -402,9 +402,58 @@ void hw_init(hw_state_t *hw)
 
 /* ---- fast poll -------------------------------------------------------- */
 
+/* amd-pstate re-negotiates per-core ceilings with the firmware and they
+ * move on their own (battery, thermals, CPPC re-evaluation — observed
+ * 2401↔5386 MHz within seconds, per core). Take the widest window
+ * across policies so one clamped core (often cpu0, the only one we
+ * used to read) does not cap the display and the staging clamps. */
+static int cpu_present_count(void)
+{
+    char buf[64];
+    if (ut_read_file("/sys/devices/system/cpu/present", buf, sizeof(buf)) != 0)
+        return 1;
+    int lo, hi;
+    if (sscanf(buf, "%d-%d", &lo, &hi) == 2)
+        return hi - lo + 1;
+    return 1;
+}
+
+static void cpu_limits_sweep(hw_state_t *hw)
+{
+    int n = cpu_present_count();
+    int min_khz = 0, max_khz = 0, lim_khz = 0;
+    for (int i = 0; i < n; i++) {
+        char p[96];
+        int v;
+        snprintf(p, sizeof p,
+                 "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_min_freq", i);
+        v = ut_read_int(p);
+        if (v > 0 && (min_khz == 0 || v < min_khz))
+            min_khz = v;
+        snprintf(p, sizeof p,
+                 "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", i);
+        v = ut_read_int(p);
+        if (v > max_khz)
+            max_khz = v;
+        snprintf(p, sizeof p,
+                 "/sys/devices/system/cpu/cpu%d/cpufreq/scaling_max_freq", i);
+        v = ut_read_int(p);
+        if (v > lim_khz)
+            lim_khz = v;
+    }
+    if (min_khz > 0)
+        hw->cpu_mhz_min = min_khz / 1000;
+    if (max_khz > 0)
+        hw->cpu_mhz_max = max_khz / 1000;
+    if (lim_khz > 0)
+        hw->cpu_mhz_limit = lim_khz / 1000;
+}
+
 void hw_refresh_fast(hw_state_t *hw)
 {
     char p[320], q[320];
+
+    cpu_limits_sweep(hw);
 
     if (hw_hwmon_path("k10temp", p, sizeof(p)) == 0 &&
         ut_path_join(q, sizeof(q), p, "temp1_input") == 0) {
@@ -487,10 +536,6 @@ void hw_refresh_live(hw_state_t *hw)
                 hw->bat_limit = lim;
         }
     }
-
-    int lim_apply = ut_read_int("/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq");
-    if (lim_apply > 0)
-        hw->cpu_mhz_limit = lim_apply / 1000;
 
     read_profile(hw);
     read_epp(hw);

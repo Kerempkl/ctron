@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-09-26 — CPU clock window follows amd-pstate (battery bug)
+
+- Bug: after changing EPP (or the platform profile) the POWER view's
+  clock-limit window and the staging clamps kept the cpuinfo values
+  captured at startup — and read cpu0 only. amd-pstate re-negotiates
+  per-core ceilings with the firmware (observed 2401↔5386 MHz within
+  seconds, cores diverging), so ctron showed a stale "300–2400" window
+  and clamped staging to it long after the kernel moved on.
+- `hw_refresh_fast` now sweeps `cpuinfo_min/max_freq` and
+  `scaling_max_freq` across all present CPUs and keeps the widest
+  window, so one clamped core (often cpu0) cannot cap the display or
+  the clamps. Every poll follows the kernel; Apply / profile / mode
+  refreshes inherit it.
+- Findings on FA608PP: the **quiet platform profile** holds the
+  ceiling at the base clock (2401 MHz) regardless of EPP — on battery
+  or not. Balanced/Performance widen it to 5386 MHz within ~3 s.
+  Nothing userspace can do raises scaling above cpuinfo; to exceed
+  2.4 GHz in ctron, switch the Platform profile row, then the clock
+  row accepts up to the live window. KDE's power-profiles-daemon also
+  re-asserts its own EPP on profile changes — ctron's EPP row
+  overrides it again on Apply.
+
 ## 2026-09-26 — POWER: exact-value typing + range hints
 
 - `t` on a numeric row (SPL/SPPT/FPPT, NV boost/temp, CPU clock)
