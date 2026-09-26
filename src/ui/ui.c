@@ -509,6 +509,10 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
         panel_workspace_key(key);
         return;
     }
+    if (g_ui.pw_typing && g_ui.focus == FOC_WORKSPACE && g_ui.ws_view == WSV_POWER) {
+        panel_workspace_key(key);
+        return;
+    }
     if (g_ui.md_field >= 0 && g_ui.settings_overlay) {
         panel_settings_key(key);
         return;

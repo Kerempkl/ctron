@@ -1,11 +1,28 @@
 # Ctron Handoff
 
-Latest sessions — **2026-09-24** **Kerempkl + GLM / FA608PP** (POWER
-round: staged-apply → critique fixes → profile/EPP + Enter-applies +
-q guard → apply toast), and **2026-09-23** in parallel: **Grok /
-FA507NVR / NixOS** (daeboard editor, signed below). **Read `NEXT.md`
-first** — it carries the prioritized todo list and the distilled
-session lessons.
+Latest session — **2026-09-26** **Kerempkl + GLM / FA608PP** (POWER:
+exact-value typing + range hints, closing the usability list).
+Before that the **2026-09-24** POWER round (staged-apply → critique
+fixes → profile/EPP + Enter-applies + q guard → apply toast), and
+**2026-09-23** in parallel: **Grok / FA507NVR / NixOS** (daeboard
+editor, signed below). **Read `NEXT.md` first** — it carries the
+prioritized todo list and the distilled session lessons.
+
+## Session 2026-09-26 — POWER t-typing + range hints (Kerempkl + GLM, FA608PP)
+
+- The last two items of the POWER usability list: `t` on a numeric
+  row types an exact value (seeded with the staged value, digits
+  only, Enter stages clamped like a nudge, Esc cancels; a view
+  switch or any click ends typing), and plain rows show their allowed
+  window (`65 W (15–90)`), firmware windows from a 1 s-cached
+  `ctrl_ppt_limits`. Dirty rows keep the arrow form. Help documents
+  `t`.
+- README had an uncommitted staged edit (v0.2.1 rebrand) from a
+  parallel line — deliberately left out of this commit.
+- Verified: `make` warning-free (ctron side), `make test` ok,
+  installed to `~/.local/bin/ctron`, `--status` live. Interactive
+  TUI field-test on a real terminal still pending (toast, EPP rows
+  and t-typing all untested by hand).
 
 ## Session 2026-09-24 — POWER apply toast (Kerempkl + GLM, FA608PP)
 

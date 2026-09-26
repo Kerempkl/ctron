@@ -36,6 +36,7 @@ void ws_set_view(ws_view_t v)
 {
     if (g_ui.ws_view == v)
         return;
+    g_ui.pw_typing = false; /* switching views ends exact-value typing */
     g_ui.ws_view = v;
     /* entering POWER: pick up external changes (CLI, asusctl) unless
      * the user has staged edits pending */
@@ -380,8 +381,9 @@ static void pw_apply(void)
 
 /* "live" / "--", with "live → staged ●" while an edit is pending and
  * "staged (?)" when the live read is unknown/stale but a staged or just
- * written value exists */
-static void pw_val(char *out, size_t n, int live, int staged, const char *unit)
+ * written value exists; plain rows append the allowed range */
+static void pw_val(char *out, size_t n, int live, int staged,
+                   const char *unit, const char *range)
 {
     char lb[14], sb[14];
     if (live > 0)   snprintf(lb, sizeof(lb), "%d%s", live, unit);
@@ -392,6 +394,8 @@ static void pw_val(char *out, size_t n, int live, int staged, const char *unit)
         snprintf(out, n, "%s → %s ●", lb, sb);
     else if (live <= 0 && staged > 0)
         snprintf(out, n, "%s (?)", sb);
+    else if (range && range[0])
+        snprintf(out, n, "%s (%s)", lb, range);
     else
         snprintf(out, n, "%s", lb);
 }
@@ -415,20 +419,150 @@ static void pw_val_e(char *out, size_t n,
         snprintf(out, n, "%s", live);
 }
 
+/* firmware ppt limits for the range hints; they move rarely, so a
+ * draw pass refreshes the cache at most once a second instead of
+ * re-reading the armoury attrs six times per frame */
+static int pw_smin, pw_smax, pw_pmin, pw_pmax, pw_fmin, pw_fmax;
+static long pw_lim_ms;
+
+static void pw_refresh_limits(void)
+{
+    long t = now_ms();
+    if (pw_lim_ms != 0 && t - pw_lim_ms <= 1000)
+        return;
+    ctrl_ppt_limits(g_ui.hw, &pw_smin, &pw_smax,
+                    &pw_pmin, &pw_pmax, &pw_fmin, &pw_fmax);
+    pw_lim_ms = t;
+}
+
+/* allowed range of a numeric row, "15–90" + optional unit suffix */
+static void pw_row_range(int row, char *out, size_t n, const char *unit)
+{
+    switch (row) {
+    case PW_SPL:
+        snprintf(out, n, "%d–%d%s", pw_smin, pw_smax, unit);
+        break;
+    case PW_SPPT:
+        snprintf(out, n, "%d–%d%s", pw_pmin, pw_pmax, unit);
+        break;
+    case PW_FPPT:
+        snprintf(out, n, "%d–%d%s", pw_fmin, pw_fmax, unit);
+        break;
+    case PW_NVBOOST:
+        snprintf(out, n, "5–25%s", unit);
+        break;
+    case PW_NVTEMP:
+        snprintf(out, n, "75–87%s", unit);
+        break;
+    case PW_CPUFREQ:
+        if (g_ui.hw->cpu_mhz_max > 0)
+            snprintf(out, n, "%d–%d%s", g_ui.hw->cpu_mhz_min,
+                     g_ui.hw->cpu_mhz_max, unit);
+        else
+            out[0] = '\0';
+        break;
+    default:
+        out[0] = '\0';
+    }
+}
+
+static bool pw_row_numeric(int row)
+{
+    switch (row) {
+    case PW_SPL: case PW_SPPT: case PW_FPPT:
+    case PW_NVBOOST: case PW_NVTEMP: case PW_CPUFREQ:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static int pw_staged_value(int row)
+{
+    switch (row) {
+    case PW_SPL:     return g_ui.pwv_spl;
+    case PW_SPPT:    return g_ui.pwv_sppt;
+    case PW_FPPT:    return g_ui.pwv_fppt;
+    case PW_NVBOOST: return g_ui.pwv_nvboost;
+    case PW_NVTEMP:  return g_ui.pwv_nvtemp;
+    case PW_CPUFREQ: return g_ui.pwv_mhz;
+    default:         return 0;
+    }
+}
+
+/* stage the exact value typed with 't', clamped exactly like a nudge */
+static void pw_commit_typed(void)
+{
+    hw_state_t *hw = g_ui.hw;
+    for (const char *p = g_ui.pw_input.buf; *p; p++) {
+        if (*p < '0' || *p > '9') {
+            ut_log("t: digits only — edit dropped");
+            return;
+        }
+    }
+    int v = atoi(g_ui.pw_input.buf);
+    g_ui.pw_msg_ms = 0;
+    switch (g_ui.pw_sel) {
+    case PW_SPL: case PW_SPPT: case PW_FPPT: {
+        int smin, smax, pmin, pmax, fmin, fmax;
+        ctrl_ppt_limits(hw, &smin, &smax, &pmin, &pmax, &fmin, &fmax);
+        if (g_ui.pw_sel == PW_SPL)
+            g_ui.pwv_spl = v;
+        else if (g_ui.pw_sel == PW_SPPT)
+            g_ui.pwv_sppt = v;
+        else
+            g_ui.pwv_fppt = v;
+        g_ui.pwv_ppt_off = false;
+        ctrl_ppt_order(&g_ui.pwv_spl, &g_ui.pwv_sppt, &g_ui.pwv_fppt,
+                       smin, smax, pmin, pmax, fmin, fmax);
+        g_ui.pw_touched |= PW_T_PPT;
+        break;
+    }
+    case PW_NVBOOST:
+        g_ui.pwv_nvboost = ut_clamp_i(v, 5, 25);
+        g_ui.pw_touched |= PW_T_NVBOOST;
+        break;
+    case PW_NVTEMP:
+        g_ui.pwv_nvtemp = ut_clamp_i(v, 75, 87);
+        g_ui.pw_touched |= PW_T_NVTEMP;
+        break;
+    case PW_CPUFREQ:
+        if (hw->cpu_mhz_max > 0)
+            v = ut_clamp_i(v, hw->cpu_mhz_min, hw->cpu_mhz_max);
+        g_ui.pwv_mhz = v;
+        g_ui.pw_touched |= PW_T_CPUFREQ;
+        break;
+    default:
+        return;
+    }
+    pw_recompute_dirty();
+}
+
 static void draw_power(struct ncplane *n, const rect_t *r)
 {
     const palette_t *pal = ui_palette(g_prefs.theme);
     const hw_state_t *hw = g_ui.hw;
     int x = r->x + 2, w = r->w - 4;
 
-    char spl[48], sppt[48], fppt[48], nvb[48], nvt[48], cfq[48];
+    char spl[56], sppt[56], fppt[56], nvb[56], nvt[56], cfq[56];
     char pod[32], cb[32], lim[48];
-    pw_val(spl,  sizeof(spl),  hw->ppt_spl,  g_ui.pwv_spl,  " W");
-    pw_val(sppt, sizeof(sppt), hw->ppt_sppt, g_ui.pwv_sppt, " W");
-    pw_val(fppt, sizeof(fppt), hw->ppt_fppt, g_ui.pwv_fppt, " W");
-    pw_val(nvb,  sizeof(nvb),  hw->nv_boost, g_ui.pwv_nvboost, " W");
-    pw_val(nvt,  sizeof(nvt),  hw->nv_temp,  g_ui.pwv_nvtemp, " °C");
-    pw_val(cfq,  sizeof(cfq),  hw->cpu_mhz_limit, g_ui.pwv_mhz, " MHz");
+    char rspl[24], rsppt[24], rfppt[24], rnvb[24], rnvt[24], rcfq[32];
+    pw_refresh_limits();
+    snprintf(rspl,  sizeof rspl,  "%d–%d", pw_smin, pw_smax);
+    snprintf(rsppt, sizeof rsppt, "%d–%d", pw_pmin, pw_pmax);
+    snprintf(rfppt, sizeof rfppt, "%d–%d", pw_fmin, pw_fmax);
+    snprintf(rnvb,  sizeof rnvb,  "5–25");
+    snprintf(rnvt,  sizeof rnvt,  "75–87");
+    if (hw->cpu_mhz_max > 0)
+        snprintf(rcfq, sizeof rcfq, "%d–%d", hw->cpu_mhz_min, hw->cpu_mhz_max);
+    else
+        rcfq[0] = '\0';
+    pw_val(spl,  sizeof(spl),  hw->ppt_spl,  g_ui.pwv_spl,  " W",  rspl);
+    pw_val(sppt, sizeof(sppt), hw->ppt_sppt, g_ui.pwv_sppt, " W", rsppt);
+    pw_val(fppt, sizeof(fppt), hw->ppt_fppt, g_ui.pwv_fppt, " W", rfppt);
+    pw_val(nvb,  sizeof(nvb),  hw->nv_boost, g_ui.pwv_nvboost, " W", rnvb);
+    pw_val(nvt,  sizeof(nvt),  hw->nv_temp,  g_ui.pwv_nvtemp, " °C", rnvt);
+    pw_val(cfq,  sizeof(cfq),  hw->cpu_mhz_limit, g_ui.pwv_mhz, " MHz", rcfq);
     pw_val_b(pod, sizeof(pod), hw->panel_od, g_ui.pwv_panel_od);
     pw_val_b(cb,  sizeof(cb),  hw->cpu_boost, g_ui.pwv_cpuboost);
     if (g_ui.pwv_ppt_off != hw->ppt_off)
@@ -463,9 +597,23 @@ static void draw_power(struct ncplane *n, const rect_t *r)
         "Panel overdrive", "CPU boost", "CPU clock limit",
     };
 
-    ui_putln(n, x, r->y + 1, w,
-             "h/l stage · Enter apply · r revert · q quits twice when staged",
-             pal->muted, false);
+    if (g_ui.pw_typing) {
+        char line[144], rng[32];
+        pw_row_range(g_ui.pw_sel, rng, sizeof rng, "");
+        if (rng[0])
+            snprintf(line, sizeof line,
+                     "set %s (%s): %s_ · Enter stages · Esc cancels",
+                     labels[g_ui.pw_sel], rng, g_ui.pw_input.buf);
+        else
+            snprintf(line, sizeof line,
+                     "set %s: %s_ · Enter stages · Esc cancels",
+                     labels[g_ui.pw_sel], g_ui.pw_input.buf);
+        ui_putln(n, x, r->y + 1, w, line, pal->accent, true);
+    } else {
+        ui_putln(n, x, r->y + 1, w,
+                 "h/l stage · t exact value · Enter apply · r revert",
+                 pal->muted, false);
+    }
     /* while the toast is up, one list row yields its place to it */
     bool toast = g_ui.pw_msg_ms > 0 && now_ms() - g_ui.pw_msg_ms < PW_TOAST_MS;
     int rows = r->h - (toast ? 5 : 4);
@@ -626,6 +774,7 @@ static void draw_help(struct ncplane *n, const rect_t *r)
         "",
         "POWER",
         "  j k          move · h/l (or arrows) stage the value (nothing writes)",
+        "  t            type an exact value for the selected row",
         "  Enter/w      apply all staged edits · r reverts to live values",
         "  q            quits; with staged edits pending it asks twice",
         "",
@@ -705,6 +854,22 @@ void panel_workspace_key(uint32_t key)
         return;
     }
 
+    /* exact-value typing for the POWER view */
+    if (g_ui.ws_view == WSV_POWER && g_ui.pw_typing) {
+        if (key == NCKEY_ESC) {
+            g_ui.pw_typing = false;
+            return;
+        }
+        if (key == NCKEY_ENTER || key == '\r' || key == '\n') {
+            g_ui.pw_typing = false;
+            if (g_ui.pw_input.buf[0])
+                pw_commit_typed();
+            return;
+        }
+        tin_key(&g_ui.pw_input, key);
+        return;
+    }
+
     if (!view_binds_key(g_ui.ws_view, key)) {
         switch (key) {
         case 'f':
@@ -738,6 +903,15 @@ void panel_workspace_key(uint32_t key)
             pw_apply();
             return;
         case 'r': case 'R': pw_sync_from_hw(); return; /* revert staged */
+        case 't': case 'T':
+            if (pw_row_numeric(g_ui.pw_sel)) {
+                char seed[16];
+                snprintf(seed, sizeof seed, "%d", pw_staged_value(g_ui.pw_sel));
+                tin_set(&g_ui.pw_input, seed);
+                g_ui.pw_typing = true;
+                g_ui.pw_msg_ms = 0;
+            }
+            return;
         default: return;
         }
     }
@@ -781,6 +955,8 @@ void panel_workspace_key(uint32_t key)
 
 void panel_workspace_act(int id)
 {
+    if (g_ui.pw_typing)
+        g_ui.pw_typing = false; /* a click ends exact-value typing */
     switch (id) {
     case ACT_WS_TAB_FAN:      ws_set_view(WSV_FAN); return;
     case ACT_WS_TAB_POWER:    ws_set_view(WSV_POWER); return;

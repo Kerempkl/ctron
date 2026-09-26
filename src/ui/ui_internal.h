@@ -83,6 +83,8 @@ typedef struct ui_ctx {
     char pw_msg[160];      /* apply toast: what changed */
     long pw_msg_ms;        /* CLOCK_MONOTONIC ms when set, 0 = none */
     bool pw_msg_fail;      /* red variant (some writes failed) */
+    tinput_t pw_input;     /* exact-value typing ('t' on a value row) */
+    bool pw_typing;
 
     /* light view */
     int lt_sel, lt_eff, lt_col;

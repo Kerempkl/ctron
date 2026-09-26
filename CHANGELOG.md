@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-09-26 — POWER: exact-value typing + range hints
+
+- `t` on a numeric row (SPL/SPPT/FPPT, NV boost/temp, CPU clock)
+  starts exact-value typing, seeded with the staged value. Enter
+  stages it — clamped exactly like a nudge, and digits only: anything
+  else is dropped with a log line instead of staging the minimum.
+  Esc cancels; switching views or any click ends typing; starting to
+  type dismisses the apply toast.
+- Plain value rows now show their allowed window, e.g. `65 W (15–90)`.
+  The firmware windows come from `ctrl_ppt_limits` cached for one
+  second in the draw pass, so frames do not re-read the armoury
+  attrs six times each. Dirty rows keep the `live → staged ●` form
+  (the arrow wins over the range); the typing line shows the window
+  too: `set SPL (sustained) (15–90): 65_`.
+- Help view (POWER section) documents `t`.
+- `make` warning-free on the ctron side, `make test` ok, installed to
+  `~/.local/bin/ctron`, `--status` live on FA608PP.
+
 ## 2026-09-24 — POWER apply toast (what changed, in colour)
 
 - After Apply, the POWER panel shows a toast above the buttons for
