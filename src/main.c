@@ -20,7 +20,7 @@
 #include "display/display.h"
 
 #define PROG "ctron"
-#define VERSION "2.0.0-deno"
+#define VERSION "0.2.1"
 
 /* ---- output helpers ----------------------------------------------------- */
 

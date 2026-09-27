@@ -245,7 +245,8 @@ Refresh row verified under `LC_ALL=tr_TR.UTF-8`.
 
 ### Still open
 
-1. Version string still says `2.0.0-deno` — bump to `2.1`, tag `v2.1`.
+1. ~~Version string~~ — done 2026-09-27: `VERSION` is `0.2.1`
+   (README's scheme). Tag `v0.2.1` optional.
 2. From the FA507NVR session: HDMI-A-1 Hz (multi-monitor `hl.monitor`),
    TUI mouse under Hyprland.
 3. Parked: Waybar sync, MUX/dGPU, throttle_thermal_policy.

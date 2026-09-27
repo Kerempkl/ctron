@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-27 — version string: 0.2.1
+
+- `VERSION` in `main.c` was still the v1-era `2.0.0-deno`; now `0.2.1`,
+  matching the README title. `ctron --version` / `-V` report it; the
+  installed binary rebuilt. HANDOFF "still open" item closed.
+
 ## 2026-09-27 — HARDWARE.md support matrix (EN + TR)
 
 - New `HARDWARE.md`: per-device-class support table in English and
