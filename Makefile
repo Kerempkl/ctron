@@ -34,6 +34,9 @@ test: $(TEST_BIN) build/test_daeboard
 	$(TEST_BIN)
 	./build/test_daeboard
 
+tuitest: $(TARGET)
+	python3 scripts/tui_smoke.py $(TARGET)
+
 build/test_daeboard: tests/test_daeboard.c src/daeboard.c src/util.c src/daeboard.h src/util.h
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -o $@ tests/test_daeboard.c src/daeboard.c src/util.c
@@ -52,4 +55,4 @@ install: $(TARGET)
 clean:
 	rm -rf build
 
-.PHONY: all test install clean
+.PHONY: all test tuitest install clean

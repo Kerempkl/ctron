@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-09-27 — pty harness in-tree: `make tuitest`
+
+- `scripts/tui_smoke.py` drives the real TUI under a pty: a responder
+  answers notcurses's init queries (CPR, DA1, secondary DA, XTVERSION,
+  kitty `?u`, sync 2026, OSC 4/10/11) during the first second only,
+  then stays silent while draining output — the documented workaround
+  for `notcurses_init` hanging on a dumb pty.
+- Flows: open/render/`q` exit 0 · ESC settings overlay (LAYOUT
+  visible) · POWER net-zero stage+apply (`l`+`h` then `w` — asserts
+  the "power apply" log line while writing nothing to hardware;
+  lowercase `p` deliberately belongs to the fan editor, so the flow
+  uses `P`) · fan control-row clicks must not switch views (the
+  ACT-id collision regression) and the Write click must apply the
+  curve (real no-op re-write; needs the TUI's usual privileges).
+- `make tuitest` target; `make test` stays fast. Three consecutive
+  runs green on FA608PP.
+
 ## 2026-09-27 — fan-editor buttons fixed (ACT id collision)
 
 - User-hit bug from the morning entry below: clicking the fan

@@ -9,6 +9,21 @@ profile/EPP + Enter-applies + q guard → apply toast), and
 editor, signed below). **Read `NEXT.md` first** — it carries the
 prioritized todo list and the distilled session lessons.
 
+## Session 2026-09-27 — pty harness in-tree (Kerempkl + GLM, FA608PP)
+
+- NEXT.md item 2 closed: `make tuitest` runs `scripts/tui_smoke.py`
+  — pty + one-second query responder (CPR/DA1/kitty/sync/OSC) + four
+  flows (open/quit, settings overlay, POWER net-zero apply, fan
+  button regression + Write click). Three consecutive green runs.
+- Two behavioural notes encoded in the harness: lowercase `p` is the
+  fan editor's pwm key, so POWER is reached with `P`; the POWER flow
+  stages `l`+`h` (net zero) so Apply logs without touching hardware.
+- The fan Write-click flow performs a real no-op curve re-write —
+  needs the TUI's usual privileges; read-only flows run without.
+- Session protocol unchanged: no commits by the agent; message handed
+  over. Uncommitted at handoff: harness + fan-verify/flash + button
+  fix + version/docs from earlier today.
+
 ## Session 2026-09-27 — fan write verify + ui_flash (Kerempkl + GLM, FA608PP)
 
 - NEXT.md item 5 closed: `ctrl_fan_write` reads back all 8+8 points

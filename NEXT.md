@@ -42,13 +42,13 @@
    arıyor (`hw.c`, `hw_hwmon_path`/`power_supply_find` çağrıları).
    Yollar `hw_init`'te bir kez bulunup struct'a saklanmalı; poll yalnızca
    değer okumalı. nvidia-smi 2 sn cache'te — dokunma.
-2. **pty test harness'ını repoya al.** `scripts/tui_smoke.py` +
-   `make tuitest`. Harness şart: terminal sorgularına cevap veren
-   responder (CPR `\x1b[1;1R`, DA1, kitty `?u`, sync `2026`, OSC 4/10/11
-   renkler) — respondersız pty'de `notcurses_init` asılır (test kusuru,
-   programın değil). Cevapları yalnız ilk ~1 sn gönder; sonra sessizlik
-   (geken cevaplar ESC'ye ayrışıp pencere açabiliyor). Akış testleri:
-   `s`/ESC pencere, `3`+`p` POWER, `jjl` satır değişimi, `q` exit 0.
+2. **[BİTTİ 09-27]** pty test harness repoda: `scripts/tui_smoke.py` +
+   `make tuitest`. Responder yalnız ilk ~1 sn CPR/DA1/kitty `?u`/sync
+   2026/OSC 4-10-11 sorgularını yanıtlar (sonra sessiz — geç cevaplar
+   ESC'ye ayrışıyor). Akışlar: aç/çık exit 0, ESC settings overlay,
+   POWER net-sıfır stage+apply (log satırı, donanıma yazmaz), fan
+   kontrol satırı tıklamaları (ID çakışması regresyonu) + Write
+   tıklaması gerçek eğri yazması. Üç koşu üst üste yeşil.
 3. **[BİTTİ 09-23]** POWER görünümüne CPU frekans satırı eklendi:
    "CPU clock limit" satırı (h/l/Enter ±100 MHz, per-CPU `scaling_max_freq`
    yazımı; değer canlı okunur, bilinmiyorsa `--`). Kalan yarım:
