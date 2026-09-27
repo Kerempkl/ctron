@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-09-27 — HARDWARE.md support matrix (EN + TR)
+
+- New `HARDWARE.md`: per-device-class support table in English and
+  Turkish, with the reasons behind each row — the four dependency
+  layers (ASUS WMI stack, AMD CPU side, NVIDIA driver, desktop stack),
+  the two verified machines and their quirks, plus the behavioural
+  notes (honest `--`/FAILED degradation, sudo as the top breaker).
+- README intro gains a two-machine verification summary and a link to
+  the matrix instead of carrying the full bilingual table.
+
 ## 2026-09-26 — CPU clock window follows amd-pstate (battery bug)
 
 - Bug: after changing EPP (or the platform profile) the POWER view's

@@ -1,12 +1,24 @@
 # Ctron Handoff
 
-Latest session — **2026-09-26** **Kerempkl + GLM / FA608PP** (POWER:
-exact-value typing + range hints, closing the usability list).
-Before that the **2026-09-24** POWER round (staged-apply → critique
-fixes → profile/EPP + Enter-applies + q guard → apply toast), and
+Latest session — **2026-09-27** **Kerempkl + GLM / FA608PP** (docs:
+HARDWARE.md support matrix). Before that **2026-09-26** (POWER:
+exact-value typing + range hints, amd-pstate clock-window refresh),
+the **2026-09-24** POWER round (staged-apply → critique fixes →
+profile/EPP + Enter-applies + q guard → apply toast), and
 **2026-09-23** in parallel: **Grok / FA507NVR / NixOS** (daeboard
 editor, signed below). **Read `NEXT.md` first** — it carries the
 prioritized todo list and the distilled session lessons.
+
+## Session 2026-09-27 — HARDWARE.md (Kerempkl + GLM, FA608PP)
+
+- Docs only: new `HARDWARE.md` — bilingual (EN first, TR below)
+  device-class support matrix with the four dependency layers, the
+  two verified machines and their quirks, honest-degradation and sudo
+  notes. README intro summarizes and links instead of carrying the
+  table. No code touched. Uncommitted at handoff per the user's
+  commit protocol — ready message handed over.
+
+## Session 2026-09-26 — amd-pstate clock window refresh (Kerempkl + GLM, FA608PP)
 
 ## Session 2026-09-26 — amd-pstate clock window refresh (Kerempkl + GLM, FA608PP)
 

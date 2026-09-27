@@ -11,7 +11,13 @@ Verified on an **ASUS TUF Gaming A16 FA608PP** (Ryzen 9 8940HX + RTX 5070
 Max-Q, CachyOS, KDE Plasma Wayland, kernel 7.2): CPU/GPU temps, fan RPM,
 custom fan curves, platform profiles, EPP, battery charge limit, keyboard
 backlight, PPT, panel overdrive and display refresh (via kscreen-doctor)
-all read live on this machine.
+all read live on this machine. Also verified on a **TUF A15 FA507NVR**
+(Ryzen 7 7435HS + RTX 4060, NixOS, Hyprland 0.55) — same picture with two
+kernel-related exceptions.
+
+Support beyond these two machines depends on the ASUS WMI stack, the CPU
+vendor, the NVIDIA driver and the compositor — the row-by-row breakdown
+lives in [HARDWARE.md](HARDWARE.md) (English + Türkçe).
 
 ---
 
