@@ -306,6 +306,7 @@ static void pw_apply(void)
     int fails = 0;
     char sum[160];
     pw_diff_summary(sum, sizeof(sum));
+    ui_flash("applying power settings...");
 
     /* profile first: it can move the EPP too, and an explicitly staged
      * EPP must win over the profile-implied one */
@@ -965,6 +966,14 @@ void panel_workspace_act(int id)
     case ACT_WS_TAB_HELP:     ws_set_view(WSV_HELP); return;
     default:
         break;
+    }
+
+    /* fan-editor button/graph-chip clicks are registered under this
+     * panel but belong to the editor; forward them */
+    if (id >= ACT_FE_BASE && id < ACT_FE_END) {
+        if (g_ui.ws_view == WSV_FAN)
+            editor_fan_act(id, 0, 0);
+        return;
     }
 
     if (id >= ACT_WS_PW_BASE && id < ACT_WS_PW_BASE + PW_ROWS) {

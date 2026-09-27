@@ -13,17 +13,19 @@
  * typed exactly (t/p fields + Enter) or clicked (select / add / move). */
 
 enum {
-    ACT_FE_CPU = 1,
+    ACT_FE_CPU = ACT_FE_BASE, /* 100 — outside the workspace ACT_WS_* id
+                               * space; clicks are forwarded back here
+                               * from panel_workspace_act */
     ACT_FE_GPU,
     ACT_FE_ADD,
     ACT_FE_DEL,
     ACT_FE_WRITE,
     ACT_FE_TOGGLE,
-    ACT_FE_PRESET_BASE = 10, /* stock/silent/cool/full */
-    ACT_FE_SET = 20,
     ACT_FE_T_FIELD,
     ACT_FE_P_FIELD,
-    ACT_FE_NODE_BASE = 30,  /* + point index */
+    ACT_FE_SET,
+    ACT_FE_PRESET_BASE = ACT_FE_BASE + 10, /* stock/silent/cool/full */
+    ACT_FE_NODE_BASE = ACT_FE_BASE + 30,   /* + point index */
 };
 
 static rect_t s_graph;
@@ -291,6 +293,7 @@ void editor_fan_key(uint32_t key)
         break;
     case 'w':
     case 'W':
+        ui_flash("applying fan curve...");
         ctrl_fan_write(g_ui.hw);
         break;
     case 'o':
@@ -361,10 +364,72 @@ void editor_fan_key(uint32_t key)
 
 void editor_fan_act(int id, int mx, int my)
 {
-    (void)id;
     fan_curve_t *fc = cur_curve();
 
-    /* nearest point within 2 cells? */
+    /* button clicks carry an ACT_FE_* id; id == 0 is a graph click */
+    if (id >= ACT_FE_BASE && id < ACT_FE_END) {
+        switch (id) {
+        case ACT_FE_CPU:
+            g_ui.fe_gpu = 0;
+            fill_xy_bufs();
+            return;
+        case ACT_FE_GPU:
+            g_ui.fe_gpu = 1;
+            fill_xy_bufs();
+            return;
+        case ACT_FE_ADD: {
+            int t = g_ui.fe_x.buf[0] ? atoi(g_ui.fe_x.buf) : -1;
+            int p = g_ui.fe_y.buf[0] ? atoi(g_ui.fe_y.buf) : -1;
+            g_ui.fe_sel = fan_add_point(fc, t, p);
+            fill_xy_bufs();
+            g_ui.fe_input = 1;
+            return;
+        }
+        case ACT_FE_DEL:
+            g_ui.fe_sel = fan_del_point(fc, g_ui.fe_sel);
+            fill_xy_bufs();
+            return;
+        case ACT_FE_WRITE:
+            ui_flash("applying fan curve...");
+            ctrl_fan_write(g_ui.hw);
+            return;
+        case ACT_FE_TOGGLE:
+            if (g_ui.fe_gpu)
+                ctrl_fan_set_enabled(g_ui.hw, g_ui.hw->fan_cpu_on, !g_ui.hw->fan_gpu_on);
+            else
+                ctrl_fan_set_enabled(g_ui.hw, !g_ui.hw->fan_cpu_on, g_ui.hw->fan_gpu_on);
+            return;
+        case ACT_FE_T_FIELD:
+            g_ui.fe_input = 1;
+            tin_clear(&g_ui.fe_x);
+            return;
+        case ACT_FE_P_FIELD:
+            g_ui.fe_input = 2;
+            tin_clear(&g_ui.fe_y);
+            return;
+        case ACT_FE_SET:
+            apply_xy();
+            return;
+        default:
+            if (id >= ACT_FE_PRESET_BASE && id < ACT_FE_PRESET_BASE + 4) {
+                ui_flash("applying fan preset...");
+                ctrl_fan_preset(g_ui.hw, id - ACT_FE_PRESET_BASE);
+                fill_xy_bufs();
+                return;
+            }
+            if (id >= ACT_FE_NODE_BASE && id < ACT_FE_NODE_BASE + FAN_POINTS) {
+                int i = id - ACT_FE_NODE_BASE;
+                if (i < fc->n) {
+                    g_ui.fe_sel = i;
+                    fill_xy_bufs();
+                }
+                return;
+            }
+            return;
+        }
+    }
+
+    /* graph click: nearest point within 2 cells? */
     int near = -1, nd = 99;
     for (int i = 0; i < fc->n; i++) {
         int dx = px(fc, i) - s_graph.x - mx;

@@ -211,11 +211,21 @@ void editor_daeboard_act(int id);
 void editor_fan_draw(struct ncplane *n, const rect_t *r);
 void editor_fan_key(uint32_t key);
 void editor_fan_act(int id, int mx, int my);
+/* Fan-editor click targets: ACT_FE_* ids live in [ACT_FE_BASE,
+ * ACT_FE_END) and are forwarded from panel_workspace_act (they are
+ * registered under TGT_PANEL_WORKSPACE but must not collide with the
+ * workspace's own ACT_WS_* ids). */
+#define ACT_FE_BASE 100
+#define ACT_FE_END  160
 /* Graph rectangle after a draw pass (mouse hit testing). */
 const rect_t *editor_fan_graph(void);
 
 /* Shared workspace helpers. */
 void ws_set_view(ws_view_t v);
 void ws_start_mode_edit(const mode_def_t *m); /* NULL = new mode */
+
+/* Draw msg on the telemetry log row and render immediately — long-op
+ * ("applying...") feedback before a blocking call. No-op outside TUI. */
+void ui_flash(const char *msg);
 
 #endif /* CTRON_UI_INTERNAL_H */

@@ -64,6 +64,7 @@ static void apply_row(int row)
     case 0:
         if (g_ui.mode_n > 0) {
             char err[128];
+            ui_flash("applying mode...");
             if (mode_apply(hw, g_ui.modes[g_ui.ctl_mode_idx].steps, err, sizeof(err)) == 0)
                 ut_log("mode '%s' applied", g_ui.modes[g_ui.ctl_mode_idx].name);
             else
@@ -77,6 +78,7 @@ static void apply_row(int row)
         ctrl_set_profile(hw, (hw_profile_t)g_ui.ctl_prof_idx);
         break;
     case 2:
+        ui_flash("applying fan preset...");
         if (g_ui.ctl_fan_idx == 4)
             ctrl_fan_set_enabled(hw, false, false);
         else

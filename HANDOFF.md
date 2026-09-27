@@ -9,6 +9,27 @@ profile/EPP + Enter-applies + q guard → apply toast), and
 editor, signed below). **Read `NEXT.md` first** — it carries the
 prioritized todo list and the distilled session lessons.
 
+## Session 2026-09-27 — fan write verify + ui_flash (Kerempkl + GLM, FA608PP)
+
+- NEXT.md item 5 closed: `ctrl_fan_write` reads back all 8+8 points
+  from the custom-curve hwmon and logs `verified 8/8 + 8/8 pts` or
+  `VERIFY FAILED: cpu n/8, gpu n/8`; the padding rule lives in the
+  shared `fan_point()` so write and verify agree. Live-checked with a
+  no-op `--fan-curve` re-apply on FA608PP (curves unchanged).
+- `ui_flash()` (ui.c): "applying..." on the telemetry log row with a
+  synchronous render before fan writes, fan presets, profile apply,
+  mode bundles and POWER apply — kills the frozen-UI feel. CLI-safe
+  (no-ops without the TUI).
+- **Fan-editor button collision (user hit it live):** `ACT_FE_*` ids
+  were registered under TGT_PANEL_WORKSPACE and collided with
+  `ACT_WS_*` — clicking Write opened Help, CPU/GPU/+/- opened tabs.
+  Fixed same session: ids rebased to 100..159, `panel_workspace_act`
+  forwards them to `editor_fan_act`, which now has a full button
+  dispatch (Write flashes "applying..." and writes). daeboard editor
+  unaffected (own TGT panel).
+- Verified: warning-free `make`, `make test`, installed; uncommitted
+  at handoff per the commit protocol.
+
 ## Session 2026-09-27 — HARDWARE.md (Kerempkl + GLM, FA608PP)
 
 - Docs only: new `HARDWARE.md` — bilingual (EN first, TR below)

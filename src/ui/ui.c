@@ -14,6 +14,26 @@
 
 ui_ctx_t g_ui;
 
+/* ---- footer flash -------------------------------------------------------- */
+
+/* Immediate feedback for long operations (fan writes, mode bundles):
+ * draws over the telemetry log row and renders synchronously, so the
+ * user sees "applying..." before the blocking call freezes the loop.
+ * The next main-loop frame redraws normally. No-op outside the TUI. */
+static struct notcurses *s_nc;
+static struct ncplane *s_stdn;
+
+void ui_flash(const char *msg)
+{
+    if (!s_nc || !s_stdn)
+        return;
+    const palette_t *pal = ui_palette(g_prefs.theme);
+    const rect_t *r = &g_ui.rc_telem;
+    if (r->w >= 10 && r->h >= 4)
+        ui_putln(s_stdn, r->x + 2, r->y + 3, r->w - 4, msg, pal->accent, true);
+    notcurses_render(s_nc);
+}
+
 /* ---- palette ----------------------------------------------------------- */
 
 const char *const THEME_NAMES[] = { "Ice", "Amber", "Emerald", "Crimson", "Stealth" };
@@ -588,6 +608,8 @@ int ui_run(hw_state_t *hw)
     }
     notcurses_mice_enable(nc, NCMICE_BUTTON_EVENT);
     struct ncplane *stdn = notcurses_stdplane(nc);
+    s_nc = nc;
+    s_stdn = stdn;
 
     memset(&g_ui, 0, sizeof(g_ui));
     g_ui.hw = hw;
@@ -682,6 +704,8 @@ int ui_run(hw_state_t *hw)
     }
 
     settings_save(hw);
+    s_nc = NULL;
+    s_stdn = NULL;
     notcurses_stop(nc);
     return 0;
 }

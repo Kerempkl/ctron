@@ -55,9 +55,13 @@
    `--tctl`-vari gösterge (sıcaklık/tavan mesafe göstergesi).
 4. **Listelere kaydırma:** PROFILES/CLI SHORTCUTS listeleri taşınca
    kırpılıyor; pencere içi scroll (seçim pencere dışına çıkınca kaydır).
-5. **Fan yazma doğrulaması:** fan curve hwmon'u güvenilir okunuyor —
-   `ctrl_fan_write` sonrası geri oku, log'da doğrula. Ayrıca uzun
-   çağrılar sırasında footer'a "applying..." (UI donması hissi).
+5. **[BİTTİ 09-27]** Fan yazma doğrulaması + "applying..." göstergesi:
+   `ctrl_fan_write` sonrası 8 nokta + enable geri okunup log'da
+   doğrulanıyor (`· verified 8/8 + 8/8 pts` / `VERIFY FAILED`);
+   padding mantığı `fan_point()`'a çekildi, yazma ve doğrulama aynı
+   değeri kullanıyor. Uzun çağrılar (fan yazma, preset, profil, mode,
+   power apply) öncesi footer'a anında `applying...` basılıyor
+   (`ui_flash()`: telemetry log satırı üzerine + senkron render).
 6. **flake.nix geri ekle** (v1'de vardı, v2'ye gelmedi; Arcioth NixOS'ta
    derleyemiyor şu an).
 7. **Mini telemetri grafikleri** (btop tarzı blok karakterlerle son ~60

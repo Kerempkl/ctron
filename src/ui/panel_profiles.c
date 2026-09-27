@@ -88,6 +88,7 @@ static void apply_selected(void)
     if (g_ui.prof_n == 0 || g_ui.prof_sel >= g_ui.prof_n)
         return;
     char err[128];
+    ui_flash("applying profile...");
     if (profile_import(g_ui.profs[g_ui.prof_sel], g_ui.hw, err, sizeof(err)) == 0)
         ut_log("applied profile '%s'", g_ui.profs[g_ui.prof_sel]);
     else

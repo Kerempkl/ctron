@@ -1,5 +1,40 @@
 # Changelog
 
+## 2026-09-27 — fan-editor buttons fixed (ACT id collision)
+
+- User-hit bug from the morning entry below: clicking the fan
+  editor's top row (CPU/GPU/+/-/Write/ON) opened workspace tabs
+  instead — `ACT_FE_*` ids (1..30) were registered under
+  TGT_PANEL_WORKSPACE and collided with `ACT_WS_*` (Write=5 was the
+  Help tab). Ids rebased to 100..159 (`ACT_FE_BASE/END` in
+  ui_internal.h) and `panel_workspace_act` now forwards them to
+  `editor_fan_act`, which gained a button dispatch: CPU/GPU switch,
+  add/del point, Write (with the "applying..." flash), ON/OFF toggle,
+  T/P field entry, Set, Stk/Sil/Col/Ful presets, point chips select.
+  Graph clicks (id 0) unchanged. daeboard editor already had its own
+  TGT panel — unaffected.
+
+## 2026-09-27 — fan write verification + "applying..." flash
+
+- `ctrl_fan_write` now verifies itself (rule 4): all 8 temp/pwm
+  points per fan are read back from the custom-curve hwmon and the
+  log states `· verified 8/8 + 8/8 pts`, or `VERIFY FAILED: cpu 6/8,
+  gpu 8/8` on a real mismatch (this hwmon is not stale-cache-prone,
+  unlike nb-wmi PPT). The write loop's last-point padding moved into
+  a shared `fan_point()`, so write and verify compare the same
+  values. CLI path verified live with a no-op re-apply on FA608PP.
+- New `ui_flash()`: before long operations (fan write/preset, profile
+  apply, mode bundle, POWER apply) the telemetry log row immediately
+  shows "applying..." with a synchronous render — no more frozen-UI
+  feel during the blocking write. Naturally replaced by the next
+  frame; no-op outside the TUI.
+- Found on the way (NOT fixed, out of scope): fan-editor buttons
+  register `ACT_FE_*` ids under TGT_PANEL_WORKSPACE, but
+  `editor_fan_act` ignores ids and the values collide with
+  workspace/power ids (`ACT_FE_WRITE=5` == `ACT_WS_TAB_HELP`) —
+  clicking " Write " opens HELP. Keyboard `w` is fine. Needs an id
+  rebase + a button dispatch branch.
+
 ## 2026-09-27 — version string: 0.2.1
 
 - `VERSION` in `main.c` was still the v1-era `2.0.0-deno`; now `0.2.1`,

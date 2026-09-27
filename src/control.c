@@ -479,21 +479,58 @@ static void fan_curve_data_str(const fan_curve_t *fc, char *out, size_t n)
     }
 }
 
+/* the value point i takes when the curve has fewer points in use:
+ * padding with the last point (what the write loop sends) */
+static void fan_point(const hw_state_t *hw, bool cpu, int i, int *temp, int *pwm)
+{
+    const fan_curve_t *fc = cpu ? &hw->fan_cpu : &hw->fan_gpu;
+    int idx = (fc->n > 0) ? (i < fc->n ? i : fc->n - 1) : 0;
+    *temp = (fc->n > 0) ? fc->temp_c[idx] : FAN_TMIN;
+    *pwm  = (fc->n > 0) ? fc->pwm[idx] : 0;
+}
+
+/* rule 4 — verify the writes by reading back. The custom-curve hwmon
+ * reads back what was written (unlike the nb-wmi PPT cache), so a
+ * mismatch is a real failure, not staleness. */
+static void fan_verify(const hw_state_t *hw, const char *base,
+                       int *cpu_ok, int *gpu_ok)
+{
+    *cpu_ok = 0;
+    *gpu_ok = 0;
+    char p[300];
+    for (int i = 0; i < FAN_POINTS; i++) {
+        int tc, pc, tg, pg, t, w;
+        fan_point(hw, true, i, &tc, &pc);
+        fan_point(hw, false, i, &tg, &pg);
+
+        snprintf(p, sizeof(p), "%s/pwm1_auto_point%d_temp", base, i + 1);
+        t = ut_read_int(p);
+        snprintf(p, sizeof(p), "%s/pwm1_auto_point%d_pwm", base, i + 1);
+        w = ut_read_int(p);
+        if (t == tc && w == pc)
+            (*cpu_ok)++;
+
+        snprintf(p, sizeof(p), "%s/pwm2_auto_point%d_temp", base, i + 1);
+        t = ut_read_int(p);
+        snprintf(p, sizeof(p), "%s/pwm2_auto_point%d_pwm", base, i + 1);
+        w = ut_read_int(p);
+        if (t == tg && w == pg)
+            (*gpu_ok)++;
+    }
+}
+
 int ctrl_fan_write(hw_state_t *hw)
 {
     char base[256];
     int rc = 0;
+    int vok_cpu = -1, vok_gpu = -1; /* -1: no hwmon, not verified */
 
     if (fan_curve_base(base, sizeof(base)) == 0) {
         for (int i = 0; i < FAN_POINTS; i++) {
             char path[300];
-            /* pad with the last point when fewer are in use */
-            int ic = (hw->fan_cpu.n > 0) ? (i < hw->fan_cpu.n ? i : hw->fan_cpu.n - 1) : 0;
-            int ig = (hw->fan_gpu.n > 0) ? (i < hw->fan_gpu.n ? i : hw->fan_gpu.n - 1) : 0;
-            int tc = (hw->fan_cpu.n > 0) ? hw->fan_cpu.temp_c[ic] : FAN_TMIN;
-            int pc = (hw->fan_cpu.n > 0) ? hw->fan_cpu.pwm[ic] : 0;
-            int tg = (hw->fan_gpu.n > 0) ? hw->fan_gpu.temp_c[ig] : FAN_TMIN;
-            int pg = (hw->fan_gpu.n > 0) ? hw->fan_gpu.pwm[ig] : 0;
+            int tc, pc, tg, pg;
+            fan_point(hw, true, i, &tc, &pc);
+            fan_point(hw, false, i, &tg, &pg);
             char val[16];
 
             snprintf(path, sizeof(path), "%s/pwm1_auto_point%d_temp", base, i + 1);
@@ -519,6 +556,8 @@ int ctrl_fan_write(hw_state_t *hw)
         snprintf(path, sizeof(path), "%s/pwm2_enable", base);
         snprintf(val, sizeof(val), "%d", hw->fan_gpu_on ? 2 : 0);
         ut_priv_write(path, val);
+
+        fan_verify(hw, base, &vok_cpu, &vok_gpu);
     }
 
     /* asusctl persistence: survive asusd restarts */
@@ -543,11 +582,21 @@ int ctrl_fan_write(hw_state_t *hw)
         ut_exec(cmd, NULL, 0);
     }
 
-    if (rc == 0)
-        ut_log("fan curves written (cpu %s, gpu %s)",
-               hw->fan_cpu_on ? "on" : "off", hw->fan_gpu_on ? "on" : "off");
-    else
+    if (rc == 0) {
+        if (vok_cpu == FAN_POINTS && vok_gpu == FAN_POINTS)
+            ut_log("fan curves written (cpu %s, gpu %s) · verified %d/%d + %d/%d pts",
+                   hw->fan_cpu_on ? "on" : "off", hw->fan_gpu_on ? "on" : "off",
+                   vok_cpu, FAN_POINTS, vok_gpu, FAN_POINTS);
+        else if (vok_cpu >= 0)
+            ut_log("fan curves written (cpu %s, gpu %s) · VERIFY FAILED: cpu %d/%d, gpu %d/%d pts",
+                   hw->fan_cpu_on ? "on" : "off", hw->fan_gpu_on ? "on" : "off",
+                   vok_cpu, FAN_POINTS, vok_gpu, FAN_POINTS);
+        else
+            ut_log("fan curves written (cpu %s, gpu %s)",
+                   hw->fan_cpu_on ? "on" : "off", hw->fan_gpu_on ? "on" : "off");
+    } else {
         ut_log("fan curves: sysfs write FAILED (needs root; no passwordless sudo)");
+    }
     return rc;
 }
 
