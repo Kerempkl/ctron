@@ -53,8 +53,10 @@
    "CPU clock limit" satırı (h/l/Enter ±100 MHz, per-CPU `scaling_max_freq`
    yazımı; değer canlı okunur, bilinmiyorsa `--`). Kalan yarım:
    `--tctl`-vari gösterge (sıcaklık/tavan mesafe göstergesi).
-4. **Listelere kaydırma:** PROFILES/CLI SHORTCUTS listeleri taşınca
-   kırpılıyor; pencere içi scroll (seçim pencere dışına çıkınca kaydır).
+4. **[BİTTİ 09-28]** Listelere kaydırma: PROFILES ve CLI SHORTCUTS
+   (modes.ini) listelerinde seçim pencere dışına çıkarsa liste seçimi
+   takip edecek şekilde kayar (draw sırasında clamp; ▲/▼ ipuçları
+   taşan tarafı gösterir).
 5. **[BİTTİ 09-27]** Fan yazma doğrulaması + "applying..." göstergesi:
    `ctrl_fan_write` sonrası 8 nokta + enable geri okunup log'da
    doğrulanıyor (`· verified 8/8 + 8/8 pts` / `VERIFY FAILED`);

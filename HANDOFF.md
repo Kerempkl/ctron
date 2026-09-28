@@ -9,6 +9,19 @@ profile/EPP + Enter-applies + q guard → apply toast), and
 editor, signed below). **Read `NEXT.md` first** — it carries the
 prioritized todo list and the distilled session lessons.
 
+## Session 2026-09-28 — list scrolling (Kerempkl + GLM, FA608PP)
+
+- NEXT.md item 4 closed: PROFILES and the settings-overlay CLI
+  SHORTCUTS lists scroll to follow the selection (`prof_top`,
+  `set_mode_top`, clamped during draw; ▲/▼ hint markers). The easy
+  pick of the session — tctl gauge (item 3 leftover) was rejected
+  first: k10temp exposes no `temp1_crit`, so a ceiling would have to
+  be hardcoded (honest-reads violation).
+- Same session: POWER preset button row and the 6.18-lts
+  re-verification (sections below).
+- Verified: warning-free `make`, `make test`, `make tuitest` green,
+  installed. Uncommitted at handoff per protocol.
+
 ## Session 2026-09-28 — POWER preset button row (Kerempkl + GLM, FA608PP)
 
 - POWER layout: presets are now one "Presets" row (EPP → presets →

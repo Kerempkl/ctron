@@ -178,7 +178,23 @@ static void draw_settings(struct ncplane *n, const rect_t *r)
              pal->accent, true);
     y += 1;
     int last = r->y + r->h - 1;
-    for (int i = 0; i < g_ui.mode_n && y < last; i++, y++) {
+    int vis = last - y;   /* rows that fit */
+    if (vis < 1)
+        vis = 1;
+    /* keep the selection inside the visible window (scroll) */
+    if (g_ui.mode_n <= vis) {
+        g_ui.set_mode_top = 0;
+    } else {
+        if (g_ui.set_mode_top > g_ui.set_mode_sel)
+            g_ui.set_mode_top = g_ui.set_mode_sel;
+        if (g_ui.set_mode_sel >= g_ui.set_mode_top + vis)
+            g_ui.set_mode_top = g_ui.set_mode_sel - vis + 1;
+        if (g_ui.set_mode_top + vis > g_ui.mode_n)
+            g_ui.set_mode_top = g_ui.mode_n - vis;
+        if (g_ui.set_mode_top < 0)
+            g_ui.set_mode_top = 0;
+    }
+    for (int i = g_ui.set_mode_top; i < g_ui.mode_n && y < last; i++, y++) {
         char label[96];
         snprintf(label, sizeof(label), "%s%s", i == g_ui.set_mode_sel ? "▸ " : "  ",
                  g_ui.modes[i].name);

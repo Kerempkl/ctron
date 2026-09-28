@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-09-28 — list scrolling (PROFILES + CLI SHORTCUTS)
+
+- Both growing lists now scroll to keep the selection visible:
+  `prof_top` / `set_mode_top` offsets are clamped in the draw pass
+  (same pattern as the fan editor's fe_sel clamping). The hint line
+  shows ▲/▼ when entries exist above/below the window.
+- Closes NEXT.md item 4. Verified: warning-free build, `make test`,
+  `make tuitest` green, installed.
+
 ## 2026-09-28 — POWER presets: one button row instead of three rows
 
 - The three preset rows (Q45/B60/P80) collapsed into a single

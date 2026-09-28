@@ -37,17 +37,38 @@ void panel_profiles_draw(struct ncplane *n, const rect_t *r)
         return;
 
     int rows = list_rows();
+    /* keep the selection inside the visible window (scroll) */
+    if (g_ui.prof_n <= rows)
+        g_ui.prof_top = 0;
+    else {
+        if (g_ui.prof_top > g_ui.prof_sel)
+            g_ui.prof_top = g_ui.prof_sel;
+        if (g_ui.prof_sel >= g_ui.prof_top + rows)
+            g_ui.prof_top = g_ui.prof_sel - rows + 1;
+        if (g_ui.prof_top + rows > g_ui.prof_n)
+            g_ui.prof_top = g_ui.prof_n - rows;
+        if (g_ui.prof_top < 0)
+            g_ui.prof_top = 0;
+    }
+
     if (g_ui.prof_typing) {
         char line[128];
         snprintf(line, sizeof(line), "name: %s_", g_ui.prof_name.buf);
         ui_putln(n, x, r->y + 1, w, line, pal->accent, true);
         ui_putln(n, x, r->y + 2, w, "Enter: save · Esc: cancel", pal->muted, false);
     } else {
-        ui_putln(n, x, r->y + 1, w, "j/k select · Enter apply · s save", pal->muted, false);
+        char hint[80] = "j/k select · Enter apply · s save";
+        if (g_ui.prof_n > rows) {
+            if (g_ui.prof_top > 0)
+                strncat(hint, " ▲", sizeof(hint) - strlen(hint) - 1);
+            if (g_ui.prof_top + rows < g_ui.prof_n)
+                strncat(hint, " ▼", sizeof(hint) - strlen(hint) - 1);
+        }
+        ui_putln(n, x, r->y + 1, w, hint, pal->muted, false);
     }
 
     int shown = 0;
-    for (int i = 0; i < g_ui.prof_n && shown < rows; i++) {
+    for (int i = g_ui.prof_top; i < g_ui.prof_n && shown < rows; i++) {
         int y = r->y + 3 + shown;
         char label[64];
         snprintf(label, sizeof(label), "%s%s", i == g_ui.prof_sel ? "▸ " : "  ",

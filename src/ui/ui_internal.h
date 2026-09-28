@@ -53,6 +53,7 @@ typedef struct ui_ctx {
     /* profiles panel */
     char profs[MAX_PROFILES][PROFILE_NAME_MAX];
     int prof_n, prof_sel;
+    int prof_top;          /* first visible list entry (scroll) */
     tinput_t prof_name;
     bool prof_typing;
 
@@ -95,6 +96,7 @@ typedef struct ui_ctx {
     /* settings view */
     int set_sel;
     int set_mode_sel;
+    int set_mode_top;      /* first visible modes.ini entry (scroll) */
     int md_field; /* mode editor field: 0 name, 1 steps */
     tinput_t md_name, md_steps;
 } ui_ctx_t;
