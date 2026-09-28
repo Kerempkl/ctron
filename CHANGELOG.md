@@ -1,5 +1,33 @@
 # Changelog
 
+## 2026-09-28 — POWER presets: one button row instead of three rows
+
+- The three preset rows (Q45/B60/P80) collapsed into a single
+  "Presets" row under EPP preference / above the watt limits, drawn
+  as side-by-side buttons. The button whose watt triple equals the
+  staged values is lit; a staged-but-custom triple shows "custom".
+- Keyboard path follows the row grammar: j/k selects the row, h/l
+  walks Q45 → B60 → P80 and stages the one it lands on (nothing
+  writes); Enter still applies everything. Mouse: each button stages
+  its preset directly; clicking the label area selects the row
+  (second click stages the next preset). `t` is a no-op on this row
+  (not numeric). Rows went 14 → 12.
+- Verified: warning-free build, `make test`, `make tuitest` all
+  green; installed.
+
+## 2026-09-28 — FA608PP re-verified on 6.18-lts
+
+- User switched kernels (7.2 → 6.18.52-1-cachyos-lts). Re-ran the
+  full chain: clean warning-free build, `make test`, `make tuitest`
+  (all flows incl. the fan write+verify click), `--doctor`, live
+  `--status`. Every ctron interface is present on the LTS kernel:
+  asus_custom_fan_curve + asus hwmons, armoury attrs, asusctl,
+  platform_profile, amd-pstate active with per-CPU EPP (ceiling
+  negotiates 5353/5386 MHz), k10temp, nvidia-smi, BAT1 threshold,
+  KDE Hz backend. HARDWARE.md FA608PP row now lists both kernels.
+  Environmental note (not kernel): `sudo -n` reported unavailable in
+  this boot — writes still succeed via the asusctl/sysfs tiers.
+
 ## 2026-09-27 — pty harness in-tree: `make tuitest`
 
 - `scripts/tui_smoke.py` drives the real TUI under a pty: a responder

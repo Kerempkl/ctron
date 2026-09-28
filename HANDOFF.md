@@ -9,6 +9,31 @@ profile/EPP + Enter-applies + q guard → apply toast), and
 editor, signed below). **Read `NEXT.md` first** — it carries the
 prioritized todo list and the distilled session lessons.
 
+## Session 2026-09-28 — POWER preset button row (Kerempkl + GLM, FA608PP)
+
+- POWER layout: presets are now one "Presets" row (EPP → presets →
+  watts) with Q45/B60/P80 as side-by-side buttons; armed = staged
+  triple match, custom shows "custom". h/l walks and stages, Enter
+  applies, clicks stage directly (ACT_WS_PW_PRESET_BASE 17..19,
+  label click selects the row). PW_ROWS 14 → 12; `t` no-op there.
+- Same session: LTS-kernel re-verification (below) — HARDWARE.md now
+  lists kernels 7.2 and 6.18-lts.
+- Verified: warning-free `make`, `make test`, `make tuitest` green,
+  installed. Uncommitted at handoff per protocol.
+
+## Session 2026-09-28 — LTS-kernel re-verification (Kerempkl + GLM, FA608PP)
+
+- Kernel switched to 6.18.52-1-cachyos-lts; full verification green:
+  warning-free `make`, `make test`, `make tuitest` (fan write+verify
+  click included), `--doctor` (asusctl/armoury/ppt sysfs all yes),
+  live `--status` (amd-pstate ceiling 5353/5386, custom curve hwmon,
+  BAT1 limit 70%, KDE 165 Hz). HARDWARE.md updated in both languages.
+- `sudo -n` shows "unavailable" in this boot (environment, not the
+  kernel): privileged writes still land via asusctl/direct sysfs —
+  the fan-verify harness flow proves the write path.
+- Everything from 09-27 (harness, fan verify/flash, button fix,
+  version, matrix) still uncommitted in the worktree at handoff.
+
 ## Session 2026-09-27 — pty harness in-tree (Kerempkl + GLM, FA608PP)
 
 - NEXT.md item 2 closed: `make tuitest` runs `scripts/tui_smoke.py`

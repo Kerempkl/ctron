@@ -22,6 +22,7 @@ enum {
     /* power view buttons */
     ACT_WS_PW_APPLY = 15,
     ACT_WS_PW_REVERT,
+    ACT_WS_PW_PRESET_BASE = 17,  /* + preset index (Q45/B60/P80 buttons) */
     /* power view rows */
     ACT_WS_PW_BASE = 20,   /* + row index */
     /* light view rows */
@@ -79,12 +80,10 @@ static long now_ms(void)
 enum {
     PW_PROFILE = 0,
     PW_EPP,
+    PW_PRESET,          /* one row, three buttons: Q45/B60/P80 */
     PW_SPL,
     PW_SPPT,
     PW_FPPT,
-    PW_PRESET_Q,
-    PW_PRESET_B,
-    PW_PRESET_P,
     PW_PPT_LIMITS,
     PW_NVBOOST,
     PW_NVTEMP,
@@ -93,6 +92,23 @@ enum {
     PW_CPUFREQ,
     PW_ROWS
 };
+
+static const int PW_PRESET_WATTS[3][3] = {
+    { 45, 55, 55 },     /* Q45 */
+    { 60, 75, 75 },     /* B60 */
+    { 80, 80, 80 },     /* P80 */
+};
+static const char *const PW_PRESET_NAMES[3] = { " Q45 ", " B60 ", " P80 " };
+
+/* which preset the staged triple equals, or -1 (custom) */
+static int pw_preset_match(int spl, int sppt, int fppt)
+{
+    for (int i = 0; i < 3; i++)
+        if (spl == PW_PRESET_WATTS[i][0] && sppt == PW_PRESET_WATTS[i][1] &&
+            fppt == PW_PRESET_WATTS[i][2])
+            return i;
+    return -1;
+}
 
 static void pw_recompute_dirty(void)
 {
@@ -136,6 +152,10 @@ void pw_sync_from_hw(void)
     g_ui.pwv_ppt_off = hw->ppt_off;
     g_ui.pw_quit_warned = false;
     g_ui.pw_touched = 0;
+    {
+        int m = pw_preset_match(g_ui.pwv_spl, g_ui.pwv_sppt, g_ui.pwv_fppt);
+        g_ui.pw_preset_sel = m >= 0 ? m : g_ui.pw_preset_sel;
+    }
     pw_recompute_dirty();
 }
 
@@ -149,6 +169,13 @@ static void pw_stage_preset(int spl, int sppt, int fppt)
     g_ui.pwv_fppt = fppt;
     g_ui.pwv_ppt_off = false; /* staging watts implies limits back on */
     g_ui.pw_touched |= PW_T_PPT;
+}
+
+static void pw_stage_preset_idx(int idx)
+{
+    g_ui.pw_preset_sel = idx;
+    pw_stage_preset(PW_PRESET_WATTS[idx][0], PW_PRESET_WATTS[idx][1],
+                    PW_PRESET_WATTS[idx][2]);
 }
 
 static void pw_nudge_row(int row, int dir)
@@ -183,9 +210,11 @@ static void pw_nudge_row(int row, int dir)
         g_ui.pw_touched |= PW_T_PPT;
         break;
     }
-    case PW_PRESET_Q: pw_stage_preset(45, 55, 55); break;
-    case PW_PRESET_B: pw_stage_preset(60, 75, 75); break;
-    case PW_PRESET_P: pw_stage_preset(80, 80, 80); break;
+    case PW_PRESET:
+        /* h/l walks the button row and stages the preset it lands on */
+        g_ui.pw_preset_sel = (g_ui.pw_preset_sel + (dir > 0 ? 1 : 2)) % 3;
+        pw_stage_preset_idx(g_ui.pw_preset_sel);
+        break;
     case PW_PPT_LIMITS:
         if (!g_ui.pwv_ppt_off) {
             /* staging "removed" mirrors ctrl_ppt_off: it writes the
@@ -579,11 +608,12 @@ static void draw_power(struct ncplane *n, const rect_t *r)
              hw_profile_name((hw_profile_t)g_ui.pwv_profile));
     pw_val_e(epp, sizeof(epp),
              hw_epp_name(hw->epp), hw_epp_name((hw_epp_t)g_ui.pwv_epp));
+    int armed = pw_preset_match(g_ui.pwv_spl, g_ui.pwv_sppt, g_ui.pwv_fppt);
 
     const char *vals[PW_ROWS] = {
         prof, epp,
+        "",              /* PW_PRESET: rendered as a button row */
         spl, sppt, fppt,
-        "45/55/55", "60/75/75", "80/80/80",
         lim,
         nvb, nvt,
         pod, cb,
@@ -591,8 +621,8 @@ static void draw_power(struct ncplane *n, const rect_t *r)
     };
     static const char *const labels[PW_ROWS] = {
         "Platform profile", "EPP preference",
+        "Presets",
         "SPL (sustained)", "SPPT (slow boost)", "FPPT (fast boost)",
-        "Preset Q45", "Preset B60", "Preset P80",
         "PPT limits",
         "NV dynamic boost", "NV temp target",
         "Panel overdrive", "CPU boost", "CPU clock limit",
@@ -623,8 +653,24 @@ static void draw_power(struct ncplane *n, const rect_t *r)
     for (int i = 0; i < PW_ROWS && i < rows; i++) {
         int y = r->y + 2 + i;
         bool sel = (i == g_ui.pw_sel);
-        ui_row(n, x, y, w, labels[i], vals[i], sel);
-        tgt_register(x, y, w, 1, TGT(TGT_PANEL_WORKSPACE, ACT_WS_PW_BASE + i));
+        if (i == PW_PRESET) {
+            /* one row, three side-by-side preset buttons; the armed
+             * one (staged watts match) is lit */
+            ui_putln(n, x, y, 22, labels[i], sel ? pal->text : pal->muted, sel);
+            ui_btndef_t btns[3];
+            for (int b = 0; b < 3; b++)
+                btns[b] = (ui_btndef_t){ PW_PRESET_NAMES[b], b == armed,
+                                         TGT(TGT_PANEL_WORKSPACE,
+                                             ACT_WS_PW_PRESET_BASE + b) };
+            ui_btn_row(n, y, x + 24, w - 24, btns, 3);
+            if (armed < 0)
+                ui_putln(n, x + 44, y, 10, "custom", pal->muted, false);
+            tgt_register(x, y, 22, 1,
+                         TGT(TGT_PANEL_WORKSPACE, ACT_WS_PW_BASE + i));
+        } else {
+            ui_row(n, x, y, w, labels[i], vals[i], sel);
+            tgt_register(x, y, w, 1, TGT(TGT_PANEL_WORKSPACE, ACT_WS_PW_BASE + i));
+        }
     }
 
     /* apply toast: what the last Apply changed, fading after PW_TOAST_MS */
@@ -775,6 +821,7 @@ static void draw_help(struct ncplane *n, const rect_t *r)
         "",
         "POWER",
         "  j k          move · h/l (or arrows) stage the value (nothing writes)",
+        "  presets      h/l walks Q45/B60/P80 and stages; click a button too",
         "  t            type an exact value for the selected row",
         "  Enter/w      apply all staged edits · r reverts to live values",
         "  q            quits; with staged edits pending it asks twice",
@@ -982,6 +1029,11 @@ void panel_workspace_act(int id)
             pw_nudge_row(row, +1); /* second click stages/toggles the row */
         else
             g_ui.pw_sel = row;
+        return;
+    }
+    if (id >= ACT_WS_PW_PRESET_BASE && id < ACT_WS_PW_PRESET_BASE + 3) {
+        if (g_ui.ws_view == WSV_POWER)
+            pw_stage_preset_idx(id - ACT_WS_PW_PRESET_BASE);
         return;
     }
     switch (id) {

@@ -20,7 +20,7 @@ ctron depends on four separate layers, so hardware support is
 
 | Device class | Expected | Why |
 |---|---|---|
-| TUF A16 FA608PP (Ryzen 9 + RTX 5070, CachyOS, kernel 7.2) | ✅ Full — verified | Everything present: armoury limits, fan curves, EPP, k10temp, nvidia-smi, `sudo -n`. One quirk: the Quiet platform profile pins the cpuinfo ceiling to 2401 MHz (kernel behaviour, not a ctron bug). |
+| TUF A16 FA608PP (Ryzen 9 + RTX 5070, CachyOS) | ✅ Full — verified on kernels **7.2** and **6.18-lts** | Everything present: armoury limits, fan curves, EPP, k10temp, nvidia-smi, `sudo -n`. On 6.18.52-cachyos-lts (2026-09-28) re-verified end to end: build 0 warnings, `make test` + `make tuitest` green, live status full (amd-pstate ceiling 5353/5386 MHz, custom-curve hwmon, fan write verify, KDE Hz). One quirk: the Quiet platform profile pins the cpuinfo ceiling to 2401 MHz (kernel behaviour, not a ctron bug). |
 | TUF A15 FA507NVR (Ryzen 7 + RTX 4060, NixOS, Hyprland 0.55) | ✅ Full, two exceptions — verified | No `asus-armoury` → PPT limits fall back to the generic 90/120/120 W ceiling and PPT reads go stale (`--` often); the rest behaves identically. |
 | ASUS ROG / Zephyrus (AMD + NVIDIA, current kernel) | 🟡 Expected to work — untested | Same ASUS WMI stack; scope is TUF, but the software layer is identical. |
 | ASUS + Intel CPU (TUF F15, Dash F15…) | 🟡 Partial | Fan curves, platform profile, panel OD and keyboard come from ASUS WMI → work. But `k10temp` is absent (ctron does not read coretemp → CPU temp `--`), the PPT attributes are AMD-model-specific → PPT rows dead, and Intel pstate has no `cpufreq/boost` file → the CPU boost key does nothing. EPP and the frequency limit work. |
@@ -59,7 +59,7 @@ değil, satır satır** belirlenir:
 
 | Cihaz sınıfı | Beklenen durum | Neden |
 |---|---|---|
-| TUF A16 FA608PP (Ryzen 9 + RTX 5070, CachyOS, kernel 7.2) | ✅ Tam — doğrulandı | Her şey var: armoury limitleri, fan eğrileri, EPP, k10temp, nvidia-smi, `sudo -n`. Tek tuhaflık: Quiet platform profili cpuinfo tavanını 2401 MHz'e kilitliyor (kernel davranışı, ctron hatası değil). |
+| TUF A16 FA608PP (Ryzen 9 + RTX 5070, CachyOS) | ✅ Tam — **7.2** ve **6.18-lts** kernel'lerde doğrulandı | Her şey var: armoury limitleri, fan eğrileri, EPP, k10temp, nvidia-smi, `sudo -n`. 6.18.52-cachyos-lts üzerinde (2026-09-28) uçtan uca yeniden doğrulandı: derleme 0 uyarı, `make test` + `make tuitest` yeşil, canlı durum tam (amd-pstate tavanı 5353/5386 MHz, custom-curve hwmon, fan yazma doğrulaması, KDE Hz). Tek tuhaflık: Quiet platform profili cpuinfo tavanını 2401 MHz'e kilitliyor (kernel davranışı, ctron hatası değil). |
 | TUF A15 FA507NVR (Ryzen 7 + RTX 4060, NixOS, Hyprland 0.55) | ✅ Tam, iki istisna — doğrulandı | `asus-armoury` yok → PPT limitleri jenerik 90/120/120 W tavana düşer, PPT okuması sık bayatlar (`--`); geri kalanı birebir aynı çalışır. |
 | ASUS ROG / Zephyrus (AMD + NVIDIA, güncel kernel) | 🟡 Çalışması beklenir — test edilmedi | Aynı ASUS WMI yığını; kapsam TUF ama yazılım katmanı birebir aynı. |
 | ASUS + Intel CPU (TUF F15, Dash F15…) | 🟡 Kısmi | Fan eğrileri, platform profili, panel OD ve klavye ASUS WMI'den gelir → çalışır. Ama `k10temp` yok (ctron coretemp okumuyor → CPU sıcaklığı `--`), PPT attr'ları AMD modeline özgü → PPT satırları ölü, Intel pstate'te `cpufreq/boost` dosyası yok → CPU boost anahtarı işlevsiz. EPP ve frekans limiti çalışır. |
