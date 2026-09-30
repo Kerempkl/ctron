@@ -143,9 +143,17 @@ int cmd_run(hw_state_t *hw, const char *key, const char *val,
         return ctrl_set_epp(hw, (hw_epp_t)e);
     }
     if (!strcasecmp(key, "freq")) {
-        int mhz = atoi(val);
+        int cpu, mhz;
+        if (sscanf(val, "core %d %d", &cpu, &mhz) == 2) {
+            if (cpu < 0 || cpu >= hw->cpu_n || mhz < 100 || mhz > 10000) {
+                errf(err, errn, "freq: core <0..%d> <MHz>", hw->cpu_n - 1);
+                return -1;
+            }
+            return ctrl_set_cpu_max_mhz_core(hw, cpu, mhz);
+        }
+        mhz = atoi(val);
         if (mhz < 100 || mhz > 10000) {
-            errf(err, errn, "freq: MHz value");
+            errf(err, errn, "freq: MHz value | core <N> <MHz>");
             return -1;
         }
         return ctrl_set_cpu_max_mhz(hw, mhz);

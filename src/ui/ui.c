@@ -448,6 +448,17 @@ static void handle_mouse(struct ncplane *stdn, const struct ncinput *ni, uint32_
             editor_daeboard_act(t & TGT_ID_MASK);
         return;
     }
+    if (g_ui.cf_overlay) {
+        const rect_t *w = &g_ui.rc_overlay;
+        if (mx < w->x || mx >= w->x + w->w || my < w->y || my >= w->y + w->h) {
+            g_ui.cf_overlay = false;
+            return;
+        }
+        int t = tgt_find(mx, my);
+        if (((t >> 24) & 0x7f) == TGT_PANEL_COREFREQ)
+            editor_corefreq_act(t & TGT_ID_MASK);
+        return;
+    }
     if (g_ui.settings_overlay) {
         const rect_t *w = &g_ui.rc_overlay;
         if (mx < w->x || mx >= w->x + w->w || my < w->y || my >= w->y + w->h) {
@@ -540,6 +551,10 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
 
     if (g_ui.db_overlay) {
         editor_daeboard_key(key);
+        return;
+    }
+    if (g_ui.cf_overlay) {
+        editor_corefreq_key(key);
         return;
     }
     if (g_ui.settings_overlay) {
@@ -665,6 +680,8 @@ int ui_run(hw_state_t *hw)
         panel_telemetry_draw(stdn, &g_ui.rc_telem);
         if (g_ui.db_overlay)
             editor_daeboard_draw(stdn, &g_ui.rc_overlay);
+        else if (g_ui.cf_overlay)
+            editor_corefreq_draw(stdn, &g_ui.rc_overlay);
         else if (g_ui.settings_overlay)
             panel_settings_draw(stdn, &g_ui.rc_overlay);
 

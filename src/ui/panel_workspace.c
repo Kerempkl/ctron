@@ -23,6 +23,7 @@ enum {
     ACT_WS_PW_APPLY = 15,
     ACT_WS_PW_REVERT,
     ACT_WS_PW_PRESET_BASE = 17,  /* + preset index (Q45/B60/P80 buttons) */
+    ACT_WS_PW_CORES = 19,        /* per-core frequency editor overlay */
     /* power view rows */
     ACT_WS_PW_BASE = 20,   /* + row index */
     /* light view rows */
@@ -642,7 +643,7 @@ static void draw_power(struct ncplane *n, const rect_t *r)
         ui_putln(n, x, r->y + 1, w, line, pal->accent, true);
     } else {
         ui_putln(n, x, r->y + 1, w,
-                 "h/l stage · t exact value · Enter apply · r revert",
+                 "h/l stage · t exact value · Enter apply · r revert · c cores",
                  pal->muted, false);
     }
     /* while the toast is up, one list row yields its place to it */
@@ -683,6 +684,8 @@ static void draw_power(struct ncplane *n, const rect_t *r)
            TGT(TGT_PANEL_WORKSPACE, ACT_WS_PW_APPLY));
     ui_btn(n, x + 10, by, " Revert ", false, false,
            TGT(TGT_PANEL_WORKSPACE, ACT_WS_PW_REVERT));
+    ui_btn(n, x + 21, by, " Cores ", g_ui.cf_overlay, false,
+           TGT(TGT_PANEL_WORKSPACE, ACT_WS_PW_CORES));
 }
 
 /* ---- LIGHT view -------------------------------------------------------- */
@@ -824,7 +827,14 @@ static void draw_help(struct ncplane *n, const rect_t *r)
         "  presets      h/l walks Q45/B60/P80 and stages; click a button too",
         "  t            type an exact value for the selected row",
         "  Enter/w      apply all staged edits · r reverts to live values",
+        "  c            per-core frequency editor (CORE LIMITS overlay)",
         "  q            quits; with staged edits pending it asks twice",
+        "",
+        "CORE LIMITS",
+        "  j k h l      select a core · step its ceiling ±100 MHz",
+        "  t a o        exact value · value to all cores · back to max",
+        "  w r          write changed cores (verified) · revert staging",
+        "  Esc/q        close (staged values stay in memory)",
         "",
         "FAN EDITOR",
         "  c g          switch cpu/gpu curve",
@@ -951,6 +961,7 @@ void panel_workspace_key(uint32_t key)
             pw_apply();
             return;
         case 'r': case 'R': pw_sync_from_hw(); return; /* revert staged */
+        case 'c': case 'C': editor_corefreq_open(); return;
         case 't': case 'T':
             if (pw_row_numeric(g_ui.pw_sel)) {
                 char seed[16];
@@ -1039,6 +1050,7 @@ void panel_workspace_act(int id)
     switch (id) {
     case ACT_WS_PW_APPLY: pw_apply(); return;
     case ACT_WS_PW_REVERT: pw_sync_from_hw(); return;
+    case ACT_WS_PW_CORES: editor_corefreq_open(); return;
     default:
         break;
     }

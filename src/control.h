@@ -14,6 +14,8 @@
 int ctrl_set_profile(hw_state_t *hw, hw_profile_t p);
 int ctrl_set_epp(hw_state_t *hw, hw_epp_t e);
 int ctrl_set_cpu_max_mhz(hw_state_t *hw, int mhz);
+/* per-core scaling_max_freq; read-back verified, -1 on bad cpu id */
+int ctrl_set_cpu_max_mhz_core(hw_state_t *hw, int cpu, int mhz);
 int ctrl_set_cpu_boost(hw_state_t *hw, bool on);
 
 /* ---- power ------------------------------------------------------------ */

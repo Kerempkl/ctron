@@ -85,6 +85,13 @@ typedef struct ui_ctx {
     char pw_msg[160];      /* apply toast: what changed */
     long pw_msg_ms;        /* CLOCK_MONOTONIC ms when set, 0 = none */
     bool pw_msg_fail;      /* red variant (some writes failed) */
+
+    /* per-core frequency editor overlay (POWER 'c') */
+    bool cf_overlay;
+    int cf_sel;
+    int cf_staged[HW_CPU_MAX];
+    tinput_t cf_input;
+    int cf_input_active;
     tinput_t pw_input;     /* exact-value typing ('t' on a value row) */
     bool pw_typing;
 
@@ -164,6 +171,7 @@ enum {
     TGT_PANEL_WORKSPACE,
     TGT_PANEL_SETTINGS,
     TGT_PANEL_DAEBOARD,
+    TGT_PANEL_COREFREQ,
 };
 
 void tgt_clear(void);
@@ -205,6 +213,13 @@ void panel_settings_act(int id);
 
 /* Open the settings overlay (from the SET tab / controls row / 's'). */
 void settings_open(void);
+
+/* Per-core frequency editor overlay: opened from the POWER view ('c' /
+ * Cores button), swallows keys while up (daeboard pattern). */
+void editor_corefreq_open(void);
+void editor_corefreq_draw(struct ncplane *n, const rect_t *r);
+void editor_corefreq_key(uint32_t key);
+void editor_corefreq_act(int id);
 
 void editor_daeboard_open(void);
 void editor_daeboard_draw(struct ncplane *n, const rect_t *r);

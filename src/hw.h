@@ -1,6 +1,12 @@
 #ifndef CTRON_HW_H
 #define CTRON_HW_H
 
+/* hard cap for per-core arrays (largest realistic online CPU count) */
+#define HW_CPU_MAX 256
+
+/* parse "0-31" / "0-15,32-47" style cpu lists; pure, unit-tested */
+int hw_cpu_list_parse(const char *s, int *ids, int max);
+
 #include <stdbool.h>
 #include <stddef.h>
 
@@ -52,7 +58,9 @@ typedef struct {
     int cpu_mhz_cur;
     int cpu_mhz_min;
     int cpu_mhz_max;       /* cpuinfo_max_freq */
-    int cpu_mhz_limit;     /* saved scaling_max target */
+    int cpu_mhz_limit;     /* aggregate scaling_max (max across cores) */
+    int cpu_n;                                /* present cpu count */
+    int cpu_mhz_core[HW_CPU_MAX];             /* per-core scaling_max, MHz */
     int rpm_cpu, rpm_gpu;  /* -1 unknown */
     int bat_pct;
     char bat_status[16];

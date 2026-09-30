@@ -1,13 +1,32 @@
 # Ctron Handoff
 
-Latest session — **2026-09-27** **Kerempkl + GLM / FA608PP** (docs:
-HARDWARE.md support matrix). Before that **2026-09-26** (POWER:
-exact-value typing + range hints, amd-pstate clock-window refresh),
-the **2026-09-24** POWER round (staged-apply → critique fixes →
-profile/EPP + Enter-applies + q guard → apply toast), and
+Latest session — **2026-09-29** **Kerempkl + GLM / FA608PP** (per-core
+CPU frequency limits). Before that the **2026-09-28** run (preset
+button row, 6.18-lts re-verification + HARDWARE.md, list scrolling,
+pty harness, fan write verify/flash, fan-button fix), the **2026-09-27**
+docs (support matrix), **2026-09-26** (exact-value typing + range hints,
+amd-pstate clock-window refresh), the **2026-09-24** POWER round, and
 **2026-09-23** in parallel: **Grok / FA507NVR / NixOS** (daeboard
 editor, signed below). **Read `NEXT.md` first** — it carries the
 prioritized todo list and the distilled session lessons.
+
+## Session 2026-09-29 — per-core frequency limits (Kerempkl + GLM, FA608PP)
+
+- New `src/ui/editor_corefreq.c` overlay (POWER **c** / ` Cores `
+  button): grid of cNN cells, staged edits, `w` writes only changed
+  cores via `ctrl_set_cpu_max_mhz_core` (per-core read-back verify +
+  summary log). hw gained `cpu_n` + `cpu_mhz_core[]` (the existing
+  sweep fills them — zero extra reads); `hw_cpu_list_parse()`
+  handles comma cpu lists (unit-tested).
+- `freq` command: all-cores form unchanged + `core <N> <MHz>` —
+  modes/profiles inherit it; profile export appends per-core lines
+  when non-uniform (chosen persistence: profiles, no settings.ini
+  auto-restore). CLI: `ctron --freq core 4 3000`.
+- Found live and fixed: the CLI flag path ran before any sweep, so
+  `cpu_n` was 0 — `hw_init` now sweeps once.
+- Verified: warning-free `make`, unit + TUI tests (new side-effect-
+  free corefreq flow), live write/read-back/restore on core 4,
+  invalid-id rejection. Uncommitted at handoff per protocol.
 
 ## Session 2026-09-28 — list scrolling (Kerempkl + GLM, FA608PP)
 

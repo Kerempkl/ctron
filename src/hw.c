@@ -326,6 +326,8 @@ static void read_kbd(hw_state_t *hw)
 
 /* ---- init ------------------------------------------------------------- */
 
+static void cpu_limits_sweep(hw_state_t *hw);
+
 void hw_init(hw_state_t *hw)
 {
     memset(hw, 0, sizeof(*hw));
@@ -371,6 +373,9 @@ void hw_init(hw_state_t *hw)
     hw->cpu_mhz_min = min_khz > 0 ? min_khz / 1000 : 400;
     hw->cpu_mhz_max = max_khz > 0 ? max_khz / 1000 : 5500;
     hw->cpu_mhz_limit = hw->cpu_mhz_max;
+    /* all-cores sweep also fills cpu_n / cpu_mhz_core, which the CLI
+     * flag path needs before any hw_refresh_* call */
+    cpu_limits_sweep(hw);
 
     fan_hwmon_read(hw);
     hw->fan_cpu_stock = hw->fan_cpu;
@@ -407,24 +412,49 @@ void hw_init(hw_state_t *hw)
  * 2401↔5386 MHz within seconds, per core). Take the widest window
  * across policies so one clamped core (often cpu0, the only one we
  * used to read) does not cap the display and the staging clamps. */
-static int cpu_present_count(void)
+/* Parse a CPU list like "0-31" or "0-15,32-47" into ids (capped at
+ * max). Returns the count, or 0 when nothing parsed. Pure — tested. */
+int hw_cpu_list_parse(const char *s, int *ids, int max)
 {
-    char buf[64];
+    if (!s || !ids || max <= 0)
+        return 0;
+    int n = 0;
+    while (*s && n < max) {
+        int lo, hi;
+        if (sscanf(s, "%d-%d", &lo, &hi) == 2 && lo <= hi) {
+            for (int i = lo; i <= hi && n < max; i++)
+                ids[n++] = i;
+        } else if (sscanf(s, "%d", &lo) == 1) {
+            ids[n++] = lo;
+        } else {
+            break;
+        }
+        while (*s && *s != ',')
+            s++;
+        if (*s == ',')
+            s++;
+    }
+    return n;
+}
+
+static int cpu_present_ids(int *ids, int max)
+{
+    char buf[128];
     if (ut_read_file("/sys/devices/system/cpu/present", buf, sizeof(buf)) != 0)
-        return 1;
-    int lo, hi;
-    if (sscanf(buf, "%d-%d", &lo, &hi) == 2)
-        return hi - lo + 1;
-    return 1;
+        return 0;
+    return hw_cpu_list_parse(buf, ids, max);
 }
 
 static void cpu_limits_sweep(hw_state_t *hw)
 {
-    int n = cpu_present_count();
+    int ids[HW_CPU_MAX];
+    int n = cpu_present_ids(ids, HW_CPU_MAX);
     int min_khz = 0, max_khz = 0, lim_khz = 0;
-    for (int i = 0; i < n; i++) {
+    hw->cpu_n = n > 0 ? n : 1;
+    for (int c = 0; c < n; c++) {
         char p[96];
         int v;
+        int i = ids[c];
         snprintf(p, sizeof p,
                  "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_min_freq", i);
         v = ut_read_int(p);
@@ -438,6 +468,8 @@ static void cpu_limits_sweep(hw_state_t *hw)
         snprintf(p, sizeof p,
                  "/sys/devices/system/cpu/cpu%d/cpufreq/scaling_max_freq", i);
         v = ut_read_int(p);
+        if (i >= 0 && i < HW_CPU_MAX && v > 0)
+            hw->cpu_mhz_core[i] = v / 1000;
         if (v > lim_khz)
             lim_khz = v;
     }

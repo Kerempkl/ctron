@@ -127,9 +127,41 @@ int ctrl_set_cpu_max_mhz(hw_state_t *hw, int mhz)
     int rc = cpufreq_write_all("scaling_max_freq", val);
     if (rc == 0) {
         hw->cpu_mhz_limit = mhz;
+        for (int i = 0; i < hw->cpu_n && i < HW_CPU_MAX; i++)
+            hw->cpu_mhz_core[i] = mhz;
         ut_log("cpu max: %d MHz", mhz);
     } else {
         ut_log("cpu max: FAILED (needs root; no passwordless sudo)");
+    }
+    return rc;
+}
+
+int ctrl_set_cpu_max_mhz_core(hw_state_t *hw, int cpu, int mhz)
+{
+    if (cpu < 0 || cpu >= hw->cpu_n || cpu >= HW_CPU_MAX)
+        return -1;
+    mhz = ut_clamp_i(mhz, hw->cpu_mhz_min, hw->cpu_mhz_max);
+
+    char path[96], val[24];
+    snprintf(path, sizeof(path),
+             "/sys/devices/system/cpu/cpu%d/cpufreq/scaling_max_freq", cpu);
+    snprintf(val, sizeof(val), "%d", mhz * 1000);
+    int rc = ut_priv_write(path, val);
+    if (rc != 0) {
+        ut_log("cpu %d max: FAILED (needs root; no passwordless sudo)", cpu);
+        return rc;
+    }
+    hw->cpu_mhz_core[cpu] = mhz;
+    if (mhz > hw->cpu_mhz_limit)
+        hw->cpu_mhz_limit = mhz;
+
+    /* rule 4: verify by reading back */
+    int back = ut_read_int(path) / 1000;
+    if (back == mhz) {
+        ut_log("cpu %d max: %d MHz (verified)", cpu, mhz);
+    } else {
+        ut_log("cpu %d max: %d MHz (VERIFY FAILED: reads %d)", cpu, mhz, back);
+        rc = -1;
     }
     return rc;
 }

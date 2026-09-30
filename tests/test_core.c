@@ -176,6 +176,28 @@ static void check_power_fmt(void)
     CHECK(!strcmp(b, "0.0W"), "idle watts");
 }
 
+static void check_cpu_list_parse(void)
+{
+    int ids[64];
+
+    int n = hw_cpu_list_parse("0-31", ids, 64);
+    CHECK(n == 32, "single range count");
+    CHECK(ids[0] == 0 && ids[31] == 31, "single range bounds");
+
+    n = hw_cpu_list_parse("0-15,32-47", ids, 64);
+    CHECK(n == 32, "comma list count");
+    CHECK(ids[15] == 15 && ids[16] == 32 && ids[31] == 47, "comma list ids");
+
+    n = hw_cpu_list_parse("4", ids, 64);
+    CHECK(n == 1 && ids[0] == 4, "single id");
+
+    n = hw_cpu_list_parse("", ids, 64);
+    CHECK(n == 0, "empty list");
+
+    n = hw_cpu_list_parse("garbage", ids, 64);
+    CHECK(n == 0, "garbage list");
+}
+
 static void check_ppt_order(void)
 {
     /* staging SPL above the others pulls the chain up, like the write */
@@ -208,6 +230,7 @@ int main(void)
     check_profiles();
     check_kde_parser();
     check_power_fmt();
+    check_cpu_list_parse();
     check_ppt_order();
 
     if (failures) {

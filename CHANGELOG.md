@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-09-29 — per-core CPU frequency limits (grid editor + `freq core N M`)
+
+- New `src/ui/editor_corefreq.c`: a fullscreen CORE LIMITS overlay
+  opened from POWER with **c** or the ` Cores ` button (daeboard
+  overlay pattern: swallows keys, click-outside closes). Grid of
+  `cNN <MHz>` cells; staged in memory. Keys: j/k select, h/l ±100,
+  t exact value, a value-to-all, o back-to-max, r revert, w/Enter
+  writes only changed cores through the new
+  `ctrl_set_cpu_max_mhz_core` (read-back verified per core, summary
+  log). Status line shows `n/N capped · m staged` and warns that the
+  POWER all-cores apply overwrites per-core limits.
+- hw: `HW_CPU_MAX`, `cpu_n`, per-core `cpu_mhz_core[]` filled by the
+  existing sweep (zero extra reads); `hw_cpu_list_parse()` handles
+  "0-31" and "0-15,32-47" lists (unit-tested). `hw_init` now runs the
+  sweep once so the CLI flag path knows `cpu_n` (found live:
+  `--freq core` saw 0 cpus before).
+- Shared command table: `freq <mhz>` (all) and `freq core <N> <mhz>`
+  (single) — modes and .ctr profiles inherit the form; profile export
+  appends `freq core N M` lines for every core capped below the
+  aggregate, so applying a profile restores per-core setups. CLI
+  accepts `ctron --freq core 4 3000` (multi-token join).
+- Verified on FA608PP (kernel 6.18-lts): warning-free build, unit +
+  TUI tests green (new corefreq flow: open/stage/revert/close without
+  writing), live `--freq core 4 3000` → sysfs 3000000 → restored to
+  5386, invalid core id rejected cleanly.
+
 ## 2026-09-28 — list scrolling (PROFILES + CLI SHORTCUTS)
 
 - Both growing lists now scroll to keep the selection visible:

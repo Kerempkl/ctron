@@ -259,6 +259,39 @@ def flow_power_stage_apply():
         s.close()
 
 
+def flow_corefreq_overlay():
+    """Per-core editor overlay: opens, stages without writing, closes."""
+    s = Session("corefreq")
+    try:
+        s.wait_render()
+        s.key(b"3")                # focus workspace
+        s.key(b"P")                # POWER view
+        m = s.mark()
+        s.key(b"c")                # open the CORE LIMITS overlay
+        if not s.wait_for(b"CORE LIMITS", since=m):
+            fail("corefreq", "'c' did not open the overlay")
+            return
+        ok("corefreq", "overlay opened from POWER")
+        s.key(b"j")                # move selection
+        s.key(b"l")                # stage +100 (no write)
+        s.key(b"l")
+        s.key(b"r")                # revert staging
+        m = s.mark()
+        s.key(b"\x1b")             # ESC closes
+        time.sleep(0.3)
+        if not s.alive():
+            fail("corefreq", "process died in the overlay")
+            return
+        ok("corefreq", "staged, reverted, closed, still alive")
+        rc = s.quit_expect0()
+        if rc != 0:
+            fail("corefreq", f"q exit {rc!r}")
+        else:
+            ok("corefreq", "clean exit after overlay use")
+    finally:
+        s.close()
+
+
 def flow_fan_buttons():
     """Regression for the ACT id collision (Write click opened Help)."""
     s = Session("fan_buttons")
@@ -293,7 +326,8 @@ def main():
         return 2
     print(f"tui_smoke: {BIN} on {ROWS}x{COLS} pty")
     flows = [flow_open_quit, flow_settings_overlay,
-             flow_power_stage_apply, flow_fan_buttons]
+             flow_power_stage_apply, flow_corefreq_overlay,
+             flow_fan_buttons]
     for f in flows:
         f()
     if failures:

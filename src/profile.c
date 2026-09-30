@@ -117,6 +117,11 @@ int profile_export(const char *name, const hw_state_t *hw)
     fprintf(f, "profile = %s\n", hw_profile_name(hw->profile));
     fprintf(f, "epp = %s\n", hw_epp_name(hw->epp));
     fprintf(f, "freq = %d\n", hw->cpu_mhz_limit);
+    /* per-core limits ride along when any core is capped below the
+     * aggregate; import replays them after the all-cores line */
+    for (int i = 0; i < hw->cpu_n && i < HW_CPU_MAX; i++)
+        if (hw->cpu_mhz_core[i] > 0 && hw->cpu_mhz_core[i] < hw->cpu_mhz_limit)
+            fprintf(f, "freq core %d %d\n", i, hw->cpu_mhz_core[i]);
     fprintf(f, "[power]\n");
     if (hw->hz_cur > 0)
         fprintf(f, "hz = %d\n", hw->hz_cur);

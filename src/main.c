@@ -466,6 +466,23 @@ int main(int argc, char *argv[])
             continue;
         }
 
+        /* --freq core N M: absorb the two extra tokens when the value
+         * starts with "core" (--fan-curve pattern) */
+        if (!val && !strcmp(key, "freq") && i + 1 < argc &&
+            !strcmp(argv[i + 1], "core")) {
+            char joined[64] = {0};
+            int got = 0;
+            while (got < 3 && i + 1 < argc && argv[i + 1][0] != '-') {
+                if (got)
+                    strncat(joined, " ", sizeof(joined) - strlen(joined) - 1);
+                strncat(joined, argv[++i], sizeof(joined) - strlen(joined) - 1);
+                got++;
+            }
+            if (run_flag(&hw, key, joined) != 0)
+                rc = 1;
+            continue;
+        }
+
         /* multi-token flags: --fan-curve cpu T P (3 tokens after the flag),
          * --aura effect [color|hex] (1-2 tokens) */
         if (!val && (!strcmp(key, "fan-curve") || !strcmp(key, "aura"))) {
