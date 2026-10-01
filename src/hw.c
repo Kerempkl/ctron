@@ -539,14 +539,89 @@ void hw_refresh_fast(hw_state_t *hw)
 
 /* ---- full snapshot ---------------------------------------------------- */
 
-/* asusd's power-source profile takeover: on every AC/battery event the
- * daemon re-applies its chosen profile (observed fighting the KDE
- * shortcut on USB-C PD renegotiations). Parsed from asusd.ron, names
- * only — asusd's numeric enum differs from ours, never map by value. */
+/* ---- asusd power-source profile takeover ---------------------------------
+ * On every AC/battery event the daemon re-applies its chosen profile
+ * (observed fighting the KDE shortcut on USB-C PD renegotiations).
+ * Live daemon state is the authoritative source: asusd.ron flushes
+ * asynchronously, so a file read races an immediate re-read after a
+ * write (that stale file value is what kept the TUI row showing the
+ * old setting right after an apply). Names only — asusd's numeric
+ * enum differs from ours, never map by value. */
+
+int hw_asusd_auto_flag(const char *prop)
+{
+    char out[64] = {0};
+    char cmd[200];
+    snprintf(cmd, sizeof(cmd),
+             "busctl get-property xyz.ljones.Asusd /xyz/ljones "
+             "xyz.ljones.Platform %s", prop);
+    if (ut_exec_raw(cmd, out, sizeof(out)) != 0)
+        return -2;
+    if (strstr(out, "true"))
+        return 1;
+    if (strstr(out, "false"))
+        return 0;
+    return -2;
+}
+
+static int asusd_profile_from_get_out(const char *out, int ac)
+{
+    const char *key = ac ? "AC profile" : "Battery profile";
+    const char *p = strstr(out, key);
+    if (!p)
+        return -2;
+    p += strlen(key);
+    while (*p == ' ')
+        p++;
+    const char *end = p;
+    while (*end && *end != '\n' && *end != '\r')
+        end++;
+    char name[24];
+    size_t n = (size_t)(end - p);
+    if (n >= sizeof(name))
+        n = sizeof(name) - 1;
+    memcpy(name, p, n);
+    name[n] = '\0';
+    return hw_profile_from_name(name);
+}
+
+int hw_asusd_auto_profile(int ac)
+{
+    char out[512] = {0};
+    /* raw: the default exec capture truncates at the first newline,
+     * and the AC/Battery lines are on later lines */
+    if (ut_exec_raw("asusctl profile get", out, sizeof(out)) != 0)
+        return -2;
+    return asusd_profile_from_get_out(out, ac);
+}
+
 void hw_asusd_auto_read(hw_state_t *hw)
 {
     hw->asusd_ac = -2;
     hw->asusd_bat = -2;
+
+    int fac = hw_asusd_auto_flag("ChangePlatformProfileOnAc");
+    int fbat = hw_asusd_auto_flag("ChangePlatformProfileOnBattery");
+    int pac = -2, pbat = -2;
+    if (fac == 1 || fbat == 1) {
+        char out[512] = {0};
+        if (ut_exec_raw("asusctl profile get", out, sizeof(out)) == 0) {
+            if (fac == 1)
+                pac = asusd_profile_from_get_out(out, 1);
+            if (fbat == 1)
+                pbat = asusd_profile_from_get_out(out, 0);
+        }
+    }
+    if ((fac == 0 || pac >= 0) && (fbat == 0 || pbat >= 0)) {
+        hw->asusd_ac = fac == 0 ? -1 : pac;
+        hw->asusd_bat = fbat == 0 ? -1 : pbat;
+        return;                     /* daemon answered: authoritative */
+    }
+    if (fac != -2 || fbat != -2)
+        return;                     /* partial answer: stay unknown */
+
+    /* no daemon: fall back to the config file (values may be stale
+     * right after a write — asusd flushes asynchronously) */
     char buf[4096];
     if (ut_read_file("/etc/asusd/asusd.ron", buf, sizeof(buf)) != 0)
         return;

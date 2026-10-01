@@ -91,6 +91,13 @@ static int cmd_status(hw_state_t *hw)
     printf("  Fan RPM        : %s / %s (cpu/gpu)\n",
            dash_if(v3, sizeof(v3), hw->rpm_cpu), dash_if(v4, sizeof(v4), hw->rpm_gpu));
     printf("  Profile        : %s\n", hw_profile_name(hw->profile));
+    if (hw->asusd_ac != -2 || hw->asusd_bat != -2) {
+        printf("  asusd auto     : AC %s · battery %s\n",
+               hw->asusd_ac == -1 ? "off"
+               : (hw->asusd_ac >= 0 ? hw_profile_name((hw_profile_t)hw->asusd_ac) : "--"),
+               hw->asusd_bat == -1 ? "off"
+               : (hw->asusd_bat >= 0 ? hw_profile_name((hw_profile_t)hw->asusd_bat) : "--"));
+    }
     printf("  EPP            : %s\n", hw_epp_name(hw->epp));
     printf("  Display        : %s Hz (%s)\n",
            hw->hz_cur > 0 ? dash_if(v5, sizeof(v5), hw->hz_cur) : "--",

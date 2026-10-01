@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-10-01 — asusd rows: stale-display fix after apply
+
+- User-hit TUI bug: changing an auto-profile row from "off" and
+  applying worked (hardware correct) but the row kept showing "off".
+  Cause: pw_apply's read-back refresh read `/etc/asusd/asusd.ron`,
+  which asusd flushes asynchronously — the stale file value clobbered
+  the verified live one. The read layer now asks the daemon itself
+  (`hw_asusd_auto_flag` / `hw_asusd_auto_profile`, shared with the
+  control layer's verification) and only falls back to the ron file
+  when no daemon answers.
+- `--status` gained an `asusd auto: AC … · battery …` line, which
+  doubles as the race regression check: value correct immediately
+  after every apply (verified live across balanced/off transitions).
+- TUI harness green; takeover left OFF on both sides per the user's
+  preference.
+
 ## 2026-10-01 — asusd power-source profile takeover, managed from ctron
 
 - Diagnosis behind the feature: asusd re-applies its per-power-source

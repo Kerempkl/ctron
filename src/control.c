@@ -166,49 +166,6 @@ int ctrl_set_cpu_max_mhz_core(hw_state_t *hw, int cpu, int mhz)
     return rc;
 }
 
-/* asusd change-flag over D-Bus: 1 true, 0 false, -2 unreadable */
-static int asusd_flag_read(const char *prop)
-{
-    char out[64] = {0};
-    char cmd[200];
-    snprintf(cmd, sizeof(cmd),
-             "busctl get-property xyz.ljones.Asusd /xyz/ljones "
-             "xyz.ljones.Platform %s", prop);
-    if (ut_exec_raw(cmd, out, sizeof(out)) != 0)
-        return -2;
-    if (strstr(out, "true"))
-        return 1;
-    if (strstr(out, "false"))
-        return 0;
-    return -2;
-}
-
-/* live per-source profile from the daemon (names, no enum mapping);
- * -2 unreadable */
-static int asusd_profile_read(bool ac)
-{
-    char out[512] = {0};
-    /* raw: the default exec capture truncates at the first newline,
-     * and the AC/Battery lines are on later lines */
-    if (ut_exec_raw("asusctl profile get", out, sizeof(out)) != 0)
-        return -2;
-    const char *key = ac ? "AC profile" : "Battery profile";
-    char *p = strstr(out, key);
-    if (!p)
-        return -2;
-    p += strlen(key);
-    while (*p == ' ')
-        p++;
-    char *end = p;
-    while (*end && *end != '\n' && *end != '\r')
-        end++;
-    char save = *end;
-    *end = '\0';
-    int v = hw_profile_from_name(p);
-    *end = save;
-    return v;
-}
-
 /* asusd power-source profile takeover. ac/bat: -2 leave alone,
  * -1 stop auto-switching, 0..2 the hw_profile_t to enforce. Values
  * travel as NAMES (asusd's numeric enum differs from ours); the
@@ -259,9 +216,9 @@ int ctrl_set_asusd_auto(hw_state_t *hw, int ac, int bat)
         if (mode == -2)
             continue;
         const char *which = side == 0 ? "AC" : "battery";
-        int flag = asusd_flag_read(side == 0 ? "ChangePlatformProfileOnAc"
-                                             : "ChangePlatformProfileOnBattery");
-        int prof = flag == 1 ? asusd_profile_read(side == 0) : -2;
+        int flag = hw_asusd_auto_flag(side == 0 ? "ChangePlatformProfileOnAc"
+                                                : "ChangePlatformProfileOnBattery");
+        int prof = flag == 1 ? hw_asusd_auto_profile(side == 0) : -2;
         int got = flag == 0 ? -1 : (flag == 1 && prof >= 0 ? prof : -2);
         if (got != mode) {
             ut_log("asusd %s auto-profile: VERIFY FAILED (daemon reads %d)",

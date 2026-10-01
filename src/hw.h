@@ -104,7 +104,13 @@ void hw_refresh_fast(hw_state_t *hw);
 /* Full snapshot for --status / --doctor / TUI entry. */
 void hw_refresh_live(hw_state_t *hw);
 
-/* Refresh asusd_ac/asusd_bat from /etc/asusd/asusd.ron (read-only). */
+/* asusd power-source takeover, daemon-live readers (name-based):
+ * flag 1/0/-2 unreadable; profile hw_profile_t or -2 */
+int hw_asusd_auto_flag(const char *prop);
+int hw_asusd_auto_profile(int ac);
+
+/* Refresh asusd_ac/asusd_bat: daemon state first (asusd.ron flushes
+ * asynchronously), file only as a fallback. */
 void hw_asusd_auto_read(hw_state_t *hw);
 
 /* asus-armoury firmware attribute raw read ("attr/current_value"). */

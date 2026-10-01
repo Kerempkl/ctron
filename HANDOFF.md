@@ -14,6 +14,15 @@ prioritized todo list and the distilled session lessons.
 
 ## Session 2026-10-01 — asusd takeover management (Kerempkl + GLM, FA608PP)
 
+- Follow-up same day: user hit a display bug — apply from "off" worked
+  but the row stayed "off". The read-back refresh raced asusd's
+  asynchronous ron flush; the read layer now prefers daemon-live state
+  (hw_asusd_auto_flag/profile, shared with control's verify), ron file
+  is only a no-daemon fallback. --status shows the asusd auto line;
+  verified immediately-correct after every apply. Takeover now left
+  OFF on both sides per user preference (was restored to original
+  earlier in the session).
+
 - User bug: profile set from KDE flipped back to Performance within
   seconds (fan noise included). Root cause chain proven live: asusd
   enforces PlatformProfileOn{Ac,Battery} on power events; USB-C PD
