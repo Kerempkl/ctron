@@ -7,6 +7,17 @@
 /* parse "0-31" / "0-15,32-47" style cpu lists; pure, unit-tested */
 int hw_cpu_list_parse(const char *s, int *ids, int max);
 
+/* cached sysfs device paths: probed once, an empty entry means probe
+ * on next use, a failed read drops the entry (suspend/resume can
+ * renumber hwmon/power-supply indices) */
+typedef struct {
+    char fan_curve[256];   /* asus_custom_fan_curve hwmon base */
+    char k10temp[256];
+    char fan_rpm[256];     /* asus hwmon base (fan1/2_input) */
+    char battery[256];
+    char mains[256];
+} hw_paths_t;
+
 #include <stdbool.h>
 #include <stddef.h>
 
@@ -61,6 +72,7 @@ typedef struct {
     int cpu_mhz_limit;     /* aggregate scaling_max (max across cores) */
     int cpu_n;                                /* present cpu count */
     int cpu_mhz_core[HW_CPU_MAX];             /* per-core scaling_max, MHz */
+    hw_paths_t paths;                         /* cached device paths */
     int rpm_cpu, rpm_gpu;  /* -1 unknown */
     int bat_pct;
     char bat_status[16];
@@ -112,6 +124,10 @@ int hw_asusd_auto_profile(int ac);
 /* Refresh asusd_ac/asusd_bat: daemon state first (asusd.ron flushes
  * asynchronously), file only as a fallback. */
 void hw_asusd_auto_read(hw_state_t *hw);
+
+/* fan-curve hwmon base through the path cache (the write layer uses
+ * it so reads and writes can never disagree) */
+int hw_path_fan_curve(hw_state_t *hw, char *out, size_t n);
 
 /* asus-armoury firmware attribute raw read ("attr/current_value"). */
 int hw_armoury_read(const char *attr, char *out, size_t n);

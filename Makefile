@@ -1,7 +1,13 @@
-CC ?= gcc
-CFLAGS ?= -std=c11 -Wall -Wextra -O2 -Isrc -D_GNU_SOURCE \
-          $(shell pkg-config --cflags notcurses 2>/dev/null)
-LDLIBS ?= $(shell pkg-config --libs notcurses 2>/dev/null || echo -lnotcurses)
+# GNU make required ($(shell) below). An external CFLAGS/LDLIBS (distro
+# packaging, Nix stdenv, -O0 debugging) is honoured; the flags ctron
+# cannot build without are appended after it. pkg-config absence falls
+# back to the plain library names.
+CFLAGS ?= -O2 -Wall -Wextra
+CFLAGS += -std=c11 -Isrc -D_GNU_SOURCE
+CFLAGS += $(shell pkg-config --cflags notcurses 2>/dev/null)
+LDLIBS ?=
+LDLIBS += $(shell pkg-config --libs notcurses 2>/dev/null \
+           || echo -lnotcurses -lnotcurses-core)
 
 SRC = src/main.c src/util.c src/hw.c src/control.c src/daeboard.c src/fan.c src/cmds.c \
       src/modes.c src/profile.c src/settings.c \

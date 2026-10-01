@@ -1,7 +1,8 @@
 # Ctron Handoff
 
 Latest session — **2026-10-01** **Kerempkl + GLM / FA608PP** (asusd
-power-source profile takeover, managed from ctron). Before that
+power-source profile takeover managed from ctron + its two follow-up
+fixes; then sysfs path cache + Makefile hardening). Before that
 **2026-09-29** (per-core CPU frequency limits), the **2026-09-28** run
 (preset
 button row, 6.18-lts re-verification + HARDWARE.md, list scrolling,
@@ -11,6 +12,23 @@ amd-pstate clock-window refresh), the **2026-09-24** POWER round, and
 **2026-09-23** in parallel: **Grok / FA507NVR / NixOS** (daeboard
 editor, signed below). **Read `NEXT.md` first** — it carries the
 prioritized todo list and the distilled session lessons.
+
+## Session 2026-10-01 — sysfs path cache + Makefile hardening (Kerempkl + GLM, FA608PP)
+
+- Makefile: required flags appended after external CFLAGS/LDLIBS
+  (packaging/Nix/debug envs no longer drop -Isrc/-D_GNU_SOURCE/pkg
+  flags); pkg-config-less fallback to -lnotcurses -lnotcurses-core;
+  dead `CC ?= gcc` removed (make's builtin cc always won). Verified:
+  external-flags build, pkg-config-stripped fallback, default build +
+  tests + harness green.
+
+- NEXT.md item 1 closed: hw_state_t.paths caches the five device
+  paths (fan curve/k10temp/fan RPM/battery/mains); failed reads drop
+  the entry (one-tick re-probe after suspend/resume renumbering);
+  the fan WRITE path resolves through the same cache. Honest result:
+  no measurable CPU-time change on FA608PP (globs were cheap); the
+  win is ~18 fewer opens/poll + read/write consistency. All tests +
+  live stream green.
 
 ## Session 2026-10-01 — asusd takeover management (Kerempkl + GLM, FA608PP)
 

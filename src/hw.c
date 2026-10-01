@@ -133,6 +133,34 @@ static int power_supply_find(const char *type, char *out, size_t n)
     return rc;
 }
 
+/* ---- cached device paths --------------------------------------------------
+ * sysfs device paths are stable while running, except across
+ * suspend/resume when hwmon / power-supply indices renumber. An empty
+ * cache entry triggers a probe; a failed read on a cached path drops
+ * it so the next poll re-probes. This keeps the 250 ms hot path free
+ * of the four discovery globs it used to run per tick. */
+static int cached_hwmon(char *cache, const char *want, char *out, size_t n)
+{
+    if (!cache[0] && hw_hwmon_path(want, cache, 256) != 0)
+        return -1;
+    snprintf(out, n, "%s", cache);
+    return 0;
+}
+
+static int cached_supply(char *cache, const char *type, char *out, size_t n)
+{
+    if (!cache[0] && power_supply_find(type, cache, 256) != 0)
+        return -1;
+    snprintf(out, n, "%s", cache);
+    return 0;
+}
+
+int hw_path_fan_curve(hw_state_t *hw, char *out, size_t n)
+{
+    return cached_hwmon(hw->paths.fan_curve, "asus_custom_fan_curve",
+                        out, n);
+}
+
 /* nb-wmi node read; 0/5 are the well-known stale cache values. */
 static int nbwmi_read(const char *attr)
 {
@@ -245,7 +273,7 @@ static void fan_read_one(const char *base, const char *pwm, fan_curve_t *fc)
 static void fan_hwmon_read(hw_state_t *hw)
 {
     char base[256];
-    if (hw_hwmon_path("asus_custom_fan_curve", base, sizeof(base)) != 0) {
+    if (hw_path_fan_curve(hw, base, sizeof(base)) != 0) {
         hw->has_fan_curve = false;
         if (hw->fan_cpu.n == 0) {
             fan_default(&hw->fan_cpu);
@@ -489,11 +517,13 @@ void hw_refresh_fast(hw_state_t *hw)
 
     cpu_limits_sweep(hw);
 
-    if (hw_hwmon_path("k10temp", p, sizeof(p)) == 0 &&
+    if (cached_hwmon(hw->paths.k10temp, "k10temp", p, sizeof(p)) == 0 &&
         ut_path_join(q, sizeof(q), p, "temp1_input") == 0) {
         int t = ut_read_int(q);
         if (t > 0)
             hw->cpu_temp = t / 1000;
+        else
+            hw->paths.k10temp[0] = '\0';   /* path gone: re-probe */
     }
 
     int cur = ut_read_int("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq");
@@ -504,11 +534,13 @@ void hw_refresh_fast(hw_state_t *hw)
         hw->gpu_temp = gpu_temp_cached();
 
     char bat[256];
-    if (power_supply_find("Battery", bat, sizeof(bat)) == 0) {
+    if (cached_supply(hw->paths.battery, "Battery", bat, sizeof(bat)) == 0) {
         if (ut_path_join(p, sizeof(p), bat, "capacity") == 0) {
             int pct = ut_read_int(p);
             if (pct >= 0)
                 hw->bat_pct = pct;
+            else
+                hw->paths.battery[0] = '\0';
         }
         char st[16] = {0};
         if (ut_path_join(p, sizeof(p), bat, "status") == 0)
@@ -519,11 +551,16 @@ void hw_refresh_fast(hw_state_t *hw)
     }
 
     char ac[256];
-    if (power_supply_find("Mains", ac, sizeof(ac)) == 0 &&
-        ut_path_join(p, sizeof(p), ac, "online") == 0)
-        hw->ac_online = (ut_read_int(p) == 1);
+    if (cached_supply(hw->paths.mains, "Mains", ac, sizeof(ac)) == 0 &&
+        ut_path_join(p, sizeof(p), ac, "online") == 0) {
+        int on = ut_read_int(p);
+        if (on >= 0)
+            hw->ac_online = (on == 1);
+        else
+            hw->paths.mains[0] = '\0';
+    }
 
-    if (hw_hwmon_path("asus", p, sizeof(p)) == 0) {
+    if (cached_hwmon(hw->paths.fan_rpm, "asus", p, sizeof(p)) == 0) {
         hw->has_fan_rpm = true;
         int r1 = -1, r2 = -1;
         if (ut_path_join(q, sizeof(q), p, "fan1_input") == 0)
@@ -532,6 +569,8 @@ void hw_refresh_fast(hw_state_t *hw)
             r2 = ut_read_int(q);
         hw->rpm_cpu = r1 > 0 ? r1 : -1;
         hw->rpm_gpu = r2 > 0 ? r2 : -1;
+        if (r1 < 0 && r2 < 0)
+            hw->paths.fan_rpm[0] = '\0';
     } else {
         hw->has_fan_rpm = false;
     }
@@ -687,7 +726,7 @@ void hw_refresh_live(hw_state_t *hw)
         hw->cpu_boost = (v != 0);
 
     char bat[256];
-    if (power_supply_find("Battery", bat, sizeof(bat)) == 0) {
+    if (cached_supply(hw->paths.battery, "Battery", bat, sizeof(bat)) == 0) {
         char p[340];
         if (ut_path_join(p, sizeof(p), bat, "charge_control_end_threshold") == 0) {
             int lim = ut_read_int(p);

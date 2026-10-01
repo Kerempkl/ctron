@@ -595,9 +595,11 @@ int ctrl_set_aura_hex(hw_state_t *hw, const char *hex)
 
 /* ---- fans ------------------------------------------------------------- */
 
-static int fan_curve_base(char *out, size_t n)
+static int fan_curve_base(hw_state_t *hw, char *out, size_t n)
 {
-    return hw_hwmon_path("asus_custom_fan_curve", out, n);
+    /* same path cache the read layer uses, so reads and writes can
+     * never disagree after a renumber */
+    return hw_path_fan_curve(hw, out, n);
 }
 
 /* "30c:40,45c:90,..." for asusctl fan-curve --data. */
@@ -661,7 +663,7 @@ int ctrl_fan_write(hw_state_t *hw)
     int rc = 0;
     int vok_cpu = -1, vok_gpu = -1; /* -1: no hwmon, not verified */
 
-    if (fan_curve_base(base, sizeof(base)) == 0) {
+    if (fan_curve_base(hw, base, sizeof(base)) == 0) {
         for (int i = 0; i < FAN_POINTS; i++) {
             char path[300];
             int tc, pc, tg, pg;

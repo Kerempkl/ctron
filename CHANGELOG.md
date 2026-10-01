@@ -1,5 +1,34 @@
 # Changelog
 
+## 2026-10-01 — Makefile hardened for external CFLAGS/LDLIBS
+
+- The flags ctron cannot build without (`-std=c11 -Isrc -D_GNU_SOURCE`
+  + pkg-config cflags; notcurses libs) are now appended AFTER any
+  external CFLAGS/LDLIBS — a distro packager, Nix stdenv or a plain
+  `-O0 -g` debugging env no longer silently drops the include path
+  and the feature macros. Verified live: `CFLAGS="-O0 -g"
+  LDLIBS="-lm" make` builds and links.
+- pkg-config-less environments fall back to
+  `-lnotcurses -lnotcurses-core` (tested with pkg-config stripped
+  from PATH); `CC ?= gcc` removed — it never took effect over make's
+  builtin `cc` and only misled. GNU-make requirement now documented
+  at the top.
+
+## 2026-10-01 — sysfs device paths cached (NEXT.md item 1)
+
+- The 250 ms poll no longer runs four discovery globs per tick
+  (k10temp, battery, Mains, asus RPM hwmon). Paths live in
+  `hw_state_t.paths`, probed on first use; a failed read on a cached
+  path drops the entry so the next poll re-probes — suspend/resume
+  renumbering recovers within one tick.
+- The fan-curve write path now resolves its hwmon through the same
+  cache (`hw_path_fan_curve`), so reads and writes can never disagree
+  after a renumber.
+- Honest measurement: CPU time over 5 s of `--watch` is unchanged
+  (sys 0.16→0.17 s, user 0.12→0.11 s) — the globs were cheap on this
+  machine. The real gains are ~18 fewer file opens per poll and the
+  read/write path consistency. Live stream, unit and TUI tests green.
+
 ## 2026-10-01 — asusd rows: setting a rule no longer switches the mode
 
 - User-hit: changing an AC/battery auto-profile applied the rule AND

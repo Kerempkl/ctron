@@ -37,11 +37,15 @@
 
 ## SIRADAKİ İŞLER (öncelik sırasıyla)
 
-1. **hwmon/power yolu önbelleği (en çok kazandıran).** `hw_refresh_fast`
-   her 250 ms'de `glob()` ile k10temp/fan/batarya/AC yollarını yeniden
-   arıyor (`hw.c`, `hw_hwmon_path`/`power_supply_find` çağrıları).
-   Yollar `hw_init`'te bir kez bulunup struct'a saklanmalı; poll yalnızca
-   değer okumalı. nvidia-smi 2 sn cache'te — dokunma.
+1. **[BİTTİ 10-01]** hwmon/power yolu önbelleği: yollar `hw_state_t.paths`
+   içinde keşfedilip saklanıyor (fan eğrisi, k10temp, fan RPM, batarya,
+   AC); 250 ms poll artık yalnızca değer okuyor (~18 keşif open'ı/poll
+   kalktı). Cache'li yoldan okuma başarısız olursa giriş düşürülür,
+   sonraki poll yeniden probe eder (suspend/resume yeniden numaralandırma
+   için). Yazma katmanı fan tabanını aynı cache'ten alıyor
+   (`hw_path_fan_curve`). Dürüst not: CPU zamanında ölçülebilir fark yok
+   (glob'lar bu makinede ucuz) — kazanç syscall sayısı ve okuma/yazma
+   yolu tutarlılığı. nvidia-smi 2 sn cache dokunulmadı.
 2. **[BİTTİ 09-27]** pty test harness repoda: `scripts/tui_smoke.py` +
    `make tuitest`. Responder yalnız ilk ~1 sn CPR/DA1/kitty `?u`/sync
    2026/OSC 4-10-11 sorgularını yanıtlar (sonra sessiz — geç cevaplar
