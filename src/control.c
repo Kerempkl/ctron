@@ -166,6 +166,120 @@ int ctrl_set_cpu_max_mhz_core(hw_state_t *hw, int cpu, int mhz)
     return rc;
 }
 
+/* asusd change-flag over D-Bus: 1 true, 0 false, -2 unreadable */
+static int asusd_flag_read(const char *prop)
+{
+    char out[64] = {0};
+    char cmd[200];
+    snprintf(cmd, sizeof(cmd),
+             "busctl get-property xyz.ljones.Asusd /xyz/ljones "
+             "xyz.ljones.Platform %s", prop);
+    if (ut_exec_raw(cmd, out, sizeof(out)) != 0)
+        return -2;
+    if (strstr(out, "true"))
+        return 1;
+    if (strstr(out, "false"))
+        return 0;
+    return -2;
+}
+
+/* live per-source profile from the daemon (names, no enum mapping);
+ * -2 unreadable */
+static int asusd_profile_read(bool ac)
+{
+    char out[512] = {0};
+    /* raw: the default exec capture truncates at the first newline,
+     * and the AC/Battery lines are on later lines */
+    if (ut_exec_raw("asusctl profile get", out, sizeof(out)) != 0)
+        return -2;
+    const char *key = ac ? "AC profile" : "Battery profile";
+    char *p = strstr(out, key);
+    if (!p)
+        return -2;
+    p += strlen(key);
+    while (*p == ' ')
+        p++;
+    char *end = p;
+    while (*end && *end != '\n' && *end != '\r')
+        end++;
+    char save = *end;
+    *end = '\0';
+    int v = hw_profile_from_name(p);
+    *end = save;
+    return v;
+}
+
+/* asusd power-source profile takeover. ac/bat: -2 leave alone,
+ * -1 stop auto-switching, 0..2 the hw_profile_t to enforce. Values
+ * travel as NAMES (asusd's numeric enum differs from ours); the
+ * change-flags go over D-Bus (busctl) because asusctl has no flag
+ * for them. No daemon restart — property writes persist to asusd.ron.
+ * Verification reads the daemon's live state: the ron file flushes
+ * asynchronously and races an immediate re-read. */
+int ctrl_set_asusd_auto(hw_state_t *hw, int ac, int bat)
+{
+    if (!hw->has_asusctl) {
+        ut_log("asusd auto-profile: asusctl not available");
+        return -1;
+    }
+    int rc = 0;
+
+    for (int side = 0; side < 2; side++) {
+        int mode = side == 0 ? ac : bat;
+        if (mode == -2)
+            continue;
+        const char *flag = side == 0 ? "ChangePlatformProfileOnAc"
+                                     : "ChangePlatformProfileOnBattery";
+        const char *opt = side == 0 ? "-a" : "-b";
+        const char *which = side == 0 ? "AC" : "battery";
+        char cmd[256];
+
+        snprintf(cmd, sizeof(cmd),
+                 "busctl set-property xyz.ljones.Asusd /xyz/ljones "
+                 "xyz.ljones.Platform %s b %s", flag,
+                 mode >= 0 ? "true" : "false");
+        if (ut_exec(cmd, NULL, 0) != 0) {
+            ut_log("asusd %s auto-profile: busctl FAILED", which);
+            rc = -1;
+            continue;
+        }
+        if (mode >= 0) {
+            snprintf(cmd, sizeof(cmd), "asusctl profile set %s %s", opt,
+                     hw_profile_name((hw_profile_t)mode));
+            if (ut_exec(cmd, NULL, 0) != 0) {
+                ut_log("asusd %s auto-profile: asusctl FAILED", which);
+                rc = -1;
+            }
+        }
+    }
+
+    /* rule 4: verify against the daemon's live state */
+    for (int side = 0; side < 2; side++) {
+        int mode = side == 0 ? ac : bat;
+        if (mode == -2)
+            continue;
+        const char *which = side == 0 ? "AC" : "battery";
+        int flag = asusd_flag_read(side == 0 ? "ChangePlatformProfileOnAc"
+                                             : "ChangePlatformProfileOnBattery");
+        int prof = flag == 1 ? asusd_profile_read(side == 0) : -2;
+        int got = flag == 0 ? -1 : (flag == 1 && prof >= 0 ? prof : -2);
+        if (got != mode) {
+            ut_log("asusd %s auto-profile: VERIFY FAILED (daemon reads %d)",
+                   which, got);
+            rc = -1;
+        } else if (side == 0) {
+            hw->asusd_ac = got;
+        } else {
+            hw->asusd_bat = got;
+        }
+    }
+    if (rc == 0)
+        ut_log("asusd auto-profile: AC %s · battery %s (verified)",
+               hw->asusd_ac == -1 ? "off" : hw_profile_name((hw_profile_t)hw->asusd_ac),
+               hw->asusd_bat == -1 ? "off" : hw_profile_name((hw_profile_t)hw->asusd_bat));
+    return rc;
+}
+
 int ctrl_set_cpu_boost(hw_state_t *hw, bool on)
 {
     int rc = ut_priv_write("/sys/devices/system/cpu/cpufreq/boost", on ? "1" : "0");

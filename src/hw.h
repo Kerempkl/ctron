@@ -77,6 +77,12 @@ typedef struct {
     bool cpu_boost;
     hw_kbd_t kbd;
 
+    /* asusd power-source profile takeover (from /etc/asusd/asusd.ron):
+     * -2 unknown (asusd absent), -1 auto-switching off, else the
+     * hw_profile_t asusd enforces on that power source */
+    int asusd_ac;
+    int asusd_bat;
+
     /* fan curves (editor copies; hwmon stock snapshot kept) */
     fan_curve_t fan_cpu, fan_gpu;
     fan_curve_t fan_cpu_stock, fan_gpu_stock;
@@ -97,6 +103,9 @@ void hw_refresh_fast(hw_state_t *hw);
 
 /* Full snapshot for --status / --doctor / TUI entry. */
 void hw_refresh_live(hw_state_t *hw);
+
+/* Refresh asusd_ac/asusd_bat from /etc/asusd/asusd.ron (read-only). */
+void hw_asusd_auto_read(hw_state_t *hw);
 
 /* asus-armoury firmware attribute raw read ("attr/current_value"). */
 int hw_armoury_read(const char *attr, char *out, size_t n);

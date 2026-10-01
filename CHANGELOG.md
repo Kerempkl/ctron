@@ -1,5 +1,35 @@
 # Changelog
 
+## 2026-10-01 — asusd power-source profile takeover, managed from ctron
+
+- Diagnosis behind the feature: asusd re-applies its per-power-source
+  platform profile on every AC/battery event (`ChangePlatformProfileOnAc:
+  true` + `PlatformProfileOnAc: Performance`), and this machine's USB-C
+  PD fires power events ~every 1.5 s — so a Balanced picked from KDE
+  flipped back to Performance within seconds, with asusd also swapping
+  the fan curve (the audible "turbo"). Observed live twice.
+- POWER gained two staged rows under Platform profile: **AC
+  auto-profile** and **Battery auto-profile** (off / Quiet / Balanced /
+  Performance; `--` when asusd is absent). Applied LAST in pw_apply so
+  the daemon's re-assertions cannot race the other writes. Reads come
+  from `/etc/asusd/asusd.ron` (hw layer, name-based — asusd's numeric
+  enum deliberately never mapped).
+- Writes use the daemon's native interfaces: `asusctl profile set
+  -a/-b <name>` for the profile and `busctl set-property` on
+  `xyz.ljones.Asusd` for the `ChangePlatformProfileOn{Ac,Battery}`
+  flags (asusctl has no CLI for them) — no file editing, no daemon
+  restart. Verification reads the daemon's live state: the ron file
+  flushes asynchronously, and ut_exec's default capture truncates at
+  the first newline — both found live and worked around
+  (`ut_exec_raw`).
+- CLI: `ctron --ac-profile off|quiet|balanced|performance` and
+  `--battery-profile ...`; the shared command table means modes.ini
+  steps and .ctr profiles accept `ac-profile off` too.
+- Verified live on FA608PP: off (flag false, platform profile
+  untouched), balanced on both sides, invalid value rejected, original
+  config restored byte-identically. `make` warning-free, unit + TUI
+  tests green.
+
 ## 2026-09-29 — per-core CPU frequency limits (grid editor + `freq core N M`)
 
 - New `src/ui/editor_corefreq.c`: a fullscreen CORE LIMITS overlay

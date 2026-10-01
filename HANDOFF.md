@@ -1,7 +1,9 @@
 # Ctron Handoff
 
-Latest session — **2026-09-29** **Kerempkl + GLM / FA608PP** (per-core
-CPU frequency limits). Before that the **2026-09-28** run (preset
+Latest session — **2026-10-01** **Kerempkl + GLM / FA608PP** (asusd
+power-source profile takeover, managed from ctron). Before that
+**2026-09-29** (per-core CPU frequency limits), the **2026-09-28** run
+(preset
 button row, 6.18-lts re-verification + HARDWARE.md, list scrolling,
 pty harness, fan write verify/flash, fan-button fix), the **2026-09-27**
 docs (support matrix), **2026-09-26** (exact-value typing + range hints,
@@ -9,6 +11,31 @@ amd-pstate clock-window refresh), the **2026-09-24** POWER round, and
 **2026-09-23** in parallel: **Grok / FA507NVR / NixOS** (daeboard
 editor, signed below). **Read `NEXT.md` first** — it carries the
 prioritized todo list and the distilled session lessons.
+
+## Session 2026-10-01 — asusd takeover management (Kerempkl + GLM, FA608PP)
+
+- User bug: profile set from KDE flipped back to Performance within
+  seconds (fan noise included). Root cause chain proven live: asusd
+  enforces PlatformProfileOn{Ac,Battery} on power events; USB-C PD
+  emits ~59 power-supply uevents / 90 s on this machine. Not ctron
+  (verified absent + startup-write audit clean).
+- POWER: "AC auto-profile" / "Battery auto-profile" staged rows (off/
+  Quiet/Balanced/Performance, `--` without asusd), applied last.
+  Writes: `asusctl profile set -a/-b <name>` + `busctl set-property`
+  on xyz.ljones.Asusd for the change flags; no restart, no file
+  editing. CLI `--ac-profile/--battery-profile`; modes/profiles
+  inherit.
+- Two live-caught implementation traps, both fixed: the ron file
+  flushes asynchronously (verify reads the daemon via asusctl profile
+  get / busctl get-property instead), and ut_exec's default capture
+  truncates at the first newline (use ut_exec_raw for multi-line).
+  Earlier trap: ron lines are indented + " Balanced," needs trim.
+- Live-verified every form incl. restore of the original config;
+  warning-free make, unit + TUI tests green. Uncommitted at handoff
+  per protocol.
+- FYI for the user's own machine: the takeover is currently left in
+  its ORIGINAL state (AC Performance on, battery Quiet on) — disable
+  with `ctron --ac-profile off` or the POWER row when desired.
 
 ## Session 2026-09-29 — per-core frequency limits (Kerempkl + GLM, FA608PP)
 

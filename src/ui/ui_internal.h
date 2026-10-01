@@ -77,6 +77,7 @@ typedef struct ui_ctx {
     int pwv_spl, pwv_sppt, pwv_fppt;   /* W */
     int pwv_nvboost, pwv_nvtemp, pwv_mhz;
     int pwv_profile;                   /* hw_profile_t */
+    int pwv_asusd_ac, pwv_asusd_bat;   /* -1 off, 0..2 profile */
     int pwv_epp;                       /* hw_epp_t */
     bool pwv_panel_od, pwv_cpuboost, pwv_ppt_off;
     bool pw_dirty;
@@ -123,6 +124,8 @@ enum {
     PW_T_PANEL_OD  = 1 << 6,
     PW_T_CPUBOOST  = 1 << 7,
     PW_T_CPUFREQ   = 1 << 8,
+    PW_T_AC_AUTO   = 1 << 9,
+    PW_T_BAT_AUTO  = 1 << 10,
 };
 
 /* ---- palette ----------------------------------------------------------- */

@@ -80,6 +80,8 @@ static long now_ms(void)
 
 enum {
     PW_PROFILE = 0,
+    PW_AC_AUTO,         /* asusd AC takeover */
+    PW_BAT_AUTO,        /* asusd battery takeover */
     PW_EPP,
     PW_PRESET,          /* one row, three buttons: Q45/B60/P80 */
     PW_SPL,
@@ -116,6 +118,8 @@ static void pw_recompute_dirty(void)
     const hw_state_t *hw = g_ui.hw;
     g_ui.pw_dirty =
         g_ui.pwv_profile != (int)hw->profile ||
+        (hw->asusd_ac != -2 && g_ui.pwv_asusd_ac != hw->asusd_ac) ||
+        (hw->asusd_bat != -2 && g_ui.pwv_asusd_bat != hw->asusd_bat) ||
         g_ui.pwv_epp != (int)hw->epp ||
         (hw->ppt_spl > 0 && g_ui.pwv_spl != hw->ppt_spl) ||
         (hw->ppt_sppt > 0 && g_ui.pwv_sppt != hw->ppt_sppt) ||
@@ -135,6 +139,10 @@ void pw_sync_from_hw(void)
      * on the very first sync, the written values right after an apply
      * whose read-back is still kernel-cache stale */
     g_ui.pwv_profile = (int)hw->profile;
+    if (hw->asusd_ac != -2)
+        g_ui.pwv_asusd_ac = hw->asusd_ac;
+    if (hw->asusd_bat != -2)
+        g_ui.pwv_asusd_bat = hw->asusd_bat;
     g_ui.pwv_epp = (int)hw->epp;
     g_ui.pwv_spl  = hw->ppt_spl  > 0 ? hw->ppt_spl
                   : (g_ui.pwv_spl  > 0 ? g_ui.pwv_spl  : 45);
@@ -189,6 +197,19 @@ static void pw_nudge_row(int row, int dir)
                             (dir > 0 ? 1 : HW_PROF_COUNT - 1)) % HW_PROF_COUNT;
         g_ui.pw_touched |= PW_T_PROFILE;
         break;
+    case PW_AC_AUTO:
+    case PW_BAT_AUTO: {
+        /* cycle off → Quiet → Balanced → Performance → off */
+        static const int cyc[4] = { -1, HW_QUIET, HW_BALANCED, HW_PERFORMANCE };
+        int *v = row == PW_AC_AUTO ? &g_ui.pwv_asusd_ac : &g_ui.pwv_asusd_bat;
+        int idx = 0;
+        for (int c = 0; c < 4; c++)
+            if (*v == cyc[c])
+                idx = c;
+        *v = cyc[(idx + (dir > 0 ? 1 : 3)) % 4];
+        g_ui.pw_touched |= row == PW_AC_AUTO ? PW_T_AC_AUTO : PW_T_BAT_AUTO;
+        break;
+    }
     case PW_EPP:
         g_ui.pwv_epp = (g_ui.pwv_epp +
                         (dir > 0 ? 1 : HW_EPP_COUNT - 1)) % HW_EPP_COUNT;
@@ -267,6 +288,16 @@ static void pw_app(char *out, size_t n, int *off, const char *entry)
 
 /* "what Apply will change", captured before the writes collapse the
  * staging back onto the live values */
+/* "-1 off / 0..2 name / else unknown" for the asusd rows */
+static const char *pw_asusd_name(int v)
+{
+    if (v == -1)
+        return "off";
+    if (v >= 0 && v < HW_PROF_COUNT)
+        return hw_profile_name((hw_profile_t)v);
+    return "--";
+}
+
 static void pw_diff_summary(char *out, size_t n)
 {
     const hw_state_t *hw = g_ui.hw;
@@ -277,6 +308,14 @@ static void pw_diff_summary(char *out, size_t n)
     if (g_ui.pwv_profile != (int)hw->profile) {
         snprintf(e, sizeof(e), "profile %s",
                  hw_profile_name((hw_profile_t)g_ui.pwv_profile));
+        pw_app(out, n, &off, e);
+    }
+    if (g_ui.pwv_asusd_ac != hw->asusd_ac) {
+        snprintf(e, sizeof(e), "AC auto %s", pw_asusd_name(g_ui.pwv_asusd_ac));
+        pw_app(out, n, &off, e);
+    }
+    if (g_ui.pwv_asusd_bat != hw->asusd_bat) {
+        snprintf(e, sizeof(e), "bat auto %s", pw_asusd_name(g_ui.pwv_asusd_bat));
         pw_app(out, n, &off, e);
     }
     if (g_ui.pwv_epp != (int)hw->epp) {
@@ -390,6 +429,15 @@ static void pw_apply(void)
     if (g_ui.pwv_mhz > 0 && g_ui.pwv_mhz != hw->cpu_mhz_limit &&
         !(hw->cpu_mhz_limit <= 0 && g_ui.pwv_mhz >= hw->cpu_mhz_max)) {
         if (ctrl_set_cpu_max_mhz(hw, g_ui.pwv_mhz) != 0)
+            fails++;
+    }
+
+    /* asusd takeover LAST: it re-asserts the daemon's own profile
+     * state, so every other write must already be done */
+    if (g_ui.pwv_asusd_ac != hw->asusd_ac || g_ui.pwv_asusd_bat != hw->asusd_bat) {
+        int ac = g_ui.pwv_asusd_ac != hw->asusd_ac ? g_ui.pwv_asusd_ac : -2;
+        int bat = g_ui.pwv_asusd_bat != hw->asusd_bat ? g_ui.pwv_asusd_bat : -2;
+        if (ctrl_set_asusd_auto(hw, ac, bat) != 0)
             fails++;
     }
 
@@ -607,12 +655,23 @@ static void draw_power(struct ncplane *n, const rect_t *r)
     pw_val_e(prof, sizeof(prof),
              hw_profile_name(hw->profile),
              hw_profile_name((hw_profile_t)g_ui.pwv_profile));
+    char acv[48], bav[48];
+    if (hw->asusd_ac == -2)
+        snprintf(acv, sizeof(acv), "%s", "--");
+    else
+        pw_val_e(acv, sizeof(acv), pw_asusd_name(hw->asusd_ac),
+                 pw_asusd_name(g_ui.pwv_asusd_ac));
+    if (hw->asusd_bat == -2)
+        snprintf(bav, sizeof(bav), "%s", "--");
+    else
+        pw_val_e(bav, sizeof(bav), pw_asusd_name(hw->asusd_bat),
+                 pw_asusd_name(g_ui.pwv_asusd_bat));
     pw_val_e(epp, sizeof(epp),
              hw_epp_name(hw->epp), hw_epp_name((hw_epp_t)g_ui.pwv_epp));
     int armed = pw_preset_match(g_ui.pwv_spl, g_ui.pwv_sppt, g_ui.pwv_fppt);
 
     const char *vals[PW_ROWS] = {
-        prof, epp,
+        prof, acv, bav, epp,
         "",              /* PW_PRESET: rendered as a button row */
         spl, sppt, fppt,
         lim,
@@ -621,7 +680,8 @@ static void draw_power(struct ncplane *n, const rect_t *r)
         cfq,
     };
     static const char *const labels[PW_ROWS] = {
-        "Platform profile", "EPP preference",
+        "Platform profile", "AC auto-profile", "Battery auto-profile",
+        "EPP preference",
         "Presets",
         "SPL (sustained)", "SPPT (slow boost)", "FPPT (fast boost)",
         "PPT limits",
@@ -824,6 +884,7 @@ static void draw_help(struct ncplane *n, const rect_t *r)
         "",
         "POWER",
         "  j k          move · h/l (or arrows) stage the value (nothing writes)",
+        "  auto-profile rows: what asusd re-applies on AC/battery events",
         "  presets      h/l walks Q45/B60/P80 and stages; click a button too",
         "  t            type an exact value for the selected row",
         "  Enter/w      apply all staged edits · r reverts to live values",

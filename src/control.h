@@ -12,6 +12,9 @@
 /* ---- platform -------------------------------------------------------- */
 
 int ctrl_set_profile(hw_state_t *hw, hw_profile_t p);
+/* asusd power-source takeover: -2 leave alone, -1 off, 0..2 enforce
+ * that profile on that power source; verified by read-back */
+int ctrl_set_asusd_auto(hw_state_t *hw, int ac, int bat);
 int ctrl_set_epp(hw_state_t *hw, hw_epp_t e);
 int ctrl_set_cpu_max_mhz(hw_state_t *hw, int mhz);
 /* per-core scaling_max_freq; read-back verified, -1 on bad cpu id */

@@ -660,6 +660,8 @@ int ui_run(hw_state_t *hw)
     g_ui.lt_eff = 0;
     g_ui.lt_col = 0;
     tin_set(&g_ui.lt_hex, "00e5ff");
+    g_ui.pwv_asusd_ac = -1;   /* sane start if asusd is absent */
+    g_ui.pwv_asusd_bat = -1;
     pw_sync_from_hw();
 
     ut_log("TUI ready (%d profiles, %d modes)", g_ui.prof_n, g_ui.mode_n);

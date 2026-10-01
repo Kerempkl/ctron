@@ -134,6 +134,20 @@ int cmd_run(hw_state_t *hw, const char *key, const char *val,
         }
         return ctrl_set_profile(hw, (hw_profile_t)p);
     }
+    if (!strcasecmp(key, "ac-profile") || !strcasecmp(key, "battery-profile")) {
+        int v;
+        if (!strcasecmp(val, "off"))
+            v = -1;
+        else {
+            v = hw_profile_from_name(val);
+            if (v < 0) {
+                errf(err, errn, "%s: off|quiet|balanced|performance", key);
+                return -1;
+            }
+        }
+        bool is_ac = !strcasecmp(key, "ac-profile");
+        return ctrl_set_asusd_auto(hw, is_ac ? v : -2, is_ac ? -2 : v);
+    }
     if (!strcasecmp(key, "epp")) {
         int e = hw_epp_from_name(val);
         if (e < 0) {

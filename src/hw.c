@@ -335,6 +335,8 @@ void hw_init(hw_state_t *hw)
     hw->gpu_temp = -1;
     hw->rpm_cpu = -1;
     hw->rpm_gpu = -1;
+    hw->asusd_ac = -2;   /* unknown until asusd.ron is parsed */
+    hw->asusd_bat = -2;
 
     char vendor[64] = {0}, prod[64] = {0};
     ut_read_file("/sys/devices/virtual/dmi/id/sys_vendor", vendor, sizeof(vendor));
@@ -537,11 +539,61 @@ void hw_refresh_fast(hw_state_t *hw)
 
 /* ---- full snapshot ---------------------------------------------------- */
 
+/* asusd's power-source profile takeover: on every AC/battery event the
+ * daemon re-applies its chosen profile (observed fighting the KDE
+ * shortcut on USB-C PD renegotiations). Parsed from asusd.ron, names
+ * only — asusd's numeric enum differs from ours, never map by value. */
+void hw_asusd_auto_read(hw_state_t *hw)
+{
+    hw->asusd_ac = -2;
+    hw->asusd_bat = -2;
+    char buf[4096];
+    if (ut_read_file("/etc/asusd/asusd.ron", buf, sizeof(buf)) != 0)
+        return;
+    bool ac_change = false, bat_change = false;
+    int ac_prof = -2, bat_prof = -2;
+    char *line = buf;
+    while (line && *line) {
+        char *nl = strchr(line, '\n');
+        if (nl)
+            *nl = '\0';
+        /* order matters: the change_ keys contain the profile keys */
+        if (strstr(line, "change_platform_profile_on_ac:"))
+            ac_change = strstr(line, "true") != NULL;
+        else if (strstr(line, "change_platform_profile_on_battery:"))
+            bat_change = strstr(line, "true") != NULL;
+        else if (strstr(line, "platform_profile_on_ac:")) {
+            char *v = strstr(line, "platform_profile_on_ac:");
+            v += strlen("platform_profile_on_ac:");
+            while (*v == ' ' || *v == '\t')
+                v++;
+            char *comma = strchr(v, ',');
+            if (comma)
+                *comma = '\0';
+            ac_prof = hw_profile_from_name(v);
+        }
+        else if (strstr(line, "platform_profile_on_battery:")) {
+            char *v = strstr(line, "platform_profile_on_battery:");
+            v += strlen("platform_profile_on_battery:");
+            while (*v == ' ' || *v == '\t')
+                v++;
+            char *comma = strchr(v, ',');
+            if (comma)
+                *comma = '\0';
+            bat_prof = hw_profile_from_name(v);
+        }
+        line = nl ? nl + 1 : NULL;
+    }
+    hw->asusd_ac = ac_change ? (ac_prof >= 0 ? ac_prof : -2) : -1;
+    hw->asusd_bat = bat_change ? (bat_prof >= 0 ? bat_prof : -2) : -1;
+}
+
 void hw_refresh_live(hw_state_t *hw)
 {
     hw_refresh_fast(hw);
 
     fan_hwmon_read(hw);
+    hw_asusd_auto_read(hw);
 
     hw->ppt_spl  = ppt_from_node("ppt_pl1_spl");
     hw->ppt_sppt = ppt_from_node("ppt_pl2_sppt");
