@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-10-01 — asusd rows: setting a rule no longer switches the mode
+
+- User-hit: changing an AC/battery auto-profile applied the rule AND
+  flipped the active mode at the same moment. Isolated live:
+  `asusctl profile set -a <X>` applies X immediately when running on
+  that power source — even with the takeover flag off (quiet jumped
+  to performance at the profile write, not at flag enable).
+- `ctrl_set_asusd_auto` now snapshots the active profile before the
+  writes and restores it afterwards if the side-effect moved it
+  (`asusctl profile set <prev>`, logged). When pw_apply also staged
+  the Platform-profile row, that row is written first, so the restore
+  target is the user's explicit choice — explicit mode changes still
+  win.
+- Verified live: active stays Quiet while AC-auto Performance is
+  applied (and battery side clean); TUI harness green. Machine left
+  with both takeovers off, active Quiet.
+
 ## 2026-10-01 — asusd rows: stale-display fix after apply
 
 - User-hit TUI bug: changing an auto-profile row from "off" and

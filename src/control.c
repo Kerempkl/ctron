@@ -166,6 +166,15 @@ int ctrl_set_cpu_max_mhz_core(hw_state_t *hw, int cpu, int mhz)
     return rc;
 }
 
+/* live active platform profile; -2 unreadable */
+static int active_profile_read(void)
+{
+    char b[32];
+    if (ut_read_file("/sys/firmware/acpi/platform_profile", b, sizeof(b)) != 0)
+        return -2;
+    return hw_profile_from_name(b);
+}
+
 /* asusd power-source profile takeover. ac/bat: -2 leave alone,
  * -1 stop auto-switching, 0..2 the hw_profile_t to enforce. Values
  * travel as NAMES (asusd's numeric enum differs from ours); the
@@ -180,6 +189,10 @@ int ctrl_set_asusd_auto(hw_state_t *hw, int ac, int bat)
         return -1;
     }
     int rc = 0;
+    /* asusctl profile set -a/-b also applies the target profile
+     * immediately when running on that power source — the user asked
+     * for a future-behavior change, so remember the current mode */
+    int prev_active = active_profile_read();
 
     for (int side = 0; side < 2; side++) {
         int mode = side == 0 ? ac : bat;
@@ -206,6 +219,26 @@ int ctrl_set_asusd_auto(hw_state_t *hw, int ac, int bat)
             if (ut_exec(cmd, NULL, 0) != 0) {
                 ut_log("asusd %s auto-profile: asusctl FAILED", which);
                 rc = -1;
+            }
+        }
+    }
+
+    /* asusctl's side-effect may have moved the active mode; prev_active
+     * (read above, after any explicit profile write) is what the user
+     * wants the mode to be — put it back if it moved */
+    if (prev_active >= 0) {
+        int now = active_profile_read();
+        if (now >= 0 && now != prev_active) {
+            char cmd[128];
+            snprintf(cmd, sizeof(cmd), "asusctl profile set %s",
+                     hw_profile_name((hw_profile_t)prev_active));
+            if (ut_exec(cmd, NULL, 0) == 0) {
+                hw->profile = (hw_profile_t)prev_active;
+                ut_log("asusd auto-profile: active mode restored to %s",
+                       hw_profile_name((hw_profile_t)prev_active));
+            } else {
+                ut_log("asusd auto-profile: restore to %s FAILED",
+                       hw_profile_name((hw_profile_t)prev_active));
             }
         }
     }

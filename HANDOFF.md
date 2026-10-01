@@ -14,6 +14,14 @@ prioritized todo list and the distilled session lessons.
 
 ## Session 2026-10-01 — asusd takeover management (Kerempkl + GLM, FA608PP)
 
+- Second follow-up same day: changing an auto-profile row also
+  switched the ACTIVE mode at apply. Isolated live: `asusctl profile
+  set -a X` applies X immediately when on that power source (flag
+  irrelevant). ctrl_set_asusd_auto now snapshots the active profile
+  first and restores it if the side-effect moved it; pw_apply's
+  explicit profile-row write happens before, so user-chosen modes
+  still win. Verified live (quiet held while AC-auto Performance
+  applied) + harness green.
 - Follow-up same day: user hit a display bug — apply from "off" worked
   but the row stayed "off". The read-back refresh raced asusd's
   asynchronous ron flush; the read layer now prefers daemon-live state
