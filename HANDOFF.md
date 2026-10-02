@@ -1,17 +1,39 @@
 # Ctron Handoff
 
-Latest session — **2026-10-01** **Kerempkl + GLM / FA608PP** (asusd
-power-source profile takeover managed from ctron + its two follow-up
-fixes; then sysfs path cache + Makefile hardening). Before that
-**2026-09-29** (per-core CPU frequency limits), the **2026-09-28** run
-(preset
-button row, 6.18-lts re-verification + HARDWARE.md, list scrolling,
-pty harness, fan write verify/flash, fan-button fix), the **2026-09-27**
-docs (support matrix), **2026-09-26** (exact-value typing + range hints,
-amd-pstate clock-window refresh), the **2026-09-24** POWER round, and
+Latest session — **2026-10-02** **Kerempkl + GLM / FA608PP** (cpufreq
+writes + per-core indexing moved to real kernel cpu ids). Before that
+**2026-10-01** (asusd power-source profile takeover managed from
+ctron + its two follow-up fixes; then sysfs path cache + Makefile
+hardening), **2026-09-29** (per-core CPU frequency limits), the
+**2026-09-28** run (preset button row, 6.18-lts re-verification +
+HARDWARE.md, list scrolling, pty harness, fan write verify/flash,
+fan-button fix), the **2026-09-27** docs (support matrix),
+**2026-09-26** (exact-value typing + range hints, amd-pstate
+clock-window refresh), the **2026-09-24** POWER round, and
 **2026-09-23** in parallel: **Grok / FA507NVR / NixOS** (daeboard
 editor, signed below). **Read `NEXT.md` first** — it carries the
 prioritized todo list and the distilled session lessons.
+
+## Session 2026-10-02 — real cpu ids in the cpufreq write path (Kerempkl + GLM, FA608PP)
+
+- The small list item landed: `cpufreq_write_all` (EPP/scaling to all
+  policies) now iterates `hw->cpu_ids` instead of scanning cpu0..N and
+  breaking at the first gap (sparse present lists like "0-15,32-47"
+  would silently skip everything after the hole). Per-core indexing
+  unified on real kernel ids end-to-end: `hw_state_t.cpu_ids[]`,
+  `hw_cpu_present()`, CORE LIMITS editor (cf_sel/mouse = grid
+  position, cells/staging/labels = real id), `freq core N M`
+  validation, profile export. Behaviour identical on contiguous
+  machines. The promised topology note is in place.
+- Environment finding: **passwordless `sudo -n tee` is gone on
+  FA608PP right now** (the 09-27 fan-write verify needed it, so
+  sudoers changed since). Privileged writes fail cleanly ("command
+  failed" / toast "· N failed") on old and new binary alike — not a
+  regression. Restore the sudoers rule to re-enable writes.
+- Verified: warning-free `make`, `make test`, `make tuitest` (incl.
+  corefreq overlay flows); installed to `~/.local/bin/ctron`.
+  Uncommitted at handoff: this change + doc edits; the user takes the
+  commit (message provided in chat).
 
 ## Session 2026-10-01 — sysfs path cache + Makefile hardening (Kerempkl + GLM, FA608PP)
 

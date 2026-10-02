@@ -159,8 +159,9 @@ int cmd_run(hw_state_t *hw, const char *key, const char *val,
     if (!strcasecmp(key, "freq")) {
         int cpu, mhz;
         if (sscanf(val, "core %d %d", &cpu, &mhz) == 2) {
-            if (cpu < 0 || cpu >= hw->cpu_n || mhz < 100 || mhz > 10000) {
-                errf(err, errn, "freq: core <0..%d> <MHz>", hw->cpu_n - 1);
+            /* `cpu` is a kernel cpu number (present ids, not 0..N) */
+            if (!hw_cpu_present(hw, cpu) || mhz < 100 || mhz > 10000) {
+                errf(err, errn, "freq: core <kernel cpu id> <MHz>");
                 return -1;
             }
             return ctrl_set_cpu_max_mhz_core(hw, cpu, mhz);

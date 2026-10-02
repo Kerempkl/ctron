@@ -480,11 +480,18 @@ static void cpu_limits_sweep(hw_state_t *hw)
     int ids[HW_CPU_MAX];
     int n = cpu_present_ids(ids, HW_CPU_MAX);
     int min_khz = 0, max_khz = 0, lim_khz = 0;
-    hw->cpu_n = n > 0 ? n : 1;
+    /* publish the id list for the write layer and the CORE LIMITS
+     * editor; ids beyond the array are dropped (bounded kernels only) */
+    int kept = 0;
     for (int c = 0; c < n; c++) {
+        if (ids[c] >= 0 && ids[c] < HW_CPU_MAX)
+            hw->cpu_ids[kept++] = ids[c];
+    }
+    hw->cpu_n = kept > 0 ? kept : 1;
+    for (int c = 0; c < kept; c++) {
         char p[96];
         int v;
-        int i = ids[c];
+        int i = hw->cpu_ids[c];
         snprintf(p, sizeof p,
                  "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_min_freq", i);
         v = ut_read_int(p);
@@ -509,6 +516,14 @@ static void cpu_limits_sweep(hw_state_t *hw)
         hw->cpu_mhz_max = max_khz / 1000;
     if (lim_khz > 0)
         hw->cpu_mhz_limit = lim_khz / 1000;
+}
+
+bool hw_cpu_present(const hw_state_t *hw, int id)
+{
+    for (int c = 0; c < hw->cpu_n; c++)
+        if (hw->cpu_ids[c] == id)
+            return true;
+    return false;
 }
 
 void hw_refresh_fast(hw_state_t *hw)

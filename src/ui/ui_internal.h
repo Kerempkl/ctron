@@ -87,7 +87,8 @@ typedef struct ui_ctx {
     long pw_msg_ms;        /* CLOCK_MONOTONIC ms when set, 0 = none */
     bool pw_msg_fail;      /* red variant (some writes failed) */
 
-    /* per-core frequency editor overlay (POWER 'c') */
+    /* per-core frequency editor overlay (POWER 'c'); cf_sel is a grid
+     * position, cf_staged is indexed by real kernel cpu id */
     bool cf_overlay;
     int cf_sel;
     int cf_staged[HW_CPU_MAX];

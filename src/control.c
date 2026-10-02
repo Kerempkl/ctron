@@ -60,16 +60,21 @@ static bool use_asusctl_first(void)
 
 /* amd-pstate gives every CPU its own cpufreq policy (related_cpus holds a
  * single member each), so a limit must be written to all of them. Writing
- * cpu0 alone left 31 cores clamped at base on the FA608PP. */
-static int cpufreq_write_all(const char *leaf, const char *val)
+ * cpu0 alone left 31 cores clamped at base on the FA608PP.
+ *
+ * Iterates hw->cpu_ids, the kernel's real present list: numbering is
+ * NOT contiguous on every machine (SMT off or offlined cores give
+ * lists like "0-15,32-47"), and a scan-and-break-at-first-gap would
+ * skip everything after the hole. */
+static int cpufreq_write_all(const hw_state_t *hw, const char *leaf,
+                             const char *val)
 {
     int rc = -1;
-    for (int i = 0; i < 1024; i++) {
-        char path[300];
+    for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
+        char path[96];
         snprintf(path, sizeof(path),
-                 "/sys/devices/system/cpu/cpu%d/cpufreq/%s", i, leaf);
-        if (!ut_path_exists(path))
-            break;
+                 "/sys/devices/system/cpu/cpu%d/cpufreq/%s",
+                 hw->cpu_ids[c], leaf);
         if (ut_priv_write(path, val) == 0)
             rc = 0; /* keep going: one bad node must not stop the rest */
     }
@@ -109,7 +114,8 @@ int ctrl_set_epp(hw_state_t *hw, hw_epp_t e)
 {
     if (e < 0 || e >= HW_EPP_COUNT)
         return -1;
-    int rc = cpufreq_write_all("energy_performance_preference", hw_epp_name(e));
+    int rc = cpufreq_write_all(hw, "energy_performance_preference",
+                               hw_epp_name(e));
     if (rc == 0) {
         hw->epp = e;
         ut_log("epp: %s", hw_epp_name(e));
@@ -124,11 +130,11 @@ int ctrl_set_cpu_max_mhz(hw_state_t *hw, int mhz)
     mhz = ut_clamp_i(mhz, hw->cpu_mhz_min, hw->cpu_mhz_max);
     char val[24];
     snprintf(val, sizeof(val), "%d", mhz * 1000);
-    int rc = cpufreq_write_all("scaling_max_freq", val);
+    int rc = cpufreq_write_all(hw, "scaling_max_freq", val);
     if (rc == 0) {
         hw->cpu_mhz_limit = mhz;
-        for (int i = 0; i < hw->cpu_n && i < HW_CPU_MAX; i++)
-            hw->cpu_mhz_core[i] = mhz;
+        for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++)
+            hw->cpu_mhz_core[hw->cpu_ids[c]] = mhz;
         ut_log("cpu max: %d MHz", mhz);
     } else {
         ut_log("cpu max: FAILED (needs root; no passwordless sudo)");
@@ -138,7 +144,8 @@ int ctrl_set_cpu_max_mhz(hw_state_t *hw, int mhz)
 
 int ctrl_set_cpu_max_mhz_core(hw_state_t *hw, int cpu, int mhz)
 {
-    if (cpu < 0 || cpu >= hw->cpu_n || cpu >= HW_CPU_MAX)
+    /* `cpu` is a kernel cpu number; it must be in the present list */
+    if (cpu < 0 || cpu >= HW_CPU_MAX || !hw_cpu_present(hw, cpu))
         return -1;
     mhz = ut_clamp_i(mhz, hw->cpu_mhz_min, hw->cpu_mhz_max);
 

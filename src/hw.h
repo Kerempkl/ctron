@@ -71,7 +71,9 @@ typedef struct {
     int cpu_mhz_max;       /* cpuinfo_max_freq */
     int cpu_mhz_limit;     /* aggregate scaling_max (max across cores) */
     int cpu_n;                                /* present cpu count */
-    int cpu_mhz_core[HW_CPU_MAX];             /* per-core scaling_max, MHz */
+    int cpu_ids[HW_CPU_MAX];                  /* present cpu ids, kernel numbering */
+    int cpu_mhz_core[HW_CPU_MAX];             /* per-core scaling_max, MHz,
+                                                 indexed by real cpu id */
     hw_paths_t paths;                         /* cached device paths */
     int rpm_cpu, rpm_gpu;  /* -1 unknown */
     int bat_pct;
@@ -128,6 +130,9 @@ void hw_asusd_auto_read(hw_state_t *hw);
 /* fan-curve hwmon base through the path cache (the write layer uses
  * it so reads and writes can never disagree) */
 int hw_path_fan_curve(hw_state_t *hw, char *out, size_t n);
+
+/* true when `id` is a present cpu (kernel numbering, hw->cpu_ids) */
+bool hw_cpu_present(const hw_state_t *hw, int id);
 
 /* asus-armoury firmware attribute raw read ("attr/current_value"). */
 int hw_armoury_read(const char *attr, char *out, size_t n);

@@ -118,10 +118,13 @@ int profile_export(const char *name, const hw_state_t *hw)
     fprintf(f, "epp = %s\n", hw_epp_name(hw->epp));
     fprintf(f, "freq = %d\n", hw->cpu_mhz_limit);
     /* per-core limits ride along when any core is capped below the
-     * aggregate; import replays them after the all-cores line */
-    for (int i = 0; i < hw->cpu_n && i < HW_CPU_MAX; i++)
-        if (hw->cpu_mhz_core[i] > 0 && hw->cpu_mhz_core[i] < hw->cpu_mhz_limit)
-            fprintf(f, "freq core %d %d\n", i, hw->cpu_mhz_core[i]);
+     * aggregate; import replays them after the all-cores line. Real
+     * kernel cpu ids — the list may have gaps on some machines. */
+    for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
+        int id = hw->cpu_ids[c];
+        if (hw->cpu_mhz_core[id] > 0 && hw->cpu_mhz_core[id] < hw->cpu_mhz_limit)
+            fprintf(f, "freq core %d %d\n", id, hw->cpu_mhz_core[id]);
+    }
     fprintf(f, "[power]\n");
     if (hw->hz_cur > 0)
         fprintf(f, "hz = %d\n", hw->hz_cur);

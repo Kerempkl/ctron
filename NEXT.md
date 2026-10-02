@@ -37,7 +37,15 @@
 
 ## SIRADAKİ İŞLER (öncelik sırasıyla)
 
-1. **[BİTTİ 10-01]** hwmon/power yolu önbelleği: yollar `hw_state_t.paths`
+1. **[BİTTİ 10-02]** cpufreq toplu yazma + per-core indeksleme gerçek cpu
+   id listesi (`hw->cpu_ids`): `cpufreq_write_all` artık "ilk eksik yolda
+   dur" yerine kernel'in present listesini (`0-15,32-47` gibi aralıklı
+   olabilir) iterasyon ediyor; CORE LIMITS editörü, `freq core N M`,
+   profil export'u dahil tüm per-core erişim gerçek id ile indeksleniyor.
+   Bitişik makinelerde davranış birebir aynı. (NOT: FA608PP'de şu an
+   parolasız `sudo -n tee` yok — yetkili yazmalar temiz hata veriyor,
+   sudoers düzeltilince geri gelir.)
+2. **[BİTTİ 10-01]** hwmon/power yolu önbelleği: yollar `hw_state_t.paths`
    içinde keşfedilip saklanıyor (fan eğrisi, k10temp, fan RPM, batarya,
    AC); 250 ms poll artık yalnızca değer okuyor (~18 keşif open'ı/poll
    kalktı). Cache'li yoldan okuma başarısız olursa giriş düşürülür,

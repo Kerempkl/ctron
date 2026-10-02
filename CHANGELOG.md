@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-10-02 — cpufreq writes + per-core indexing use real cpu ids
+
+- The kernel's present list is not contiguous on every machine (SMT
+  off / offlined cores → "0-15,32-47"). The batch cpufreq writer
+  (`cpufreq_write_all`: EPP + scaling_max to every policy) used to
+  scan cpu0..N and stop at the first missing path — everything after
+  the hole was never written. It now iterates `hw->cpu_ids`, the
+  parsed present list, with the promised topology note in place.
+- The per-core frequency array was indexed inconsistently: the sweep
+  filled `cpu_mhz_core` by real cpu id while the CORE LIMITS editor,
+  `freq core N M`, per-core writes and profile export indexed it
+  densely (0..cpu_n). Unified on real kernel ids everywhere:
+  `hw_state_t.cpu_ids[]` is published by the sweep (ids beyond
+  HW_CPU_MAX dropped), `hw_cpu_present()` is the membership check,
+  the editor's cf_sel/mouse targets stay grid positions while cells
+  and staging use real ids (labels now show the kernel number).
+- CLI `freq core N M` takes a kernel cpu number and validates against
+  the present list; profile export writes `freq core <id> <MHz>`.
+  Identical behaviour on contiguous machines (ids == 0..N-1).
+- Verified: warning-free `make`, `make test`, `make tuitest` (incl.
+  the corefreq overlay flows). Real privileged writes could not be
+  exercised: passwordless `sudo -n tee` is currently unavailable on
+  FA608PP (pre-existing — the old installed binary fails identically
+  with a clean "command failed"); the TUI toast/log will show FAILED
+  writes until sudoers allows it again.
+
 ## 2026-10-01 — Makefile hardened for external CFLAGS/LDLIBS
 
 - The flags ctron cannot build without (`-std=c11 -Isrc -D_GNU_SOURCE`
