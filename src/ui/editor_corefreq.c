@@ -371,43 +371,44 @@ void editor_corefreq_draw(struct ncplane *n, const rect_t *r)
                          TGT(TGT_PANEL_COREFREQ, ACT_CF_CELL + i));
         }
     } else {
-        /* CORE mode: CCD blocks with paired-thread cells */
-        int cellw = 12;
-        int cols = w / cellw;
-        if (cols < 1)
-            cols = 1;
-        int col = 0, y = y0;
+        /* CORE mode: one COLUMN per CCD, cores stacked under the
+         * header — the two CCDs sit side by side like two chips */
+        int cellw = 15;   /* fits "▸c255·255 5386●" */
+        int colw = w / (hw->ccd_n > 0 ? hw->ccd_n : 1);
+        if (colw < cellw)
+            colw = cellw; /* clipping beats cramping */
         int e = 0;
         for (int g = 0; g < hw->ccd_n; g++) {
+            int cx = x + g * colw;
+            int y = y0;
             if (hw->ccd_n > 1) {
                 if (y < ymax) {
                     char lab[40];
+                    int lw = colw > 24 ? 24 : colw;
                     snprintf(lab, sizeof(lab), "%s%s %d/%d capped",
                              g_ui.cf_sel == e ? "▸" : " ", cf_group_label(g),
                              cf_group_capped(g), cf_group_cores(g));
                     bool hsel = (g_ui.cf_sel == e);
-                    ui_putln(n, x, y, w, lab,
+                    ui_putln(n, cx, y, lw, lab,
                              hsel ? pal->accent : pal->muted, hsel);
-                    tgt_register(x, y, w, 1,
+                    tgt_register(cx, y, lw, 1,
                                  TGT(TGT_PANEL_COREFREQ, ACT_CF_CELL + e));
                 }
                 e++;
                 y++;
-                col = 0;
             }
             for (int k = 0; k < hw->core_n; k++) {
                 if (hw->core_ccd[k] != g)
                     continue;
-                if (y < ymax) {
+                if (y < ymax && cx < x + w) {
                     int a = cf_core_a(k);
-                    int cx = x + col * cellw;
                     bool sel = (g_ui.cf_sel == e);
                     bool capped = hw->cpu_mhz_max > 0 &&
                                   g_ui.cf_staged[a] < hw->cpu_mhz_max;
                     bool staged = cf_scope_diff(k);
                     char cell[40], lab[16];
                     cf_core_label(k, lab, sizeof lab);
-                    snprintf(cell, sizeof(cell), "%s%-7s %4d%s",
+                    snprintf(cell, sizeof(cell), "%s%-8s %4d%s",
                              sel ? "▸" : " ", lab, g_ui.cf_staged[a],
                              staged ? "●" : " ");
                     ui_putln(n, cx, y, cellw + 1, cell,
@@ -418,13 +419,6 @@ void editor_corefreq_draw(struct ncplane *n, const rect_t *r)
                                  TGT(TGT_PANEL_COREFREQ, ACT_CF_CELL + e));
                 }
                 e++;
-                if (++col >= cols) {
-                    col = 0;
-                    y++;
-                }
-            }
-            if (col != 0) { /* finish the group's row */
-                col = 0;
                 y++;
             }
         }

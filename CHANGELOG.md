@@ -22,6 +22,13 @@
   >2 threads.
 - Harness: the corefreq flow now also asserts the CCD headers + core
   cells on the FA608PP (passes; the overlay opened in core mode).
+- Follow-up round (user feedback): CCDs render as side-by-side
+  COLUMNS (cores stacked under their header, like two chips), and a
+  real truncation bug got its root fix — `ui_trunc` counted BYTES
+  while callers pass display cells, so the multibyte `▸`/`●` glyphs
+  ate the budget and a 5386 MHz cell showed "538". It now counts
+  UTF-8 lead bytes (cells) and never splits a glyph; the core cells
+  are sized for the worst `▸c255·255 5386●`.
 - Verified: warning-free `make`, `make test`, `make tuitest`. Real
   writes still blocked by the missing passwordless sudo on this
   machine (pre-existing, see the cpu-id entry below).

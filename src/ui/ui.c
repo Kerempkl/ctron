@@ -55,8 +55,22 @@ const palette_t *ui_palette(int theme)
 
 void ui_trunc(char *s, int maxlen_chars)
 {
-    if ((int)strlen(s) > maxlen_chars)
-        s[maxlen_chars] = '\0';
+    /* counts display cells (UTF-8 lead bytes), not bytes: cutting a
+     * multibyte glyph by bytes showed "538" for "5386" when a ▸/●
+     * prefix ate the byte budget */
+    if (maxlen_chars <= 0) {
+        s[0] = '\0';
+        return;
+    }
+    int cells = 0;
+    for (char *p = s; *p; p++) {
+        if ((*p & 0xC0) != 0x80)
+            cells++;
+        if (cells > maxlen_chars) {
+            *p = '\0';
+            return;
+        }
+    }
 }
 
 void ui_putln(struct ncplane *n, int x, int y, int w,
