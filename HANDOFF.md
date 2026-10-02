@@ -15,6 +15,20 @@ clock-window refresh), the **2026-09-24** POWER round, and
 editor, signed below). **Read `NEXT.md` first** — it carries the
 prioritized todo list and the distilled session lessons.
 
+## Session 2026-10-02 — asusd takeover conflict warning (Kerempkl + GLM, FA608PP)
+
+- List item 4 landed: `hw_asusd_enforced()` (pure, unit-tested) + three
+  surfaces — POWER profile-row `⚠asusd` marker, rising-edge telemetry
+  log, apply-toast note, plus an `--status` `asusd note` line. Dormant
+  here (takeovers deliberately off); FA507NVR line benefits most.
+- Same day earlier: the user asked about the v0.2.1 tag — explained
+  what a tag is (no code change); user then asked for the ryzenadj
+  NEXT note and retracted it ("yanlış anlamışım") — reverted both
+  docs, nothing landed.
+- Verified: warning-free `make`, `make test`, `make tuitest`,
+  installed. Uncommitted: this change + doc edits; commit message
+  handed over.
+
 ## Session 2026-10-02 — all-cores freq write verify + amd-pstate clamp forensics (Kerempkl + GLM, FA608PP)
 
 - User hit "CPU clock limit stays 2401 whatever I apply". Forensics:

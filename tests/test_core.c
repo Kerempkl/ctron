@@ -198,8 +198,7 @@ static void check_cpu_list_parse(void)
     CHECK(n == 0, "garbage list");
 }
 
-static void check_topology_group(void)
-{
+static void check_topology_group(void){
     int cc[8], cs[8], cg[8], ccd_n;
     bool odd;
     int n;
@@ -280,6 +279,38 @@ static void check_ppt_order(void)
     CHECK(spl == 45 && sppt == 55 && fppt == 55, "ordered stays");
 }
 
+static void check_asusd_enforced(void)
+{
+    hw_state_t hw = {0};
+
+    /* AC source: what asusd enforces there is what comes back */
+    hw.ac_online = true;
+    hw.asusd_ac = HW_PERFORMANCE;
+    hw.asusd_bat = -1;
+    CHECK(hw_asusd_enforced(&hw) == HW_PERFORMANCE, "asusd enforced on AC");
+
+    /* battery source picks the battery branch */
+    hw.ac_online = false;
+    hw.asusd_bat = HW_QUIET;
+    CHECK(hw_asusd_enforced(&hw) == HW_QUIET, "asusd enforced on battery");
+
+    /* takeover off (-1) or unknown (-2) on the current source -> none */
+    hw.asusd_bat = -1;
+    CHECK(hw_asusd_enforced(&hw) == -1, "asusd off -> none");
+    hw.asusd_bat = -2;
+    CHECK(hw_asusd_enforced(&hw) == -1, "asusd unknown -> none");
+
+    /* off on the current source but armed on the other -> still none:
+     * only the live power source's takeover can revert you */
+    hw.asusd_ac = HW_PERFORMANCE;
+    CHECK(hw_asusd_enforced(&hw) == -1, "other source armed -> none");
+
+    /* conflict rule: enforced profile differing from the live one */
+    hw.ac_online = true;
+    hw.profile = HW_QUIET;
+    CHECK(hw_asusd_enforced(&hw) == HW_PERFORMANCE, "conflict visible");
+}
+
 int main(void)
 {
     check_fan_csv();
@@ -291,6 +322,7 @@ int main(void)
     check_power_fmt();
     check_cpu_list_parse();
     check_topology_group();
+    check_asusd_enforced();
     check_ppt_order();
 
     if (failures) {

@@ -874,6 +874,12 @@ void hw_asusd_auto_read(hw_state_t *hw)
     hw->asusd_bat = bat_change ? (bat_prof >= 0 ? bat_prof : -2) : -1;
 }
 
+int hw_asusd_enforced(const hw_state_t *hw)
+{
+    int v = hw->ac_online ? hw->asusd_ac : hw->asusd_bat;
+    return v >= 0 ? v : -1;
+}
+
 void hw_refresh_live(hw_state_t *hw)
 {
     hw_refresh_fast(hw);

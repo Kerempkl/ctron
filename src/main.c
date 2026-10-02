@@ -91,6 +91,14 @@ static int cmd_status(hw_state_t *hw)
     printf("  Fan RPM        : %s / %s (cpu/gpu)\n",
            dash_if(v3, sizeof(v3), hw->rpm_cpu), dash_if(v4, sizeof(v4), hw->rpm_gpu));
     printf("  Profile        : %s\n", hw_profile_name(hw->profile));
+    {
+        int enf = hw_asusd_enforced(hw);
+        if (enf >= 0 && enf != (int)hw->profile)
+            printf("  asusd note     : %s takeover will revert this to %s "
+                   "on the next power event\n",
+                   hw->ac_online ? "AC" : "battery",
+                   hw_profile_name((hw_profile_t)enf));
+    }
     if (hw->asusd_ac != -2 || hw->asusd_bat != -2) {
         printf("  asusd auto     : AC %s · battery %s\n",
                hw->asusd_ac == -1 ? "off"

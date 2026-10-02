@@ -373,7 +373,7 @@ static void pw_apply(void)
 {
     hw_state_t *hw = g_ui.hw;
     int fails = 0;
-    char sum[160];
+    char sum[192];
     pw_diff_summary(sum, sizeof(sum));
     ui_flash("applying power settings...");
 
@@ -382,6 +382,15 @@ static void pw_apply(void)
     if (g_ui.pwv_profile != (int)hw->profile) {
         if (ctrl_set_profile(hw, (hw_profile_t)g_ui.pwv_profile) != 0)
             fails++;
+        /* warn at the moment of action: with the takeover on, asusd
+         * re-applies its own profile on the next power event */
+        int enf = hw_asusd_enforced(hw);
+        if (g_ui.pwv_profile != enf) {
+            char note[48];
+            snprintf(note, sizeof note,
+                     enf >= 0 ? " · asusd will revert (auto on)" : "");
+            strncat(sum, note, sizeof(sum) - strlen(sum) - 1);
+        }
     }
     if (g_ui.pwv_epp != (int)hw->epp) {
         if (ctrl_set_epp(hw, (hw_epp_t)g_ui.pwv_epp) != 0)
@@ -651,10 +660,34 @@ static void draw_power(struct ncplane *n, const rect_t *r)
     else
         snprintf(lim, sizeof(lim), "%s", hw->ppt_off ? "removed (max)" : "on");
 
-    char prof[48], epp[64];
+    char prof[64], epp[64];
     pw_val_e(prof, sizeof(prof),
              hw_profile_name(hw->profile),
              hw_profile_name((hw_profile_t)g_ui.pwv_profile));
+    {
+        /* takeover conflict marker: asusd will revert this profile on
+         * the next power event; full story goes to the log once */
+        static int prev_conflict = 0, prev_enf = -1;
+        int enf = hw_asusd_enforced(hw);
+        bool conflict = enf >= 0 && enf != (int)hw->profile;
+        if (conflict) {
+            char mark[40];
+            if (g_ui.pwv_profile == (int)hw->profile)
+                snprintf(mark, sizeof mark, " ⚠asusd: %s",
+                         hw_profile_name((hw_profile_t)enf));
+            else
+                snprintf(mark, sizeof mark, " ⚠asusd");
+            size_t pl = strlen(prof);
+            snprintf(prof + pl, sizeof(prof) - pl, "%s", mark);
+            if (!prev_conflict || prev_enf != enf)
+                ut_log("asusd %s takeover: %s will return on the next "
+                       "power event — AC/Battery auto rows to manage",
+                       hw->ac_online ? "AC" : "battery",
+                       hw_profile_name((hw_profile_t)enf));
+        }
+        prev_conflict = conflict;
+        prev_enf = conflict ? enf : -1;
+    }
     char acv[48], bav[48];
     if (hw->asusd_ac == -2)
         snprintf(acv, sizeof(acv), "%s", "--");

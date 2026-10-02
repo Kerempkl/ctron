@@ -37,7 +37,13 @@
 
 ## SIRADAKİ İŞLER (öncelik sırasıyla)
 
-1. **[BİTTİ 10-02]** CORE LIMITS editörü fiziksel çekirdek + CCD görünümü:
+1. **[BİTTİ 10-02]** asusd takeover çakışma uyarısı: takeover şu anki
+   güç kaynağında ayaktaysa ve dayattığı profil canlı profilden
+   farklıysa POWER'daki profile satırında `⚠asusd` işareti, yükselen
+   kenarda bir kez log, apply toast'una "asusd will revert" notu ve
+   `--status`'ta asusd note satırı (`hw_asusd_enforced`, saf +
+   birim-testli). FA608PP'de dormant (takeover bilinçli kapalı).
+2. **[BİTTİ 10-02]** CORE LIMITS editörü fiziksel çekirdek + CCD görünümü:
    SMT çiftleri `c0·16` hücresi, çok-CCD CPU'da CCD1/CCD2 (L3 alanı)
    başlıkları; header seçiliyken h/l/t/o/a tüm CCD'ye, `a` = CCD, `A` =
    tümü. Topoloji tamamen sysfs'ten (thread_siblings_list + L3

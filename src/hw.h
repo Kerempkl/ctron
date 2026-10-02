@@ -135,6 +135,12 @@ int hw_asusd_auto_profile(int ac);
  * asynchronously), file only as a fallback. */
 void hw_asusd_auto_read(hw_state_t *hw);
 
+/* Pure: the profile asusd enforces on the CURRENT power source, or -1
+ * when its takeover is off/unknown there. A conflict (enforced >= 0
+ * and != hw->profile) means a manual profile choice gets reverted on
+ * the next power event. */
+int hw_asusd_enforced(const hw_state_t *hw);
+
 /* fan-curve hwmon base through the path cache (the write layer uses
  * it so reads and writes can never disagree) */
 int hw_path_fan_curve(hw_state_t *hw, char *out, size_t n);

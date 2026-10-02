@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-10-02 — asusd takeover conflict warning
+
+- When asusd's power-source profile takeover is armed for the CURRENT
+  source and would enforce a profile other than the live one, ctron
+  now says so instead of letting the user wonder why a profile "does
+  not stick" (the 10-01 saga). Surfaces: the POWER "Platform profile"
+  row gets a `⚠asusd: <name>` marker, a one-time telemetry log line
+  on the rising edge ("will return on the next power event — AC/
+  Battery auto rows to manage"), the apply toast appends
+  `· asusd will revert (auto on)` when a profile is applied against
+  an armed takeover, and `--status` prints an `asusd note` line.
+- New pure helper `hw_asusd_enforced()` (current-source takeover
+  profile or -1), unit-tested: source selection, off/unknown, armed
+  on the other source only, conflict rule. No new sysfs/D-Bus reads —
+  the state was already refreshed per live pass.
+- Dormant on FA608PP (both takeovers off since 10-01 by choice); live
+  conflict could not be exercised without re-arming the takeover, so
+  the path is covered by unit tests + review only.
+
 ## 2026-10-02 — all-cores freq write now verifies (amd-pstate clamp found)
 
 - Symptom: the POWER "CPU clock limit" row stayed at 2401 no matter
