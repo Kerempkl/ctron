@@ -1,7 +1,8 @@
 # Ctron Handoff
 
-Latest session — **2026-10-02** **Kerempkl + GLM / FA608PP** (cpufreq
-writes + per-core indexing moved to real kernel cpu ids). Before that
+Latest session — **2026-10-02** **Kerempkl + GLM / FA608PP** (two
+rounds: cpufreq writes + per-core indexing on real kernel cpu ids,
+then the CORE LIMITS physical-core/CCD view). Before that
 **2026-10-01** (asusd power-source profile takeover managed from
 ctron + its two follow-up fixes; then sysfs path cache + Makefile
 hardening), **2026-09-29** (per-core CPU frequency limits), the
@@ -13,6 +14,21 @@ clock-window refresh), the **2026-09-24** POWER round, and
 **2026-09-23** in parallel: **Grok / FA507NVR / NixOS** (daeboard
 editor, signed below). **Read `NEXT.md` first** — it carries the
 prioritized todo list and the distilled session lessons.
+
+## Session 2026-10-02 — CORE LIMITS physical-core/CCD view (Kerempkl + GLM, FA608PP)
+
+- User's idea, landed: the CORE LIMITS editor shows physical cores
+  (`c0·16` SMT pairs) under CCD headers (L3 domains; AMD → `CCD1/2`,
+  else `L3-n`). Cell edits stage both threads; header selection makes
+  h/l/t/o/a operate on the whole CCD; `a` = value across its CCD,
+  `A` = all cores. Topology from sysfs only (thread_siblings_list +
+  level-3 shared_cpu_list), built once at init; `topo_odd` falls back
+  to the old per-thread grid (SMT-off fine, no-L3 → single group,
+  >2 threads per core → fallback). Pure `hw_topology_group` unit
+  -tested; tuitest asserts CCD headers on the real machine (passed).
+- Verified: warning-free `make`, `make test`, `make tuitest`
+  (10 flows). Interactive field-test on a real terminal pending;
+  real writes still need the sudoers fix (see below).
 
 ## Session 2026-10-02 — real cpu ids in the cpufreq write path (Kerempkl + GLM, FA608PP)
 

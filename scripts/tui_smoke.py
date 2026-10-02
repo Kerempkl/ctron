@@ -272,6 +272,14 @@ def flow_corefreq_overlay():
             fail("corefreq", "'c' did not open the overlay")
             return
         ok("corefreq", "overlay opened from POWER")
+        # topology view: this FA608PP run shows CCD headers and paired
+        # thread labels (c0·16); other topologies fall back to cNN cells
+        if s.wait_for(b"CCD1", since=m):
+            if s.wait_for(b"c0", since=m):
+                ok("corefreq", "core mode: CCD headers + core cells")
+            else:
+                fail("corefreq", "CCD header but no core cells")
+                return
         s.key(b"j")                # move selection
         s.key(b"l")                # stage +100 (no write)
         s.key(b"l")

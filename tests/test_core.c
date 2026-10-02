@@ -198,6 +198,65 @@ static void check_cpu_list_parse(void)
     CHECK(n == 0, "garbage list");
 }
 
+static void check_topology_group(void)
+{
+    int cc[8], cs[8], cg[8], ccd_n;
+    bool odd;
+    int n;
+
+    /* SMT pairs across two L3 domains (the FA608PP shape, shrunk) */
+    {
+        int ids[] = {0, 1, 2, 3};
+        const char *sib[] = {"0,2", "1,3", "0,2", "1,3"};
+        const char *l3[] = {"0,2", "1,3", "0,2", "1,3"};
+        n = hw_topology_group(ids, sib, l3, 4, cc, cs, cg, &ccd_n, &odd);
+        CHECK(!odd, "topo smt ok");
+        CHECK(n == 2, "topo smt core count");
+        CHECK(cc[0] == 0 && cs[0] == 2, "topo core0 pair");
+        CHECK(cc[1] == 1 && cs[1] == 3, "topo core1 pair");
+        CHECK(cg[0] != cg[1], "topo two ccds");
+        CHECK(ccd_n == 2, "topo ccd count");
+    }
+
+    /* SMT off: every cpu its own core, single cluster */
+    {
+        int ids[] = {0, 1, 2};
+        const char *sib[] = {"0", "1", "2"};
+        const char *l3[] = {"0-2", "0-2", "0-2"};
+        n = hw_topology_group(ids, sib, l3, 3, cc, cs, cg, &ccd_n, &odd);
+        CHECK(!odd && n == 3, "topo smt-off count");
+        CHECK(cs[0] == -1 && cs[2] == -1, "topo smt-off no sib");
+        CHECK(ccd_n == 1, "topo smt-off one ccd");
+    }
+
+    /* no L3 info at all -> single group */
+    {
+        int ids[] = {0, 1};
+        const char *sib[] = {"0,1", "0,1"};
+        const char *l3[] = {NULL, NULL};
+        n = hw_topology_group(ids, sib, l3, 2, cc, cs, cg, &ccd_n, &odd);
+        CHECK(!odd && n == 1 && ccd_n == 1, "topo no-l3");
+    }
+
+    /* offline sibling: the pair lists 16, but 16 is not present */
+    {
+        int ids[] = {0};
+        const char *sib[] = {"0,16"};
+        const char *l3[] = {"0"};
+        n = hw_topology_group(ids, sib, l3, 1, cc, cs, cg, &ccd_n, &odd);
+        CHECK(!odd && n == 1 && cs[0] == -1, "topo offline sib");
+    }
+
+    /* more than two present threads per core -> odd fallback */
+    {
+        int ids[] = {0, 1, 2};
+        const char *sib[] = {"0-2", "0-2", "0-2"};
+        const char *l3[] = {"0-2", "0-2", "0-2"};
+        n = hw_topology_group(ids, sib, l3, 3, cc, cs, cg, &ccd_n, &odd);
+        CHECK(odd && n == 0, "topo odd >2 threads");
+    }
+}
+
 static void check_ppt_order(void)
 {
     /* staging SPL above the others pulls the chain up, like the write */
@@ -231,6 +290,7 @@ int main(void)
     check_kde_parser();
     check_power_fmt();
     check_cpu_list_parse();
+    check_topology_group();
     check_ppt_order();
 
     if (failures) {

@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-10-02 — CORE LIMITS: physical-core + CCD view (topology-adaptive)
+
+- The CORE LIMITS editor ('c' in POWER) now shows physical cores —
+  SMT pairs side by side as `c0·16` cells — grouped under CCD headers
+  on multi-CCD CPUs (L3 domains; `CCD1`/`CCD2` on AMD, `L3-n`
+  otherwise). Editing a cell stages BOTH threads of the core; with a
+  header selected, h/l/t/o/a operate on the whole CCD. `a` = the
+  selected value across its CCD (single-CCD machines keep the old
+  "all" meaning), `A` = everywhere. Writes go per thread id (policies
+  are per thread; a kernel that propagates makes the sibling write an
+  idempotent same-value write).
+- Topology is derived from sysfs, nothing hardcoded:
+  `thread_siblings_list` per present cpu for cores, the level-3
+  `shared_cpu_list` for CCDs. SMT-off machines get single-thread
+  cells (`c8`), missing L3 falls to one group, and a core with more
+  than two present threads or unreadable topology falls back to the
+  old per-thread grid (`topo_odd`). Built once at init
+  (`hw_topology_build`); the pure grouping (`hw_topology_group`) is
+  unit-tested: SMT pairs/two CCDs, SMT-off, no-L3, offline sibling,
+  >2 threads.
+- Harness: the corefreq flow now also asserts the CCD headers + core
+  cells on the FA608PP (passes; the overlay opened in core mode).
+- Verified: warning-free `make`, `make test`, `make tuitest`. Real
+  writes still blocked by the missing passwordless sudo on this
+  machine (pre-existing, see the cpu-id entry below).
+
 ## 2026-10-02 — cpufreq writes + per-core indexing use real cpu ids
 
 - The kernel's present list is not contiguous on every machine (SMT

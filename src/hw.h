@@ -74,6 +74,14 @@ typedef struct {
     int cpu_ids[HW_CPU_MAX];                  /* present cpu ids, kernel numbering */
     int cpu_mhz_core[HW_CPU_MAX];             /* per-core scaling_max, MHz,
                                                  indexed by real cpu id */
+    /* physical topology, built once at init (never changes at runtime):
+     * cores from thread_siblings_list, CCDs from the L3 shared_cpu_list */
+    int core_n;                /* physical cores */
+    int core_cpu[HW_CPU_MAX];  /* first thread of each core */
+    int core_sib[HW_CPU_MAX];  /* second thread, -1 = SMT off/none */
+    int core_ccd[HW_CPU_MAX];  /* L3 group index of each core */
+    int ccd_n;                 /* L3 group count (>=1) */
+    bool topo_odd;             /* weird topology -> per-cpu grid fallback */
     hw_paths_t paths;                         /* cached device paths */
     int rpm_cpu, rpm_gpu;  /* -1 unknown */
     int bat_pct;
@@ -133,6 +141,20 @@ int hw_path_fan_curve(hw_state_t *hw, char *out, size_t n);
 
 /* true when `id` is a present cpu (kernel numbering, hw->cpu_ids) */
 bool hw_cpu_present(const hw_state_t *hw, int id);
+
+/* Pure physical-topology grouping over sysfs-style list strings.
+ * ids[0..n) are the present cpus; sib[i]/l3[i] are that cpu's
+ * thread_siblings_list / L3 shared_cpu_list (NULL or "" = unknown).
+ * Fills core_cpu/core_sib/core_ccd and *ccd_n_out; sets *odd_out when a
+ * core would have more than two present threads (caller falls back to a
+ * per-cpu grid). Returns core_n (0 with *odd_out on failure). */
+int hw_topology_group(const int *ids, const char *const *sib,
+                      const char *const *l3, int n,
+                      int *core_cpu, int *core_sib, int *core_ccd,
+                      int *ccd_n_out, bool *odd_out);
+
+/* Read topology sysfs (once, at init) into the hw->core_* fields. */
+void hw_topology_build(hw_state_t *hw);
 
 /* asus-armoury firmware attribute raw read ("attr/current_value"). */
 int hw_armoury_read(const char *attr, char *out, size_t n);

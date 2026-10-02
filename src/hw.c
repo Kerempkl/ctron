@@ -406,6 +406,7 @@ void hw_init(hw_state_t *hw)
     /* all-cores sweep also fills cpu_n / cpu_mhz_core, which the CLI
      * flag path needs before any hw_refresh_* call */
     cpu_limits_sweep(hw);
+    hw_topology_build(hw);
 
     fan_hwmon_read(hw);
     hw->fan_cpu_stock = hw->fan_cpu;
@@ -524,6 +525,162 @@ bool hw_cpu_present(const hw_state_t *hw, int id)
         if (hw->cpu_ids[c] == id)
             return true;
     return false;
+}
+
+/* ---- physical topology (cores from SMT siblings, CCDs from L3) ----- */
+
+int hw_topology_group(const int *ids, const char *const *sib,
+                      const char *const *l3, int n,
+                      int *core_cpu, int *core_sib, int *core_ccd,
+                      int *ccd_n_out, bool *odd_out)
+{
+    *odd_out = false;
+    *ccd_n_out = 1;
+    if (n <= 0) {
+        *odd_out = true;
+        return 0;
+    }
+
+    /* L3 groups: identical shared_cpu_list strings = same domain; NULL
+     * and "" read the same (unknown L3 -> one cluster of its own) */
+    int grp[HW_CPU_MAX];
+    int ccd_n = 0;
+    for (int i = 0; i < n; i++) {
+        grp[i] = -1;
+        const char *li = l3[i] ? l3[i] : "";
+        for (int j = 0; j < i; j++) {
+            const char *lj = l3[j] ? l3[j] : "";
+            if (strcmp(li, lj) == 0) {
+                grp[i] = grp[j];
+                break;
+            }
+        }
+        if (grp[i] < 0)
+            grp[i] = ccd_n++;
+    }
+    *ccd_n_out = ccd_n > 0 ? ccd_n : 1;
+
+    /* cores: the present members of each thread_siblings_list; keyed by
+     * the lowest present id (canonical rep), >2 present threads = odd */
+    int core_n = 0;
+    for (int i = 0; i < n; i++) {
+        int pair[2];
+        int m = 0;
+        bool over = false;
+
+        int tmp[8];
+        int t = 0;
+        const char *s = sib[i] ? sib[i] : "";
+        if (s[0])
+            t = hw_cpu_list_parse(s, tmp, 8);
+        for (int k = 0; k < t && !over; k++) {
+            bool present = false;
+            for (int j = 0; j < n; j++) {
+                if (ids[j] == tmp[k]) {
+                    present = true;
+                    break;
+                }
+            }
+            if (!present)
+                continue; /* sibling offline / not in the list */
+            if (m >= 2) {
+                over = true;
+                break;
+            }
+            pair[m++] = tmp[k];
+        }
+        if (!over) {
+            bool self = false;
+            for (int k = 0; k < m; k++)
+                if (pair[k] == ids[i])
+                    self = true;
+            if (!self) {
+                if (m >= 2)
+                    over = true;
+                else
+                    pair[m++] = ids[i];
+            }
+        }
+        if (over) {
+            *odd_out = true;
+            return 0;
+        }
+
+        if (m == 2 && pair[0] > pair[1]) {
+            int sw = pair[0];
+            pair[0] = pair[1];
+            pair[1] = sw;
+        }
+
+        /* canonical rep already recorded? then this position rides it */
+        int found = -1;
+        for (int k = 0; k < core_n; k++)
+            if (core_cpu[k] == pair[0]) {
+                found = k;
+                break;
+            }
+        if (found < 0) {
+            core_cpu[core_n] = pair[0];
+            core_sib[core_n] = m > 1 ? pair[1] : -1;
+            core_ccd[core_n] = grp[i];
+            core_n++;
+        }
+    }
+    return core_n;
+}
+
+void hw_topology_build(hw_state_t *hw)
+{
+    static char sib_buf[HW_CPU_MAX][48];
+    static char l3_buf[HW_CPU_MAX][48];
+    const char *sibp[HW_CPU_MAX];
+    const char *l3p[HW_CPU_MAX];
+
+    for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
+        int id = hw->cpu_ids[c];
+        char p[96];
+        bool have_sib = false;
+
+        sib_buf[id][0] = '\0';
+        l3_buf[id][0] = '\0';
+
+        snprintf(p, sizeof p,
+                 "/sys/devices/system/cpu/cpu%d/topology/thread_siblings_list",
+                 id);
+        if (ut_read_file(p, sib_buf[id], sizeof sib_buf[id]) == 0)
+            have_sib = true;
+
+        /* L3 = the cache index whose level is 3 (indexes are not
+         * guaranteed contiguous; probe a window) */
+        for (int idx = 0; idx < 16; idx++) {
+            char lb[8];
+            snprintf(p, sizeof p,
+                     "/sys/devices/system/cpu/cpu%d/cache/index%d/level",
+                     id, idx);
+            if (ut_read_file(p, lb, sizeof lb) != 0)
+                continue;
+            if (atoi(lb) == 3) {
+                snprintf(p, sizeof p,
+                         "/sys/devices/system/cpu/cpu%d/cache/index%d/"
+                         "shared_cpu_list", id, idx);
+                ut_read_file(p, l3_buf[id], sizeof l3_buf[id]);
+                break;
+            }
+        }
+        sibp[c] = sib_buf[id];
+        l3p[c] = l3_buf[id];
+        if (!have_sib) {
+            /* no topology sysfs: honest fallback to the per-cpu grid */
+            hw->topo_odd = true;
+            hw->core_n = 0;
+            hw->ccd_n = 1;
+            return;
+        }
+    }
+
+    hw->core_n = hw_topology_group(hw->cpu_ids, sibp, l3p, hw->cpu_n,
+                                   hw->core_cpu, hw->core_sib, hw->core_ccd,
+                                   &hw->ccd_n, &hw->topo_odd);
 }
 
 void hw_refresh_fast(hw_state_t *hw)

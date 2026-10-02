@@ -37,7 +37,14 @@
 
 ## SIRADAKİ İŞLER (öncelik sırasıyla)
 
-1. **[BİTTİ 10-02]** cpufreq toplu yazma + per-core indeksleme gerçek cpu
+1. **[BİTTİ 10-02]** CORE LIMITS editörü fiziksel çekirdek + CCD görünümü:
+   SMT çiftleri `c0·16` hücresi, çok-CCD CPU'da CCD1/CCD2 (L3 alanı)
+   başlıkları; header seçiliyken h/l/t/o/a tüm CCD'ye, `a` = CCD, `A` =
+   tümü. Topoloji tamamen sysfs'ten (thread_siblings_list + L3
+   shared_cpu_list), SMT'siz/L3'siz/>2-thread makinelerde dürüst geri
+   çekilme (eski per-thread grid). Saf gruplama birim-testli; tuitest
+   gerçek makinede CCD başlıklarını doğruluyor.
+2. **[BİTTİ 10-02]** cpufreq toplu yazma + per-core indeksleme gerçek cpu
    id listesi (`hw->cpu_ids`): `cpufreq_write_all` artık "ilk eksik yolda
    dur" yerine kernel'in present listesini (`0-15,32-47` gibi aralıklı
    olabilir) iterasyon ediyor; CORE LIMITS editörü, `freq core N M`,
