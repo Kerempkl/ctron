@@ -15,6 +15,27 @@ clock-window refresh), the **2026-09-24** POWER round, and
 editor, signed below). **Read `NEXT.md` first** — it carries the
 prioritized todo list and the distilled session lessons.
 
+## Session 2026-10-02 — all-cores freq write verify + amd-pstate clamp forensics (Kerempkl + GLM, FA608PP)
+
+- User hit "CPU clock limit stays 2401 whatever I apply". Forensics:
+  the write path works (sudoers got a path-scoped rule — plain
+  `sudo -n tee /dev/null` fails but the sysfs tee succeeds), but the
+  kernel clamps scaling_max_freq to nominal 2401 synchronously right
+  now (raw tee: 2402→2401; 2000 sticks; cpuinfo_max still 5386,
+  boost on, scaling_min also moved 421→1492 → amd-pstate re-baselined
+  the policy window after the day's OCCT + profile churn). Not
+  userspace-fixable; expect reboot/module reload to clear. If it
+  reproduces after OCCT on kernel 7.2, compare the 6.18-lts boot and
+  consider reporting upstream. OCCT numbering note: it enumerates
+  adjacent logical pairs (Windows-style), so its rows 0-3/8-11 =
+  CCD1's two thread blocks, 4-7/12-15 = CCD2's — not a ctron bug.
+- ctron fix (rule 4): `ctrl_set_cpu_max_mhz` now reads back every
+  present cpu (±2 MHz tolerance) and on a driver clamp reports
+  "kernel kept N MHz on x/y cpus" + returns failure (CLI exit 1,
+  toast shows it). The running TUI must be restarted to pick it up.
+- User committed the earlier rounds themselves (fc5acf6, 2e7325d,
+  83aca82). Uncommitted: this control.c fix + doc edits.
+
 ## Session 2026-10-02 — CORE LIMITS physical-core/CCD view (Kerempkl + GLM, FA608PP)
 
 - User's idea, landed: the CORE LIMITS editor shows physical cores

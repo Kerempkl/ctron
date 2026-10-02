@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-10-02 — all-cores freq write now verifies (amd-pstate clamp found)
+
+- Symptom: the POWER "CPU clock limit" row stayed at 2401 no matter
+  what was applied, and `--freq 3000` exited 0 while nothing landed.
+- Root cause chain: the write itself succeeds (sudo path works), but
+  the kernel clamps `scaling_max_freq` back to the nominal 2401 MHz
+  synchronously on this machine right now — verified with raw
+  `sudo tee`: 2402/2500/3000/5386 all read back 2401000 instantly,
+  while 2000000 sticks. cpuinfo_max_freq still reports 5386 and boost
+  is on, so this is an amd-pstate policy re-baseline (scaling_min also
+  moved, 421→1492) after the day's OCCT load + profile churn — no
+  userspace tool can lift it; reboot/module reload resets it.
+- ctron bug this exposed (rule 4): `ctrl_set_cpu_max_mhz` reported
+  success without reading back. It now verifies every present cpu
+  (±2 MHz rounding tolerance) and on a clamp reports
+  `kernel kept N MHz on x/y cpus` + returns failure, so the CLI exits
+  non-zero and the TUI toast shows the real outcome.
+- Verified: warning-free `make`, `make test`, `make tuitest`; the
+  running TUI must be restarted to pick this up.
+
 ## 2026-10-02 — CORE LIMITS: physical-core + CCD view (topology-adaptive)
 
 - The CORE LIMITS editor ('c' in POWER) now shows physical cores —

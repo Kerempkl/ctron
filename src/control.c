@@ -132,10 +132,32 @@ int ctrl_set_cpu_max_mhz(hw_state_t *hw, int mhz)
     snprintf(val, sizeof(val), "%d", mhz * 1000);
     int rc = cpufreq_write_all(hw, "scaling_max_freq", val);
     if (rc == 0) {
+        /* rule 4: the driver may clamp the request without failing
+         * (observed on amd-pstate: policy pinned at nominal — writes
+         * above it "succeed" then read back lower). Verify every cpu. */
+        int bad = 0, back_khz = 0;
+        for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
+            char rp[96];
+            int id = hw->cpu_ids[c];
+            snprintf(rp, sizeof(rp),
+                     "/sys/devices/system/cpu/cpu%d/cpufreq/scaling_max_freq", id);
+            int rv = ut_read_int(rp);
+            if (rv <= 0 || rv / 1000 - mhz > 2 || mhz - rv / 1000 > 2)
+                bad++;
+            if (rv > back_khz)
+                back_khz = rv;
+        }
+        if (bad) {
+            ut_log("cpu max: %d MHz requested, kernel kept %d MHz on %d/%d cpus (driver clamp)",
+                   mhz, back_khz / 1000, bad, hw->cpu_n);
+            if (back_khz > 0)
+                hw->cpu_mhz_limit = back_khz / 1000;
+            return -1;
+        }
         hw->cpu_mhz_limit = mhz;
         for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++)
             hw->cpu_mhz_core[hw->cpu_ids[c]] = mhz;
-        ut_log("cpu max: %d MHz", mhz);
+        ut_log("cpu max: %d MHz (verified)", mhz);
     } else {
         ut_log("cpu max: FAILED (needs root; no passwordless sudo)");
     }
