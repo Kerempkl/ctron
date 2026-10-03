@@ -42,6 +42,15 @@ Notes:
   shows "everything + armoury limits", FA507NVR shows "everything but
   the generic PPT ceiling + stale reads". The gap is exactly the
   kernel / asus-armoury difference.
+- **KDE M4 / Armoury Crate key (FA608PP, verified 2026-10-03)**: the key
+  emits scancode `0x26` → `KEY_PROG3` → XKB keysym `XF86Launch3`, so the
+  KDE shortcut picker shows it as **"Launch (3)"**. Bind it to ctron via
+  System Settings → Keyboard → Shortcuts → Add New → Command or Script
+  (e.g. `konsole -e ctron`), then press the key. If the picker refuses,
+  read the real code with `sudo evtest /dev/input/event11` ("Asus WMI
+  hotkeys"); note that XKB keycodes are the Linux input code **+ 8**
+  (`KEY_PROG3` = 202 → `<I210>`). Bound keys are consumed by kwin —
+  `kitty +kitten show_key` and friends never see them, which is normal.
 
 ## Türkçe
 
@@ -81,3 +90,13 @@ Notlar:
   "her şey + armoury limitleri", FA507NVR "her şey ama jenerik PPT
   tavanı + bayat okuma" profili çizer. Aradaki fark tam olarak
   kernel / asus-armoury farkıdır.
+- **KDE M4 / Armoury Crate tuşu (FA608PP, 2026-10-03'te doğrulandı)**:
+  tuş `0x26` tarama kodu → `KEY_PROG3` → XKB `XF86Launch3` yollar; KDE
+  kısayol seçicisinde **"Launch (3)"** olarak görünür. ctron'a
+  bağlamak için: Sistem Ayarları → Klavye → Kısayollar → Yeni ekle →
+  Komut veya betik (örn. `konsole -e ctron`), ardından tuşa bas.
+  Seçici yakalamazsa gerçek kodu `sudo evtest /dev/input/event11`
+  ("Asus WMI hotkeys") ile oku; XKB tuş kodu Linux input kodunun
+  **8 fazlasıdır** (`KEY_PROG3` = 202 → `<I210>`) — bu tuzağa dikkat.
+  Bağlanan tuşları kwin yakar; `kitty +kitten show_key` gibi araçlar
+  göremez — bu normaldir.

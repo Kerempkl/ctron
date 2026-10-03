@@ -75,6 +75,29 @@ prioritized todo list and the distilled session lessons.
   7th flow) drives 6→5→7→8 from the default CONTROLS focus — green.
   make 0 warnings, make test, make tuitest (7 flows), installed.
 
+### Same-day follow-up 2 — M4/Armoury Crate key → ctron (KDE)
+
+- User asked to bind the M4 key to ctron on KDE. Identity verified with
+  evtest (user capture on `/dev/input/event11`, "Asus WMI hotkeys"):
+  the key emits scancode `0x26` → `KEY_PROG3` → XKB `XF86Launch3` (XKB
+  keycode = Linux input code **+ 8**: 202 → `<I210>`) → Qt
+  `Key_Launch3` = 0x010000a5. First guess PROG1/XF86Calculator was
+  wrong on this machine.
+- Plasma 6.7 quirks mapped: kglobalaccel runs **inside kwin** (the
+  standalone `plasma-kglobalaccel.service` exits 0 right after start —
+  normal); application shortcut components live per desktop-id (the
+  `btop.desktop` pattern) and only become ACTIVE at session start —
+  live registration via `busctl` doRegister+setShortcut works and
+  persists but stays inactive until re-login (user test pending).
+  Prepared: `~/.local/share/applications/ctron.desktop`
+  (`konsole -e ~/.local/bin/ctron`) + `kglobalshortcutsrc`
+  `[services][ctron.desktop] _launch=Launch (3)` (written by the
+  daemon itself). qdbus6 cannot pass `ai` types — busctl is required.
+- Docs landed (user-picked scope: docs only): HARDWARE.md EN/TR notes
+  bullet + README "KDE: Armoury Crate (M4) key" section — GUI binding
+  steps, evtest diagnosis, the +8 keycode trap, kwin-grab behaviour.
+  No code changes.
+
 ## Session 2026-10-02 — topbar focus chips fix (Kerempkl + GLM, FA608PP)
 
 - User report: the `1:profiles…4:telemetry` chips "only appear after

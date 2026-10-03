@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-10-03 — docs: KDE M4/Armoury Crate key binding
+
+- The TUF's M4 key emits scancode `0x26` → `KEY_PROG3` → XKB
+  `XF86Launch3`; KDE's shortcut picker shows it as **"Launch (3)"**.
+  Verified on FA608PP with evtest (user capture) + kglobalaccel D-Bus;
+  the binding is registered and persisted in `kglobalshortcutsrc`
+  (final activation check pending a re-login).
+- HARDWARE.md gained an EN + TR notes bullet and README a short
+  "KDE: Armoury Crate (M4) key" section: the GUI binding steps, the
+  evtest diagnosis path (`/dev/input/event11`, "Asus WMI hotkeys"),
+  the XKB keycode = Linux input code **+ 8** trap, and the kwin-grab
+  behaviour (bound keys never reach `show_key`-style tools). No code
+  changes.
+
 ## 2026-10-03 — view hotkeys 5..8: keyboard access to POWER/LIGHT/HELP
 
 - User report: 'f' opened the fan view but POWER, LIGHT and HELP were

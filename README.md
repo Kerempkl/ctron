@@ -37,6 +37,23 @@ make
 Runtime tools are probed, never linked: `asusctl`, `nvidia-smi`,
 `kscreen-doctor` / `hyprctl`. Missing ones simply grey out their rows.
 
+### KDE: Armoury Crate (M4) key
+
+The TUF's M4 key emits `KEY_PROG3` → XKB `XF86Launch3`; KDE's shortcut
+picker shows it as **"Launch (3)"**. Bind ctron to it under
+**System Settings → Keyboard → Shortcuts → Add New → Command or Script**:
+
+```
+Name:    ctron
+Command: konsole -e ctron      # or your terminal of choice
+```
+
+then click the shortcut column, **Assign** and press M4. If the capture
+dialog refuses the key, read its real code with
+`sudo evtest /dev/input/event11` ("Asus WMI hotkeys"; XKB keycodes are
+the Linux input code + 8). The binding lives entirely in KDE — ctron
+itself never listens for the key (it is a TUI/CLI, not a daemon).
+
 ## Quick start (Türkçe)
 
 ```bash
