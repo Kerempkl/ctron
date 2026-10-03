@@ -614,6 +614,23 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
     case '2': g_ui.focus = FOC_CONTROLS; return;
     case '3': g_ui.focus = FOC_WORKSPACE; return;
     case '4': g_ui.focus = FOC_TELEM; return;
+    /* 5..8: workspace views, globally — f/p/l are taken by the fan
+     * editor and the power/light rows, so the letters never worked as
+     * reliable view keys; digits continue the 1..4 panel story and no
+     * view binds them */
+    case '5':
+        g_ui.focus = FOC_WORKSPACE;
+        ws_set_view(WSV_FAN);
+        return;
+    case '6':
+        g_ui.focus = FOC_WORKSPACE;
+        ws_set_view(WSV_POWER);
+        return;
+    case '7':
+        g_ui.focus = FOC_WORKSPACE;
+        ws_set_view(WSV_LIGHT);
+        return;
+    case '8':
     case '?':
         g_ui.focus = FOC_WORKSPACE;
         ws_set_view(WSV_HELP);

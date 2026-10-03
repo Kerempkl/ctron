@@ -399,6 +399,47 @@ def flow_fan_staging():
         shutil.rmtree(tmpcfg, ignore_errors=True)
 
 
+def flow_view_hotkeys():
+    """Regression for the view hotkeys 5..8: they must switch workspace
+    views from ANY focus. The user-reported gap: p/l are taken by the
+    fan editor (pwm field / nudge), f/p/l do nothing outside the
+    workspace, and after an accidental 'p' the next key is swallowed by
+    the typing field. The digits work everywhere and no view binds them."""
+    s = Session("view_hotkeys")
+    try:
+        s.wait_render()
+        # default focus is CONTROLS — deliberately no '3' pressed
+        m = s.mark()
+        s.key(b"6")
+        if not s.wait_for(b"Platform profile", since=m, timeout=15.0):
+            fail("views", "'6' did not open POWER from the controls focus")
+            return
+        ok("views", "'6' opens POWER from any focus")
+        m = s.mark()
+        s.key(b"5")
+        if not s.wait_for(b"FAN CURVE", since=m, timeout=15.0):
+            fail("views", "'5' did not open FAN")
+            return
+        ok("views", "'5' opens FAN")
+        m = s.mark()
+        s.key(b"7")
+        if not s.wait_for(b"Kbd brightness", since=m, timeout=15.0):
+            fail("views", "'7' did not open LIGHT")
+            return
+        ok("views", "'7' opens LIGHT")
+        m = s.mark()
+        s.key(b"8")
+        if not s.wait_for(b"GLOBAL", since=m, timeout=15.0):
+            fail("views", "'8' did not open HELP")
+            return
+        ok("views", "'8' opens HELP")
+        rc = s.quit_expect0()
+        if rc != 0:
+            fail("views", f"q exit {rc!r}")
+    finally:
+        s.close()
+
+
 def main():
     if not os.access(BIN, os.X_OK):
         print(f"no executable at {BIN} (run make first)")
@@ -406,7 +447,7 @@ def main():
     print(f"tui_smoke: {BIN} on {ROWS}x{COLS} pty")
     flows = [flow_open_quit, flow_settings_overlay,
              flow_power_stage_apply, flow_corefreq_overlay,
-             flow_fan_buttons, flow_fan_staging]
+             flow_fan_buttons, flow_fan_staging, flow_view_hotkeys]
     for f in flows:
         f()
     if failures:

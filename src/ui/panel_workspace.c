@@ -910,6 +910,7 @@ static void draw_help(struct ncplane *n, const rect_t *r)
         "GLOBAL",
         "  q            quit (saves settings)",
         "  1..4 / Tab   focus: profiles, controls, workspace, telemetry",
+        "  5..8         workspace view: 5 fan · 6 power · 7 light · 8 help",
         "  esc / s      settings overlay · ? this help",
         "",
         "CONTROLS / LISTS",
@@ -966,10 +967,10 @@ void panel_workspace_draw(struct ncplane *n, const rect_t *r)
     if (tx < r->x + 16)
         tx = r->x + 16;
     struct { const char *label; ws_view_t v; int id; } tabs[] = {
-        { " FAN ", WSV_FAN, ACT_WS_TAB_FAN },
-        { " POWER ", WSV_POWER, ACT_WS_TAB_POWER },
-        { " LIGHT ", WSV_LIGHT, ACT_WS_TAB_LIGHT },
-        { " ? ", WSV_HELP, ACT_WS_TAB_HELP },
+        { " 5:FAN ", WSV_FAN, ACT_WS_TAB_FAN },
+        { " 6:POWER ", WSV_POWER, ACT_WS_TAB_POWER },
+        { " 7:LIGHT ", WSV_LIGHT, ACT_WS_TAB_LIGHT },
+        { " 8:? ", WSV_HELP, ACT_WS_TAB_HELP },
     };
     for (size_t i = 0; i < sizeof(tabs) / sizeof(tabs[0]); i++) {
         ui_btn(n, tx, r->y, tabs[i].label, g_ui.ws_view == tabs[i].v, false,

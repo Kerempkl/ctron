@@ -60,6 +60,21 @@ prioritized todo list and the distilled session lessons.
   `make install`. All uncommitted — suggested commit split is in the
   handover message.
 
+### Same-day follow-up (user-committed the fixes as 5bbaa46, then):
+
+- User report: "f opens FAN but POWER/LIGHT/? unreachable from the
+  keyboard". pty-measured the truth: letters only switch views from the
+  workspace focus with shift (p/l are bound by the fan editor and the
+  power/light rows), other panels ignore them, and an accidental 'p'
+  makes the typing field swallow the next key ('?' included).
+- Landed: **view hotkeys 5..8** (fan/power/light/help) in
+  `dispatch_key` — global, any focus, no view binds digits; tab labels
+  show them (" 6:POWER "); help view documents them; dead `case 'P'`
+  removed from editor_fan (lowercase 'p' still types pwm). Letter
+  aliases (f/p/l/shift) unchanged. `flow_view_hotkeys` (tui_smoke,
+  7th flow) drives 6→5→7→8 from the default CONTROLS focus — green.
+  make 0 warnings, make test, make tuitest (7 flows), installed.
+
 ## Session 2026-10-02 — topbar focus chips fix (Kerempkl + GLM, FA608PP)
 
 - User report: the `1:profiles…4:telemetry` chips "only appear after

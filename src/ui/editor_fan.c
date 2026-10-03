@@ -319,8 +319,9 @@ void editor_fan_key(uint32_t key)
         g_ui.fe_input = 1;
         tin_clear(&g_ui.fe_x);
         break;
+    /* 'P' is deliberately not bound here: dispatch gives it to the
+     * POWER view hotkey; lowercase p types the pwm field */
     case 'p':
-    case 'P':
         g_ui.fe_input = 2;
         tin_clear(&g_ui.fe_y);
         break;

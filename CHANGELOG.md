@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-10-03 — view hotkeys 5..8: keyboard access to POWER/LIGHT/HELP
+
+- User report: 'f' opened the fan view but POWER, LIGHT and HELP were
+  unreachable from the keyboard. Measured with the pty harness: the
+  letters only worked from the workspace focus AND with shift (p/l are
+  bound by the fan editor — pwm field / nudge — and by the power/light
+  rows), from other panels they did nothing, and after an accidental
+  'p' the typing field silently swallowed the next key (even '?').
+- Fix: the digits **5 fan · 6 power · 7 light · 8 help** now switch the
+  workspace view from ANY panel focus, continuing the 1..4 panel
+  hotkey story; no view binds digits, overlays and typing fields keep
+  precedence. The workspace tab labels show the keys (" 6:POWER "),
+  the help view documents them, and the dead uppercase 'P' binding in
+  the fan editor was removed ('p' still types pwm; 'P' now reliably
+  means POWER).
+- 'f'/'p'/'l' (lowercase where the view has not taken them) and
+  shift+letters keep working as aliases. Regression: `flow_view_hotkeys`
+  drives 6→5→7→8 from the default controls focus.
+
 ## 2026-10-03 — fan staging: live refresh no longer drops un-written curves
 
 - Editing a fan curve (editor nudges/add/delete, mode/profile fan-curve
