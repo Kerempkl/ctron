@@ -440,6 +440,79 @@ def flow_view_hotkeys():
         s.close()
 
 
+def flow_mode_drift():
+    """CONTROLS Mode row states: "- → name" before any apply, "name"
+    after, "name*" once a tracked field drifts from the apply-time
+    snapshot. Isolated CTRON_CONFIG with a one-step mode (profile
+    quiet); the REAL profile is saved before and restored after — the
+    drift step performs one real (harmless) profile write."""
+    try:
+        out = subprocess.run(["asusctl", "profile", "get"],
+                             capture_output=True, text=True, timeout=10).stdout
+    except Exception:
+        out = ""
+    orig = next((n for n in ("Performance", "Balanced", "Quiet") if n in out),
+                None)
+
+    tmpcfg = tempfile.mkdtemp(prefix="ctron-tui-")
+    oldcfg = os.environ.get("CTRON_CONFIG")
+    os.environ["CTRON_CONFIG"] = tmpcfg
+    with open(os.path.join(tmpcfg, "modes.ini"), "w") as f:
+        f.write("[drift]\nsteps = profile quiet\n")
+    s = None
+    try:
+        s = Session("mode_drift")
+        if not s.wait_render(6.0):
+            fail("mode_drift", "no frame rendered")
+            return
+        m = s.mark()
+        s.key(b"2")                # controls focus, Mode row selected
+        s.key(b"\r")               # Enter applies the drift mode
+        # the log line arrives diff-fragmented (notcurses), so wait for
+        # the flash first and then for any fragment of the completion log
+        if not s.wait_for(b"applying mode...", since=m, timeout=15.0):
+            fail("mode_drift", "Enter did not trigger the mode apply")
+            return
+        if not s.wait_for(b"drift'", since=m, timeout=15.0):
+            fail("mode_drift", "mode apply did not complete")
+            return
+        ok("mode_drift", "mode applied via the Mode row")
+        m2 = s.mark()
+        s.key(b"6")                # POWER: change the profile behind it
+        if not s.wait_for(b"Platform profile", since=m2, timeout=15.0):
+            fail("mode_drift", "POWER did not render")
+            return
+        s.key(b"l")                # stage the next profile
+        s.key(b"w")                # apply it
+        if not s.wait_for(b"power apply", since=m2, timeout=15.0):
+            fail("mode_drift", "profile apply did not run")
+            return
+        m3 = s.mark()
+        s.key(b"2")                # back to controls: full repaint
+        time.sleep(0.5)
+        if s.wait_for(b"drift*", since=m3, timeout=8.0):
+            ok("mode_drift", "drifted mode shows name*")
+        else:
+            fail("mode_drift", "no 'drift*' in the Mode row after a change")
+        rc = s.quit_expect0()
+        if rc != 0:
+            fail("mode_drift", f"q exit {rc!r}")
+    finally:
+        if s is not None:
+            s.close()
+        if oldcfg is None:
+            os.environ.pop("CTRON_CONFIG", None)
+        else:
+            os.environ["CTRON_CONFIG"] = oldcfg
+        shutil.rmtree(tmpcfg, ignore_errors=True)
+        if orig:
+            subprocess.run([BIN, "--profile", orig], capture_output=True,
+                           timeout=30)
+            print(f"  (restored profile to {orig})")
+        else:
+            print("  (could not parse the original profile — not restored)")
+
+
 def main():
     if not os.access(BIN, os.X_OK):
         print(f"no executable at {BIN} (run make first)")
@@ -447,7 +520,8 @@ def main():
     print(f"tui_smoke: {BIN} on {ROWS}x{COLS} pty")
     flows = [flow_open_quit, flow_settings_overlay,
              flow_power_stage_apply, flow_corefreq_overlay,
-             flow_fan_buttons, flow_fan_staging, flow_view_hotkeys]
+             flow_fan_buttons, flow_fan_staging, flow_view_hotkeys,
+             flow_mode_drift]
     for f in flows:
         f()
     if failures:

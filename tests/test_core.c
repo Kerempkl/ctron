@@ -394,6 +394,92 @@ static void check_read_file_all(void)
     rmdir(tmp);
 }
 
+static void check_mode_touch_mask(void)
+{
+    unsigned m = mode_touch_mask(
+        "profile quiet, fan cool, hz 60, epp power, ppt Q45, battery 80, "
+        "kbd low, cpu-boost off, panel-od on, nv-boost 15, nv-temp 80, "
+        "freq 3000, fan-curve cpu 40,50 80,90, fan-curve gpu 40,50 80,90, "
+        "aura static red, ac-profile off, battery-profile quiet, fan-write");
+    CHECK(m == (MS_PROFILE | MS_FAN_CPU | MS_FAN_GPU | MS_HZ | MS_EPP |
+                MS_PPT | MS_BAT | MS_KBD | MS_BOOST | MS_OD | MS_NVB |
+                MS_NVT | MS_FREQ),
+          "touch mask full");
+
+    CHECK(mode_touch_mask("fan-curve gpu 40,50 80,90") == MS_FAN_GPU,
+          "touch mask fan-curve gpu");
+    CHECK(mode_touch_mask("profile quiet") == MS_PROFILE, "touch mask single");
+    CHECK(mode_touch_mask("aura static red") == 0, "aura untracked");
+    CHECK(mode_touch_mask("ac-profile off, battery-profile quiet") == 0,
+          "asusd rows untracked");
+    CHECK(mode_touch_mask("fan-write, battery-oneshot") == 0, "flush untracked");
+    CHECK(mode_touch_mask("") == 0, "empty steps");
+    CHECK(mode_touch_mask(NULL) == 0, "null steps");
+}
+
+static void check_mode_drift(void)
+{
+    hw_state_t hw;
+    memset(&hw, 0, sizeof(hw));
+    hw.profile = HW_QUIET;
+    hw.epp = HW_EPP_POWER;
+    hw.ppt_spl = 45;
+    hw.ppt_sppt = 55;
+    hw.ppt_fppt = 55;
+    hw.hz_cur = 60;
+    hw.bat_limit = 80;
+    hw.kbd = HW_KBD_LOW;
+    hw.cpu_boost = false;
+    hw.panel_od = false;
+    hw.nv_boost = 15;
+    hw.nv_temp = 80;
+    hw.cpu_mhz_limit = 3000;
+    fan_default(&hw.fan_cpu);
+    fan_default(&hw.fan_gpu);
+
+    unsigned mask = mode_touch_mask(
+        "profile quiet, ppt Q45, hz 60, epp power, battery 80, kbd low, "
+        "cpu-boost off, panel-od on, nv-boost 15, nv-temp 80, freq 3000, "
+        "fan cool");
+    mode_snap_t snap;
+    unsigned kept = mode_snapshot(&hw, mask, &snap);
+    CHECK(kept == mask, "snapshot keeps every readable field");
+    CHECK(mode_drift_count(&hw, kept, &snap) == 0, "no drift on unchanged");
+
+    hw.profile = HW_BALANCED;
+    CHECK(mode_drift_count(&hw, kept, &snap) == 1, "profile drift counts");
+    hw.profile = HW_QUIET;
+
+    /* a stale live read (0) is never drift */
+    hw.ppt_spl = 0;
+    CHECK(mode_drift_count(&hw, kept, &snap) == 0, "stale ppt not drift");
+    hw.ppt_spl = 45;
+
+    /* a field unreadable at apply time is dropped from the mask */
+    hw.hz_cur = 0;
+    unsigned kept2 = mode_snapshot(&hw, mask, &snap);
+    CHECK(!(kept2 & MS_HZ), "hz dropped while unknown");
+    hw.hz_cur = 165;
+    CHECK(mode_drift_count(&hw, kept2, &snap) == 0, "dropped field no drift");
+    hw.hz_cur = 60;
+
+    /* the mask restricts the comparison: battery is untracked here */
+    unsigned narrow = mode_snapshot(&hw, MS_PROFILE, &snap);
+    CHECK(narrow == MS_PROFILE, "narrow snapshot");
+    hw.bat_limit = 100;
+    CHECK(mode_drift_count(&hw, narrow, &snap) == 0, "untracked field ignored");
+    hw.bat_limit = 80;
+
+    /* fan curve change counts, exact restore clears it again */
+    unsigned full = mode_snapshot(&hw, mask, &snap);
+    CHECK(full == mask, "snapshot full again");
+    CHECK(mode_drift_count(&hw, full, &snap) == 0, "clean again");
+    hw.fan_cpu.pwm[3] += 10;
+    CHECK(mode_drift_count(&hw, full, &snap) == 1, "fan drift counts");
+    hw.fan_cpu.pwm[3] -= 10;
+    CHECK(mode_drift_count(&hw, full, &snap) == 0, "restore clears drift");
+}
+
 int main(void)
 {
     check_fan_csv();
@@ -408,6 +494,8 @@ int main(void)
     check_asusd_enforced();
     check_asusd_ron_parse();
     check_read_file_all();
+    check_mode_touch_mask();
+    check_mode_drift();
     check_ppt_order();
 
     if (failures) {

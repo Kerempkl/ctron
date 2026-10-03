@@ -98,6 +98,26 @@ prioritized todo list and the distilled session lessons.
   steps, evtest diagnosis, the +8 keycode trap, kwin-grab behaviour.
   No code changes.
 
+### Same-day follow-up 3 — CONTROLS Mode row: applied mode + drift star
+
+- User idea, landed with the resource-minimal (snapshot) design they
+  picked: the Mode row shows `- → candidate` before any apply, `name`
+  while clean, `name*` on drift, `name* → candidate` while the picker
+  rotates elsewhere. Pure helpers in modes.c — `mode_touch_mask`
+  (steps → tracked-field bits), `mode_snapshot` (captures readable
+  fields, drops unreadable ones from the mask), `mode_drift_count`
+  (stale reads never drift) — unit-tested in test_core; capture in
+  `ctl_capture_mode` from both apply sites (controls row + settings
+  overlay); draw-time compare only. Session-only, no persistence.
+- Bonus: asusd's takeover profile revert now surfaces as `name*` in the
+  Mode row without any extra reads.
+- `flow_mode_drift` (tui_smoke, 8th flow): isolated config with a
+  one-step `[drift] profile quiet` mode, real profile saved/restored.
+  Harness lesson: notcurses renders diffs, so a whole log line ("mode
+  'drift' applied") never appears contiguous — wait for the
+  `applying mode...` flash plus a short fragment (`drift'`) instead.
+- make 0 warnings, make test, make tuitest (8 flows), installed.
+
 ## Session 2026-10-02 — topbar focus chips fix (Kerempkl + GLM, FA608PP)
 
 - User report: the `1:profiles…4:telemetry` chips "only appear after

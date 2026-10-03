@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-10-03 — CONTROLS Mode row shows the applied mode and its drift
+
+- The Mode row used to show only the rotated picker candidate. It now
+  tracks the applied mode: `- → name` before any apply (the candidate
+  after the dash), `name` while the system still matches the apply-time
+  snapshot, `name*` once a tracked field drifted, and `name* → other`
+  when the picker rotates to another candidate — the same "live →
+  staged" language the POWER view already uses.
+- Session-only snapshot (no persistence), per the resource-minimal
+  request: `mode_touch_mask` parses which set-point fields the steps
+  touch (profile/epp/ppt/hz/battery/kbd/cpu-boost/panel-od/nv-boost/
+  nv-temp/freq/fan curves; aura, the asusd auto rows and flush-style
+  commands are untracked), `mode_snapshot` captures the readable ones —
+  unreadable fields are dropped from the mask, what cannot be read
+  cannot be tracked — and the draw-time check compares a dozen ints.
+  Stale live reads (ppt 0, hz 0) never count as drift; an exact manual
+  restore clears the star without re-applying. Cost: a handful of
+  integer compares while drawing one panel, no extra polls or sysfs
+  reads. Side effect worth having: when asusd's takeover re-applies its
+  own profile, the row flips to `name*` on its own.
+- Pure helpers live in modes.c (unit-tested: mask parsing, snapshot
+  dropping, drift counting) and `flow_mode_drift` joins tui_smoke as
+  the 8th flow (isolated config with a one-step mode; the real profile
+  is saved before and restored after).
+
 ## 2026-10-03 — docs: KDE M4/Armoury Crate key binding
 
 - The TUF's M4 key emits scancode `0x26` → `KEY_PROG3` → XKB

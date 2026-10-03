@@ -124,6 +124,184 @@ int mode_find(const mode_def_t *arr, int n, const char *name)
     return -1;
 }
 
+/* ---- applied-mode tracking --------------------------------------------- */
+
+/* step key → tracked-field bits; 0 = untracked (aura, asusd auto
+ * rows, flush-style commands) */
+static unsigned key_to_mask(const char *key, const char *val)
+{
+    if (!strcasecmp(key, "profile"))       return MS_PROFILE;
+    if (!strcasecmp(key, "epp"))           return MS_EPP;
+    if (!strcasecmp(key, "ppt"))           return MS_PPT;
+    if (!strcasecmp(key, "hz"))            return MS_HZ;
+    if (!strcasecmp(key, "battery"))       return MS_BAT;
+    if (!strcasecmp(key, "kbd"))           return MS_KBD;
+    if (!strcasecmp(key, "cpu-boost"))     return MS_BOOST;
+    if (!strcasecmp(key, "panel-od"))      return MS_OD;
+    if (!strcasecmp(key, "nv-boost"))      return MS_NVB;
+    if (!strcasecmp(key, "nv-temp"))       return MS_NVT;
+    if (!strcasecmp(key, "freq"))          return MS_FREQ;
+    if (!strcasecmp(key, "fan"))           return MS_FAN_CPU | MS_FAN_GPU;
+    if (!strcasecmp(key, "fan-curve")) {
+        /* the curve CSV carries commas, so the first split token is
+         * "fan-curve cpu 40" — the fan side is val's first word */
+        char side[8] = {0};
+        sscanf(val, "%7s", side);
+        if (!strcasecmp(side, "cpu"))      return MS_FAN_CPU;
+        if (!strcasecmp(side, "gpu"))      return MS_FAN_GPU;
+        return 0;
+    }
+    return 0;
+}
+
+unsigned mode_touch_mask(const char *steps)
+{
+    char buf[MODE_STEPS_MAX];
+    unsigned mask = 0;
+    char *save = NULL;
+
+    snprintf(buf, sizeof(buf), "%s", steps ? steps : "");
+    for (char *tok = strtok_r(buf, ",", &save); tok;
+         tok = strtok_r(NULL, ",", &save)) {
+        char *s = ut_trim(tok);
+        char key[32];
+        char *sp = strchr(s, ' ');
+        if (sp) {
+            size_t kn = (size_t)(sp - s);
+            if (kn >= sizeof(key))
+                kn = sizeof(key) - 1;
+            memcpy(key, s, kn);
+            key[kn] = '\0';
+        } else {
+            snprintf(key, sizeof(key), "%s", s);
+        }
+        mask |= key_to_mask(key, sp ? ut_trim(sp + 1) : "");
+    }
+    return mask;
+}
+
+unsigned mode_snapshot(const hw_state_t *hw, unsigned want, mode_snap_t *snap)
+{
+    unsigned kept = 0;
+
+    memset(snap, 0, sizeof(*snap));
+    if (want & MS_PROFILE) { kept |= MS_PROFILE; snap->profile = hw->profile; }
+    if (want & MS_EPP)     { kept |= MS_EPP;     snap->epp = hw->epp; }
+    if (want & MS_PPT) {
+        /* a stale read (0) cannot be tracked: drop the whole triple */
+        if (hw->ppt_spl > 0 && hw->ppt_sppt > 0 && hw->ppt_fppt > 0) {
+            kept |= MS_PPT;
+            snap->spl = hw->ppt_spl;
+            snap->sppt = hw->ppt_sppt;
+            snap->fppt = hw->ppt_fppt;
+        }
+    }
+    if (want & MS_HZ) {
+        if (hw->hz_cur > 0) { kept |= MS_HZ; snap->hz = hw->hz_cur; }
+    }
+    if (want & MS_BAT) {
+        if (hw->bat_limit > 0) { kept |= MS_BAT; snap->bat = hw->bat_limit; }
+    }
+    if (want & MS_KBD)   { kept |= MS_KBD;   snap->kbd = hw->kbd; }
+    if (want & MS_BOOST) { kept |= MS_BOOST; snap->boost = hw->cpu_boost; }
+    if (want & MS_OD)    { kept |= MS_OD;    snap->od = hw->panel_od; }
+    if (want & MS_NVB) {
+        if (hw->nv_boost > 0) { kept |= MS_NVB; snap->nvb = hw->nv_boost; }
+    }
+    if (want & MS_NVT) {
+        if (hw->nv_temp > 0) { kept |= MS_NVT; snap->nvt = hw->nv_temp; }
+    }
+    if (want & MS_FREQ) {
+        if (hw->cpu_mhz_limit > 0) { kept |= MS_FREQ; snap->mhz = hw->cpu_mhz_limit; }
+    }
+    if (want & MS_FAN_CPU) {
+        if (hw->fan_cpu.n > 0) {
+            kept |= MS_FAN_CPU;
+            snap->fan_cpu = hw->fan_cpu;
+        }
+    }
+    if (want & MS_FAN_GPU) {
+        if (hw->fan_gpu.n > 0) {
+            kept |= MS_FAN_GPU;
+            snap->fan_gpu = hw->fan_gpu;
+        }
+    }
+    return kept;
+}
+
+static int fan_curve_differs(const fan_curve_t *a, const fan_curve_t *b)
+{
+    if (a->n != b->n)
+        return 1;
+    for (int i = 0; i < a->n && i < FAN_POINTS; i++)
+        if (a->temp_c[i] != b->temp_c[i] || a->pwm[i] != b->pwm[i])
+            return 1;
+    return 0;
+}
+
+int mode_drift_count(const hw_state_t *hw, unsigned mask,
+                     const mode_snap_t *snap)
+{
+    int drift = 0;
+
+    if (mask & MS_PROFILE) {
+        if ((int)hw->profile != snap->profile)
+            drift++;
+    }
+    if (mask & MS_EPP) {
+        if ((int)hw->epp != snap->epp)
+            drift++;
+    }
+    if (mask & MS_PPT) {
+        /* unknown/stale live values (0) are not drift */
+        if (hw->ppt_spl > 0 && hw->ppt_sppt > 0 && hw->ppt_fppt > 0 &&
+            (hw->ppt_spl != snap->spl || hw->ppt_sppt != snap->sppt ||
+             hw->ppt_fppt != snap->fppt))
+            drift++;
+    }
+    if (mask & MS_HZ) {
+        if (hw->hz_cur > 0 && hw->hz_cur != snap->hz)
+            drift++;
+    }
+    if (mask & MS_BAT) {
+        if (hw->bat_limit > 0 && hw->bat_limit != snap->bat)
+            drift++;
+    }
+    if (mask & MS_KBD) {
+        if ((int)hw->kbd != snap->kbd)
+            drift++;
+    }
+    if (mask & MS_BOOST) {
+        if (hw->cpu_boost != snap->boost)
+            drift++;
+    }
+    if (mask & MS_OD) {
+        if (hw->panel_od != snap->od)
+            drift++;
+    }
+    if (mask & MS_NVB) {
+        if (hw->nv_boost > 0 && hw->nv_boost != snap->nvb)
+            drift++;
+    }
+    if (mask & MS_NVT) {
+        if (hw->nv_temp > 0 && hw->nv_temp != snap->nvt)
+            drift++;
+    }
+    if (mask & MS_FREQ) {
+        if (hw->cpu_mhz_limit > 0 && hw->cpu_mhz_limit != snap->mhz)
+            drift++;
+    }
+    if (mask & MS_FAN_CPU) {
+        if (fan_curve_differs(&hw->fan_cpu, &snap->fan_cpu))
+            drift++;
+    }
+    if (mask & MS_FAN_GPU) {
+        if (fan_curve_differs(&hw->fan_gpu, &snap->fan_gpu))
+            drift++;
+    }
+    return drift;
+}
+
 int mode_apply(hw_state_t *hw, const char *steps, char *err, size_t errn)
 {
     char buf[MODE_STEPS_MAX];

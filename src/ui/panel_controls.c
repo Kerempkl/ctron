@@ -44,10 +44,25 @@ static const char *hz_val(void)
 
 static const char *mode_val(void)
 {
+    static char buf[72];
     if (g_ui.mode_n == 0)
         return "(none)";
     g_ui.ctl_mode_idx = ut_clamp_i(g_ui.ctl_mode_idx, 0, g_ui.mode_n - 1);
-    return g_ui.modes[g_ui.ctl_mode_idx].name;
+    const char *cand = g_ui.modes[g_ui.ctl_mode_idx].name;
+
+    if (!g_ui.ctl_applied[0]) {
+        /* nothing applied this session: dash + what Enter would apply */
+        snprintf(buf, sizeof(buf), "- → %s", cand);
+        return buf;
+    }
+    int drift = mode_drift_count(g_ui.hw, g_ui.ctl_mode_mask, &g_ui.ctl_snap);
+    if (!strcmp(cand, g_ui.ctl_applied)) {
+        snprintf(buf, sizeof(buf), "%s%s", g_ui.ctl_applied, drift ? "*" : "");
+        return buf;
+    }
+    snprintf(buf, sizeof(buf), "%s%s → %s", g_ui.ctl_applied, drift ? "*" : "",
+             cand);
+    return buf;
 }
 
 static const char *battery_val(void)
@@ -55,6 +70,13 @@ static const char *battery_val(void)
     static char buf[16];
     snprintf(buf, sizeof(buf), "%d%%", g_ui.ctl_bat);
     return buf;
+}
+
+void ctl_capture_mode(const char *name, const char *steps)
+{
+    unsigned want = mode_touch_mask(steps);
+    snprintf(g_ui.ctl_applied, sizeof(g_ui.ctl_applied), "%s", name ? name : "");
+    g_ui.ctl_mode_mask = mode_snapshot(g_ui.hw, want, &g_ui.ctl_snap);
 }
 
 static void apply_row(int row)
@@ -72,6 +94,10 @@ static void apply_row(int row)
                        err[0] ? err : "failed");
             hw_refresh_live(hw);
             pw_sync_from_hw(); /* the bundle may have changed power fields */
+            /* snapshot after the refresh so the drift check compares
+             * against the post-apply live state */
+            ctl_capture_mode(g_ui.modes[g_ui.ctl_mode_idx].name,
+                             g_ui.modes[g_ui.ctl_mode_idx].steps);
         }
         break;
     case 1:

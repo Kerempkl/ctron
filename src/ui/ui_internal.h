@@ -65,6 +65,12 @@ typedef struct ui_ctx {
     int ctl_bat;
     mode_def_t modes[MODES_MAX];
     int mode_n;
+    /* applied-mode state for the Mode row: "" = none this session,
+     * else the name plus a snapshot of the fields its steps touched
+     * (draw-time drift check marks "name*") */
+    char ctl_applied[MODE_NAME_MAX];
+    unsigned ctl_mode_mask;
+    mode_snap_t ctl_snap;
 
     /* fan editor */
     int fe_gpu, fe_sel, fe_input; /* fe_input: 0 none, 1 temp, 2 pwm */
@@ -200,6 +206,11 @@ void panel_profiles_act(int id);
 void panel_controls_draw(struct ncplane *n, const rect_t *r);
 void panel_controls_key(uint32_t key);
 void panel_controls_act(int id);
+/* Record the just-applied mode as the CONTROLS Mode row state: copies
+ * the name and snapshots the fields its steps touch. Call right after a
+ * successful mode_apply (both the controls row and the settings
+ * overlay path). */
+void ctl_capture_mode(const char *name, const char *steps);
 
 void panel_workspace_draw(struct ncplane *n, const rect_t *r);
 void panel_workspace_key(uint32_t key);
