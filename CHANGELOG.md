@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-10-02 — topbar focus chips: fit + legibility
+
+- The `1:profiles … 4:telemetry` chips were placed at a fixed
+  `dimx-44` with a 12-column stride, so the last chip ended past the
+  final column and the terminal clipped it entirely (harness-proven:
+  "4:telemetry" absent from the first frame). Chips are now
+  right-aligned from their real widths; the model title truncates to
+  the first chip's column.
+- Unfocused chips rendered in the muted theme colour — too dim to
+  read against the background on real screens (the "not visible until
+  I press a key" report: only the inverted focused chip stood out).
+  Unfocused chips now use the plain text colour; the focused one
+  keeps the black-on-accent inversion.
+- Repro: pty harness capture — first frame contains all four chips
+  (before: three). `make`, `make test`, `make tuitest` green;
+  installed.
+
 ## 2026-10-02 — asusd takeover conflict warning
 
 - When asusd's power-source profile takeover is armed for the CURRENT

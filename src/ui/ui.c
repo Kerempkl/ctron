@@ -396,17 +396,28 @@ static void draw_topbar(struct ncplane *n, unsigned dimy, unsigned dimx)
     ncchannels_set_bg_rgb(&ch, pal->bg);
     ncplane_set_channels(n, ch);
 
+    static const char *names[FOC_COUNT] = {
+        "1:profiles", "2:controls", "3:workspace", "4:telemetry"
+    };
+    /* lay the chips out right-aligned from their real widths: a fixed
+     * dimx-44 stride pushed "4:telemetry" past the last column and
+     * the terminal clipped it away entirely */
+    int total = 0, xs[FOC_COUNT];
+    for (int i = 0; i < FOC_COUNT; i++)
+        total += (int)strlen(names[i]) + (i > 0 ? 2 : 0);
+    int x = (int)dimx - total;
+    for (int i = 0; i < FOC_COUNT; i++) {
+        xs[i] = x;
+        x += (int)strlen(names[i]) + 2;
+    }
+
     char bar[256];
     snprintf(bar, sizeof(bar), " ctron — %s ", g_ui.hw->model);
-    ui_trunc(bar, (int)dimx - 46);
+    ui_trunc(bar, xs[0] > 1 ? xs[0] - 1 : 1);
     ncplane_set_styles(n, NCSTYLE_BOLD);
     ncplane_putstr_yx(n, 0, 0, bar);
     ncplane_set_styles(n, NCSTYLE_NONE);
 
-    static const char *names[FOC_COUNT] = {
-        "1:profiles", "2:controls", "3:workspace", "4:telemetry"
-    };
-    int x = (int)dimx - 44;
     for (int i = 0; i < FOC_COUNT; i++) {
         uint64_t chf = 0;
         if (i == (int)g_ui.focus) {
@@ -414,12 +425,14 @@ static void draw_topbar(struct ncplane *n, unsigned dimy, unsigned dimx)
             ncchannels_set_bg_rgb(&chf, pal->accent);
             ncplane_set_styles(n, NCSTYLE_BOLD);
         } else {
-            ncchannels_set_fg_rgb(&chf, pal->muted);
+            /* muted proved too dim to read — unfocused chips use the
+             * plain text colour, only the focused one inverts */
+            ncchannels_set_fg_rgb(&chf, pal->text);
             ncchannels_set_bg_rgb(&chf, pal->bg);
+            ncplane_set_styles(n, NCSTYLE_NONE);
         }
         ncplane_set_channels(n, chf);
-        ncplane_putstr_yx(n, 0, x, names[i]);
-        x += 12;
+        ncplane_putstr_yx(n, 0, xs[i], names[i]);
     }
     ncplane_set_styles(n, NCSTYLE_NONE);
 }

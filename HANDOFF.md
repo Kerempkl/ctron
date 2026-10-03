@@ -15,6 +15,21 @@ clock-window refresh), the **2026-09-24** POWER round, and
 editor, signed below). **Read `NEXT.md` first** — it carries the
 prioritized todo list and the distilled session lessons.
 
+## Session 2026-10-02 — topbar focus chips fix (Kerempkl + GLM, FA608PP)
+
+- User report: the `1:profiles…4:telemetry` chips "only appear after
+  pressing 1/2/3/4". Two causes, both fixed in `draw_topbar` (ui.c):
+  the fixed `dimx-44`+12-stride layout pushed the last chip past the
+  edge (clipped — pty-harness-proven), and unfocused chips used the
+  muted colour, unreadably dim on real screens. Chips now right-align
+  from real widths; unfocused use pal->text. Repro script captured
+  first-frame bytes before/after (in /tmp, ad-hoc). Note: the harness
+  Session class is importable — a tracked
+  scripts/__pycache__/*.pyc got dirtied and was restored; consider
+  gitignoring __pycache__ someday.
+- User committed the asusd warning round themselves (c968e14).
+  Uncommitted: this ui.c fix + CHANGELOG/HANDOFF edits.
+
 ## Session 2026-10-02 — asusd takeover conflict warning (Kerempkl + GLM, FA608PP)
 
 - List item 4 landed: `hw_asusd_enforced()` (pure, unit-tested) + three
