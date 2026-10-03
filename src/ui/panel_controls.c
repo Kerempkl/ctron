@@ -50,13 +50,16 @@ static const char *mode_val(void)
     g_ui.ctl_mode_idx = ut_clamp_i(g_ui.ctl_mode_idx, 0, g_ui.mode_n - 1);
     const char *cand = g_ui.modes[g_ui.ctl_mode_idx].name;
 
+    /* the arrow + candidate appear only after the user actually
+     * touched the picker (h/l or click) — unprompted rows stay bare */
     if (!g_ui.ctl_applied[0]) {
-        /* nothing applied this session: dash + what Enter would apply */
+        if (!g_ui.ctl_mode_pick)
+            return "-";
         snprintf(buf, sizeof(buf), "- → %s", cand);
         return buf;
     }
     int drift = mode_drift_count(g_ui.hw, g_ui.ctl_mode_mask, &g_ui.ctl_snap);
-    if (!strcmp(cand, g_ui.ctl_applied)) {
+    if (!strcmp(cand, g_ui.ctl_applied) || !g_ui.ctl_mode_pick) {
         snprintf(buf, sizeof(buf), "%s%s", g_ui.ctl_applied, drift ? "*" : "");
         return buf;
     }
@@ -77,6 +80,7 @@ void ctl_capture_mode(const char *name, const char *steps)
     unsigned want = mode_touch_mask(steps);
     snprintf(g_ui.ctl_applied, sizeof(g_ui.ctl_applied), "%s", name ? name : "");
     g_ui.ctl_mode_mask = mode_snapshot(g_ui.hw, want, &g_ui.ctl_snap);
+    g_ui.ctl_mode_pick = false; /* the arrow retires once a mode lands */
 }
 
 static void apply_row(int row)
@@ -189,8 +193,10 @@ void panel_controls_key(uint32_t key)
     case NCKEY_LEFT:
         switch (g_ui.ctl_sel) {
         case 0:
-            if (g_ui.mode_n > 0)
+            if (g_ui.mode_n > 0) {
                 g_ui.ctl_mode_idx = (g_ui.ctl_mode_idx + g_ui.mode_n - 1) % g_ui.mode_n;
+                g_ui.ctl_mode_pick = true;
+            }
             break;
         case 1:
             g_ui.ctl_prof_idx = (g_ui.ctl_prof_idx + 2) % 3;
@@ -216,8 +222,10 @@ void panel_controls_key(uint32_t key)
     case NCKEY_RIGHT:
         switch (g_ui.ctl_sel) {
         case 0:
-            if (g_ui.mode_n > 0)
+            if (g_ui.mode_n > 0) {
                 g_ui.ctl_mode_idx = (g_ui.ctl_mode_idx + 1) % g_ui.mode_n;
+                g_ui.ctl_mode_pick = true;
+            }
             break;
         case 1:
             g_ui.ctl_prof_idx = (g_ui.ctl_prof_idx + 1) % 3;
@@ -255,6 +263,8 @@ void panel_controls_act(int id)
     int row = id - 1;
     if (row < 0 || row >= CTL_ROWS)
         return;
+    if (row == 0)
+        g_ui.ctl_mode_pick = true; /* a click on the Mode row shows the pick */
     if (row == g_ui.ctl_sel)
         apply_row(row); /* click on the selected row applies */
     else

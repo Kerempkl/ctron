@@ -101,14 +101,16 @@ prioritized todo list and the distilled session lessons.
 ### Same-day follow-up 3 — CONTROLS Mode row: applied mode + drift star
 
 - User idea, landed with the resource-minimal (snapshot) design they
-  picked: the Mode row shows `- → candidate` before any apply, `name`
-  while clean, `name*` on drift, `name* → candidate` while the picker
-  rotates elsewhere. Pure helpers in modes.c — `mode_touch_mask`
-  (steps → tracked-field bits), `mode_snapshot` (captures readable
-  fields, drops unreadable ones from the mask), `mode_drift_count`
-  (stale reads never drift) — unit-tested in test_core; capture in
-  `ctl_capture_mode` from both apply sites (controls row + settings
-  overlay); draw-time compare only. Session-only, no persistence.
+  picked: the Mode row shows `-` before any apply, `name` while clean,
+  `name*` on drift. The arrow + candidate (`- → name`, `name* → other`)
+  is latched behind actual picker interaction (h/l or a click) after a
+  user tweak — startup and untouched rows stay bare. Pure helpers in
+  modes.c — `mode_touch_mask` (steps → tracked-field bits),
+  `mode_snapshot` (captures readable fields, drops unreadable ones
+  from the mask), `mode_drift_count` (stale reads never drift) —
+  unit-tested in test_core; capture in `ctl_capture_mode` from both
+  apply sites (controls row + settings overlay); draw-time compare
+  only. Session-only, no persistence.
 - Bonus: asusd's takeover profile revert now surfaces as `name*` in the
   Mode row without any extra reads.
 - `flow_mode_drift` (tui_smoke, 8th flow): isolated config with a

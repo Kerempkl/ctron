@@ -66,11 +66,15 @@ typedef struct ui_ctx {
     mode_def_t modes[MODES_MAX];
     int mode_n;
     /* applied-mode state for the Mode row: "" = none this session,
-     * else the name plus a snapshot of the fields its steps touched
-     * (draw-time drift check marks "name*") */
+     * else the name plus a snapshot of the fields its steps touch
+     * (draw-time drift check marks "name*"). ctl_mode_pick latches
+     * after the user rotates/clicks the picker: only then does the
+     * row show the candidate after the arrow — startup shows the bare
+     * state. */
     char ctl_applied[MODE_NAME_MAX];
     unsigned ctl_mode_mask;
     mode_snap_t ctl_snap;
+    bool ctl_mode_pick;
 
     /* fan editor */
     int fe_gpu, fe_sel, fe_input; /* fe_input: 0 none, 1 temp, 2 pwm */

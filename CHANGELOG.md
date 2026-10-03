@@ -3,11 +3,13 @@
 ## 2026-10-03 — CONTROLS Mode row shows the applied mode and its drift
 
 - The Mode row used to show only the rotated picker candidate. It now
-  tracks the applied mode: `- → name` before any apply (the candidate
-  after the dash), `name` while the system still matches the apply-time
-  snapshot, `name*` once a tracked field drifted, and `name* → other`
-  when the picker rotates to another candidate — the same "live →
-  staged" language the POWER view already uses.
+  tracks the applied mode: `-` before any apply, `name` while the
+  system still matches the apply-time snapshot, `name*` once a tracked
+  field drifted. The "live → candidate" arrow (`- → name`,
+  `name* → other`) appears only once the user actually touches the
+  picker — rotating with h/l or clicking the row — so startup and
+  untouched rows stay bare (same "live → staged" language the POWER
+  view already uses, without the unprompted noise).
 - Session-only snapshot (no persistence), per the resource-minimal
   request: `mode_touch_mask` parses which set-point fields the steps
   touch (profile/epp/ppt/hz/battery/kbd/cpu-boost/panel-od/nv-boost/
