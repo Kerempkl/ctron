@@ -67,6 +67,7 @@ static int cmd_fan_curve(hw_state_t *hw, const char *val, char *err, size_t errn
         errf(err, errn, "fan-curve: bad csv");
         return -1;
     }
+    hw->fan_staged = true; /* staged intent: a live refresh must not clobber */
     return 0;
 }
 

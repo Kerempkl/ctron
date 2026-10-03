@@ -664,13 +664,6 @@ int ui_run(hw_state_t *hw)
     tin_set(&g_ui.prof_name, "my-profile");
 
     hw_refresh_live(hw);
-    {
-        char dbg[160]; int off = 0;
-        for (int i = 0; i < hw->hz_count; i++)
-            off += snprintf(dbg + off, sizeof(dbg) - off, "%s%d", i ? "," : "", hw->hz_modes[i]);
-        fprintf(stderr, "DBGHZ count=%d list=[%s]\n", hw->hz_count, dbg);
-    }
-    hw_refresh_live(hw);
     settings_load(hw);
     g_ui.ctl_prof_idx = (int)hw->profile;
     g_ui.ctl_kbd_idx = (int)hw->kbd;

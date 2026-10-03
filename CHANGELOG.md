@@ -1,5 +1,71 @@
 # Changelog
 
+## 2026-10-03 — fan staging: live refresh no longer drops un-written curves
+
+- Editing a fan curve (editor nudges/add/delete, mode/profile fan-curve
+  steps, profile import, settings.ini load) now raises `hw->fan_staged`;
+  `fan_hwmon_read` skips the curve refill while it is set (the pwm*_enable
+  switches still track the hardware). Before, any `hw_refresh_live` —
+  switching to POWER, applying a mode, an Apply pass — silently
+  overwrote the in-memory curve from hwmon and the un-written edit was
+  gone.
+- `ctrl_fan_write` clears the flag after a verified write; on VERIFY
+  FAILED the staging is kept so a retry 'w' is not clobbered in between.
+- Regression flow `flow_fan_staging` in `scripts/tui_smoke.py` (runs
+  against an isolated CTRON_CONFIG; the staged edit is never written to
+  the EC). Proven to bite by mutation: with the guard removed the flow
+  fails with "staged edit lost: chip reads (39, 22), staged (40, 22)".
+  Notcurses emits diffs, so the flow keys on changed-digit runs and the
+  full chip only after the full FAN repaint.
+
+## 2026-10-03 — asusd.ron fallback reads the whole file
+
+- `ut_read_file` reads the FIRST line only (fgets). The daemon-unreachable
+  fallback in `hw_asusd_auto_read` parsed the multi-line asusd.ron with
+  it — the file's first line is just "(", so every takeover parsed as
+  off. New `ut_read_file_all()` (whole file, trailing newlines trimmed)
+  feeds the extracted pure parser `hw_asusd_ron_parse` (unit-tested:
+  armed/off/unknown/absent keys, NULL body); daemon path unchanged.
+
+## 2026-10-03 — kbd sysfs fallback writes the numeric level
+
+- `ctrl_set_kbd`'s direct-sysfs fallback wrote the name string
+  ("low"/"med") into `/sys/class/leds/asus::kbd_backlight/brightness`,
+  which takes an integer — the write always failed EINVAL, so without
+  asusctl (or with write_pref=sysfs) keyboard brightness could never be
+  set. It now writes the numeric level, matching `read_kbd`.
+
+## 2026-10-03 — mode add: clean error on a full table
+
+- `ctron mode add` appended at `modes[MODES_MAX]` when the table was
+  full — an out-of-bounds stack write (the TUI's mode editor already
+  guarded this). The 28th add on a fresh config (5 seeded modes + 27)
+  now fails with "mode table full (max 32)", exit 1.
+
+## 2026-10-03 — mode editor steps hold the full MODE_STEPS_MAX
+
+- `tinput_t.buf` was 80 bytes, so editing a mode in the settings overlay
+  silently truncated its steps to 79 characters and saved the truncated
+  value back to modes.ini (MODE_STEPS_MAX is 220). The input buffer now
+  holds the full field; display lines got snprintf precisions to match.
+
+## 2026-10-03 — debug leftovers removed
+
+- The TUI start-up printed a `DBGHZ count=...` line to stderr and ran
+  `hw_refresh_live` twice (the debug block sat between the calls) — one
+  refresh now. Also removed: the unreachable /tmp/kde-dump.txt block
+  after `return 0` in `kde_query`, and the dead `sel`/`dot` remnants in
+  the profiles panel.
+
+## 2026-10-03 — warning-free build restored on gcc 16
+
+- gcc 16.2.1 emits five `-Wformat-truncation` warnings in
+  editor_daeboard.c (all safe-at-runtime snprintf truncations, but the
+  warning-free rule is a rule) and `_GNU_SOURCE redefined` in
+  test_core.c (the Makefile already passes -D_GNU_SOURCE). Fixed with
+  precision specifiers / an include guard; semantics unchanged. The
+  NixOS gcc on FA507NVR should be silent again too.
+
 ## 2026-10-02 — topbar focus chips: fit + legibility
 
 - The `1:profiles … 4:telemetry` chips were placed at a fixed

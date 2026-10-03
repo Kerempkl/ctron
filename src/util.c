@@ -33,6 +33,26 @@ int ut_read_file(const char *path, char *out, size_t n)
     return 0;
 }
 
+int ut_read_file_all(const char *path, char *out, size_t n)
+{
+    if (!path || !out || n == 0)
+        return -1;
+    FILE *f = fopen(path, "r");
+    if (!f)
+        return -1;
+    size_t off = 0;
+    out[0] = '\0';
+    while (off + 1 < n && fgets(out + off, (int)(n - off), f))
+        off += strlen(out + off);
+    fclose(f);
+    if (off == 0)
+        return -1;
+    out[off] = '\0';
+    while (off > 0 && (out[off - 1] == '\n' || out[off - 1] == '\r'))
+        out[--off] = '\0';
+    return 0;
+}
+
 int ut_read_int(const char *path)
 {
     char buf[64];

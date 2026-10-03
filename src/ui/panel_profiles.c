@@ -53,7 +53,7 @@ void panel_profiles_draw(struct ncplane *n, const rect_t *r)
 
     if (g_ui.prof_typing) {
         char line[128];
-        snprintf(line, sizeof(line), "name: %s_", g_ui.prof_name.buf);
+        snprintf(line, sizeof(line), "name: %.100s_", g_ui.prof_name.buf);
         ui_putln(n, x, r->y + 1, w, line, pal->accent, true);
         ui_putln(n, x, r->y + 2, w, "Enter: save · Esc: cancel", pal->muted, false);
     } else {
@@ -73,14 +73,8 @@ void panel_profiles_draw(struct ncplane *n, const rect_t *r)
         char label[64];
         snprintf(label, sizeof(label), "%s%s", i == g_ui.prof_sel ? "▸ " : "  ",
                  g_ui.profs[i]);
-        bool sel = (i == g_ui.prof_sel && g_ui.focus == FOC_PROFILES);
         ui_row(n, x, y, w, label, "", false);
-        (void)sel;
         tgt_register(x, y, w, 1, TGT(TGT_PANEL_PROFILES, ACT_PL_ITEM + i));
-        if (i == g_ui.prof_sel) {
-            char dot[8] = "●";
-            (void)dot;
-        }
         shown++;
     }
     if (g_ui.prof_n == 0)

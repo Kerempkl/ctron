@@ -246,7 +246,7 @@ static void draw_modeedit(struct ncplane *n, const rect_t *r)
              pal->muted, false);
 
     char name_l[96], steps_l[256];
-    snprintf(name_l, sizeof(name_l), "Name : %s%s",
+    snprintf(name_l, sizeof(name_l), "Name : %.80s%s",
              g_ui.md_name.buf, g_ui.md_field == 0 ? "_" : "");
     snprintf(steps_l, sizeof(steps_l), "Steps: %s%s",
              g_ui.md_steps.buf, g_ui.md_field == 1 ? "_" : "");

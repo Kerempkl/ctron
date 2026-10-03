@@ -202,9 +202,10 @@ static int load_file(void)
 			if (!e || nkeys >= DBE_KEYS)
 				continue;
 			*e = 0;
-			cur = &keys[nkeys++];
-			memset(cur, 0, sizeof *cur);
-			snprintf(cur->name, sizeof cur->name, "%s", s + 1);
+		cur = &keys[nkeys++];
+		memset(cur, 0, sizeof *cur);
+		snprintf(cur->name, sizeof cur->name, "%.*s",
+			 (int)sizeof cur->name - 1, s + 1);
 			continue;
 		}
 		if (!cur)
@@ -473,7 +474,7 @@ static void paint_color(char *slot, const char *hex)
 
 	if (op_index(slot) != 0)
 		ms = ms ? ms : 0;
-	snprintf(slot, 48, "color %s %d", hex, ms);
+	snprintf(slot, 48, "color %.6s %d", hex, ms);
 	dirty = 1;
 }
 
@@ -870,7 +871,7 @@ void editor_daeboard_draw(struct ncplane *pl, const rect_t *r)
 	k = &keys[keyi];
 	y = r->y + r->h - 3;
 	if (focus == 3) {
-		snprintf(line, sizeof line, "hex %s_", typed.buf);
+		snprintf(line, sizeof line, "hex %.140s_", typed.buf);
 		ui_putln(pl, x, y, w, line, pal->accent, true);
 	} else {
 		snprintf(line, sizeof line, "ctron  %s", k->ctron[0] ? k->ctron : "—");
@@ -973,14 +974,19 @@ void editor_daeboard_key(uint32_t key)
 		if (key == NCKEY_ENTER || key == '\r' || key == '\n') {
 			if (keyi >= 0 && keyi < nkeys) {
 				if (typing_ctron == 1) {
-					snprintf(keys[keyi].ctron, sizeof keys[keyi].ctron, "%s", typed.buf);
+					snprintf(keys[keyi].ctron, sizeof keys[keyi].ctron,
+						 "%.*s", (int)sizeof keys[keyi].ctron - 1,
+						 typed.buf);
 				} else if (typing_ctron == 2) {
 					if (typed.buf[0])
-						snprintf(keys[keyi].name, sizeof keys[keyi].name, "%s", typed.buf);
+						snprintf(keys[keyi].name, sizeof keys[keyi].name,
+							 "%.*s", (int)sizeof keys[keyi].name - 1,
+							 typed.buf);
 				} else if (step >= 0) {
 					steps_of(&keys[keyi], &n);
 					if (step < n)
-						snprintf(step_at(&keys[keyi], step), 48, "%s", typed.buf);
+						snprintf(step_at(&keys[keyi], step), 48,
+							 "%.*s", 47, typed.buf);
 				}
 				dirty = 1;
 			}

@@ -727,11 +727,11 @@ static void draw_power(struct ncplane *n, const rect_t *r)
         pw_row_range(g_ui.pw_sel, rng, sizeof rng, "");
         if (rng[0])
             snprintf(line, sizeof line,
-                     "set %s (%s): %s_ · Enter stages · Esc cancels",
+                     "set %s (%s): %.60s_ · Enter stages · Esc cancels",
                      labels[g_ui.pw_sel], rng, g_ui.pw_input.buf);
         else
             snprintf(line, sizeof line,
-                     "set %s: %s_ · Enter stages · Esc cancels",
+                     "set %s: %.60s_ · Enter stages · Esc cancels",
                      labels[g_ui.pw_sel], g_ui.pw_input.buf);
         ui_putln(n, x, r->y + 1, w, line, pal->accent, true);
     } else {
@@ -850,9 +850,9 @@ static void draw_light(struct ncplane *n, const rect_t *r)
     static const char *const KBDS[] = { "off", "low", "med", "high" };
     char hexline[128];
     if (g_ui.lt_hex_active)
-        snprintf(hexline, sizeof(hexline), "#%s_", g_ui.lt_hex.buf);
+        snprintf(hexline, sizeof(hexline), "#%.90s_", g_ui.lt_hex.buf);
     else
-        snprintf(hexline, sizeof(hexline), "#%s (type 0-9a-f, Enter applies)",
+        snprintf(hexline, sizeof(hexline), "#%.90s (type 0-9a-f, Enter applies)",
                  g_ui.lt_hex.buf);
 
     static time_t probed;

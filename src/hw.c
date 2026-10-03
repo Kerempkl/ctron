@@ -282,8 +282,13 @@ static void fan_hwmon_read(hw_state_t *hw)
         return;
     }
     hw->has_fan_curve = true;
-    fan_read_one(base, "pwm1", &hw->fan_cpu);
-    fan_read_one(base, "pwm2", &hw->fan_gpu);
+    /* staged edits are the user's intent: a live refresh must not
+     * clobber them with the hwmon table; the enable switches still
+     * track the hardware */
+    if (!hw->fan_staged) {
+        fan_read_one(base, "pwm1", &hw->fan_cpu);
+        fan_read_one(base, "pwm2", &hw->fan_gpu);
+    }
     char p[300];
     snprintf(p, sizeof(p), "%s/pwm1_enable", base);
     hw->fan_cpu_on = (ut_read_int(p) == 2);
@@ -806,36 +811,19 @@ int hw_asusd_auto_profile(int ac)
     return asusd_profile_from_get_out(out, ac);
 }
 
-void hw_asusd_auto_read(hw_state_t *hw)
+/* Pure: parse the asusd.ron body for the power-source profile takeover.
+ * *ac and *bat: -1 auto-switching off, 0..2 the hw_profile_t, -2 unknown.
+ * Order matters: the change_ keys contain the profile keys as
+ * substrings, so they must match first. */
+void hw_asusd_ron_parse(const char *text, int *ac, int *bat)
 {
-    hw->asusd_ac = -2;
-    hw->asusd_bat = -2;
-
-    int fac = hw_asusd_auto_flag("ChangePlatformProfileOnAc");
-    int fbat = hw_asusd_auto_flag("ChangePlatformProfileOnBattery");
-    int pac = -2, pbat = -2;
-    if (fac == 1 || fbat == 1) {
-        char out[512] = {0};
-        if (ut_exec_raw("asusctl profile get", out, sizeof(out)) == 0) {
-            if (fac == 1)
-                pac = asusd_profile_from_get_out(out, 1);
-            if (fbat == 1)
-                pbat = asusd_profile_from_get_out(out, 0);
-        }
-    }
-    if ((fac == 0 || pac >= 0) && (fbat == 0 || pbat >= 0)) {
-        hw->asusd_ac = fac == 0 ? -1 : pac;
-        hw->asusd_bat = fbat == 0 ? -1 : pbat;
-        return;                     /* daemon answered: authoritative */
-    }
-    if (fac != -2 || fbat != -2)
-        return;                     /* partial answer: stay unknown */
-
-    /* no daemon: fall back to the config file (values may be stale
-     * right after a write — asusd flushes asynchronously) */
-    char buf[4096];
-    if (ut_read_file("/etc/asusd/asusd.ron", buf, sizeof(buf)) != 0)
+    *ac = -1;
+    *bat = -1;
+    if (!text)
         return;
+    char buf[4096];
+    snprintf(buf, sizeof(buf), "%s", text);
+
     bool ac_change = false, bat_change = false;
     int ac_prof = -2, bat_prof = -2;
     char *line = buf;
@@ -870,8 +858,43 @@ void hw_asusd_auto_read(hw_state_t *hw)
         }
         line = nl ? nl + 1 : NULL;
     }
-    hw->asusd_ac = ac_change ? (ac_prof >= 0 ? ac_prof : -2) : -1;
-    hw->asusd_bat = bat_change ? (bat_prof >= 0 ? bat_prof : -2) : -1;
+    *ac = ac_change ? (ac_prof >= 0 ? ac_prof : -2) : -1;
+    *bat = bat_change ? (bat_prof >= 0 ? bat_prof : -2) : -1;
+}
+
+void hw_asusd_auto_read(hw_state_t *hw)
+{
+    hw->asusd_ac = -2;
+    hw->asusd_bat = -2;
+
+    int fac = hw_asusd_auto_flag("ChangePlatformProfileOnAc");
+    int fbat = hw_asusd_auto_flag("ChangePlatformProfileOnBattery");
+    int pac = -2, pbat = -2;
+    if (fac == 1 || fbat == 1) {
+        char out[512] = {0};
+        if (ut_exec_raw("asusctl profile get", out, sizeof(out)) == 0) {
+            if (fac == 1)
+                pac = asusd_profile_from_get_out(out, 1);
+            if (fbat == 1)
+                pbat = asusd_profile_from_get_out(out, 0);
+        }
+    }
+    if ((fac == 0 || pac >= 0) && (fbat == 0 || pbat >= 0)) {
+        hw->asusd_ac = fac == 0 ? -1 : pac;
+        hw->asusd_bat = fbat == 0 ? -1 : pbat;
+        return;                     /* daemon answered: authoritative */
+    }
+    if (fac != -2 || fbat != -2)
+        return;                     /* partial answer: stay unknown */
+
+    /* no daemon: fall back to the config file (values may be stale
+     * right after a write — asusd flushes asynchronously). The file is
+     * multi-line: read it whole, a first-line read saw only "(" and
+     * reported every takeover as off. */
+    char buf[4096];
+    if (ut_read_file_all("/etc/asusd/asusd.ron", buf, sizeof(buf)) != 0)
+        return;
+    hw_asusd_ron_parse(buf, &hw->asusd_ac, &hw->asusd_bat);
 }
 
 int hw_asusd_enforced(const hw_state_t *hw)

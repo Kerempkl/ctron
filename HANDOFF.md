@@ -1,6 +1,8 @@
 # Ctron Handoff
 
-Latest session — **2026-10-02** **Kerempkl + GLM / FA608PP** (two
+Latest session — **2026-10-03** **GLM / FA608PP** (full code audit +
+P1–P3 fixes, see below). Before that **2026-10-02** **Kerempkl + GLM /
+FA608PP** (two
 rounds: cpufreq writes + per-core indexing on real kernel cpu ids,
 then the CORE LIMITS physical-core/CCD view). Before that
 **2026-10-01** (asusd power-source profile takeover managed from
@@ -14,6 +16,49 @@ clock-window refresh), the **2026-09-24** POWER round, and
 **2026-09-23** in parallel: **Grok / FA507NVR / NixOS** (daeboard
 editor, signed below). **Read `NEXT.md` first** — it carries the
 prioritized todo list and the distilled session lessons.
+
+## Session 2026-10-03 — full code audit + P1–P3 fixes (GLM, FA608PP)
+
+- Full audit first: ~10.5k lines read end to end (core + ui + display +
+  tests + scripts), make/test/tuitest baselined. Findings handed over in
+  chat as a P1–P4 report; the user picked the P1+P2+P3 scope and the
+  `fan_staged` flag approach for the fan fix. Nothing else touched.
+- **P1 asusd.ron fallback**: `ut_read_file` is first-line-only (fgets);
+  the daemon-unreachable fallback parsed the 51-line asusd.ron with it —
+  first line is "(", so takeovers always parsed as off. New
+  `ut_read_file_all()` + pure `hw_asusd_ron_parse()` (unit-tested).
+- **P1 kbd sysfs fallback**: wrote "low"/"med" strings into a brightness
+  node that takes an integer — always FAILED without asusctl. Numeric
+  now.
+- **P1 fan staging**: editor edits live in `hw->fan_cpu/fan_gpu` and any
+  `hw_refresh_live` (`fan_hwmon_read`) clobbered them — switching to
+  POWER, applying a mode, an Apply pass silently dropped un-written
+  curve edits. New `fan_staged` flag: editor/mode-steps/profile-import/
+  settings-load raise it, `fan_hwmon_read` skips the refill while set,
+  `ctrl_fan_write` clears it after a verified write (kept on VERIFY
+  FAILED so a retry survives).
+- **P2**: `mode add` OOB stack write on a full table → clean error (the
+  table starts with 5 seeded modes, so the guard bites at the 28th add);
+  `tinput_t.buf` 80 → MODE_STEPS_MAX (mode-editor steps were silently
+  truncated to 79 chars on save), display snprintfs got precisions.
+- **P3**: gcc 16.2.1 warnings (5× -Wformat-truncation in
+  editor_daeboard.c — HANDOFF's earlier "warning-free" claims predate
+  this gcc — + test_core `_GNU_SOURCE` redefine) fixed via precision +
+  guard; `DBGHZ` stderr line + double `hw_refresh_live` at TUI start
+  removed; kde_query dead /tmp dump and panel_profiles dead code
+  removed.
+- Tests: `check_asusd_ron_parse` + `check_read_file_all` in test_core;
+  `flow_fan_staging` in tui_smoke (isolated CTRON_CONFIG — real
+  settings.ini and EC untouched). Mutation-proven: with the guard
+  removed the flow fails with "staged edit lost". Notcurses emits frame
+  diffs — the flow keys on changed-digit runs and reads the full chip
+  only after the full FAN repaint.
+- **Arcioth note**: editor_daeboard.c got snprintf precision specifiers
+  only — no behavior change; the NixOS gcc warnings should clear too.
+- Verified: `make` zero warnings, `make test`, `make tuitest` (6 flows
+  green), `--doctor`/`--status`, the 33rd `mode add` rejects cleanly,
+  `make install`. All uncommitted — suggested commit split is in the
+  handover message.
 
 ## Session 2026-10-02 — topbar focus chips fix (Kerempkl + GLM, FA608PP)
 

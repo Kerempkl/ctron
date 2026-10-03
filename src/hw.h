@@ -109,6 +109,10 @@ typedef struct {
     fan_curve_t fan_cpu, fan_gpu;
     fan_curve_t fan_cpu_stock, fan_gpu_stock;
     bool fan_cpu_on, fan_gpu_on;
+    /* true while the in-memory curves hold edits newer than the hwmon
+     * table (fan editor, mode/profile steps, ini load): a live refresh
+     * must not overwrite them. Cleared by ctrl_fan_write on success. */
+    bool fan_staged;
 
     /* display */
     int hz_cur;            /* 0 unknown */
@@ -140,6 +144,11 @@ void hw_asusd_auto_read(hw_state_t *hw);
  * and != hw->profile) means a manual profile choice gets reverted on
  * the next power event. */
 int hw_asusd_enforced(const hw_state_t *hw);
+
+/* Pure: parse the asusd.ron body for the power-source profile takeover.
+ * *ac and *bat: -1 auto-switching off, 0..2 the hw_profile_t, -2 unknown
+ * (change flag on but the profile name unreadable). */
+void hw_asusd_ron_parse(const char *buf, int *ac, int *bat);
 
 /* fan-curve hwmon base through the path cache (the write layer uses
  * it so reads and writes can never disagree) */

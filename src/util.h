@@ -6,9 +6,13 @@
 
 /* ---- file / sysfs access -------------------------------------------- */
 
-/* Read a whole (small) file, trimmed of the trailing newline.
+/* Read the FIRST LINE of a file, trimmed of the trailing newline.
  * Returns 0 on success, -1 if the file cannot be read. */
 int ut_read_file(const char *path, char *out, size_t n);
+
+/* Read a WHOLE file (up to n-1 bytes), trailing newline(s) trimmed.
+ * Returns 0 on success, -1 on error or an empty file. */
+int ut_read_file_all(const char *path, char *out, size_t n);
 
 /* Read an integer from a file (sysfs semantics). Returns -1 on failure. */
 int ut_read_int(const char *path);

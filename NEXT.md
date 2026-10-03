@@ -104,6 +104,28 @@
   kurulum), **daeboard control**. Bunlar "later plans" — ctron çekirdeği
   değil ekleri; çakışmasın diye sıradaki işlere önce 1-6 girsin.
 
+## Denetimden kalan (P4 — 2026-10-03 tam kod denetiminden, öncelik sırasıyla)
+
+1. **util**: `ut_write_file` hata yolunda `fclose` çağrılmıyor
+   (fwrite/fflush kısa devresi atlıyor) → fd sızıntısı; tek satırlık
+   düzeltme. `ut_priv_write` tek-tırnak sanitizasyonu yok (mevcut
+   çağıranlar sabit yol + sayısal değer; savunma olarak `'` reddi).
+2. **daeboard**: `exchange()` recv timeout'suz — bağlayıp cevap
+   vermeyen daemon `db_up()`'ta TUI'yi sonsuz bloklar (SO_RCVTIMEO ~2 sn).
+   `db_action_in`: `strncmp(s,"ctron",5)` "ctronx=" öneklerini de
+   eşler; eşleşen section'daki '='-siz satır tüm aramayı iptal eder.
+3. **control dürüstlük**: `ctrl_fan_write` pwm1/2_enable yazımının
+   dönüş değerini kontrol etmiyor; hwmon yokken bile "fan curves
+   written" loglanıyor (aslında EC'ye yazılmadı — "asusctl only" ayrımı).
+4. **ui kozmetik**: `ui_row`'un `%-*s` byte-padding'i '▸' (3 byte/1
+   hücre) yüzünden seçili satırda value kolonunu 2 hücre sola kaydırıyor.
+   Dar terminalde topbar çipleri ~53 kolon altında negatif x'ten
+   başlıyor; draw_light swatch sabiti x+40 çerçeveyi ezebiliyor.
+5. **repo**: `scripts/__pycache__/` track ediliyor ve .gitignore'da
+   yok — `__pycache__/` ekle + `git rm -r --cached scripts/__pycache__`.
+6. **display (parked)**: kde/hypr mod listesi yalnızca ilk monitörü
+   görüyor (HDMI-A-1 kalemi — zaten açık).
+
 ## Teknik dersler (tekrar etme!)
 
 - TUI'de `setlocale(LC_ALL,"")` sonrası **`setlocale(LC_NUMERIC,"C")`**

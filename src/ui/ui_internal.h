@@ -36,7 +36,9 @@ typedef enum {
     WSV_COUNT
 } ws_view_t;
 
-typedef struct { char buf[80]; size_t len; } tinput_t;
+/* buf holds the longest editable field (mode steps = MODE_STEPS_MAX);
+ * tin_* code keys off sizeof, so instances just cost a bit more. */
+typedef struct { char buf[MODE_STEPS_MAX]; size_t len; } tinput_t;
 
 typedef struct ui_ctx {
     hw_state_t *hw;

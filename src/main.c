@@ -246,6 +246,10 @@ static int cmd_mode(int argc, char **argv, hw_state_t *hw)
             fprintf(stderr, "mode exists: %s (delete it first)\n", argv[3]);
             return 1;
         }
+        if (n >= MODES_MAX) {
+            fprintf(stderr, "ctron: mode table full (max %d)\n", MODES_MAX);
+            return 1;
+        }
         char steps[MODE_STEPS_MAX] = {0};
         for (int i = 4; i < argc; i++) {
             strncat(steps, argv[i], sizeof(steps) - strlen(steps) - 2);

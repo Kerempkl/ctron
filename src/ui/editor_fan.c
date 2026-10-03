@@ -40,6 +40,14 @@ static fan_curve_t *cur_curve(void)
     return g_ui.fe_gpu ? &g_ui.hw->fan_gpu : &g_ui.hw->fan_cpu;
 }
 
+/* any curve mutation marks the in-memory table as newer than the
+ * hwmon one, so a live refresh will not clobber it (ctrl_fan_write
+ * clears the flag after a verified write) */
+static void fan_touch(void)
+{
+    g_ui.hw->fan_staged = true;
+}
+
 static int px(const fan_curve_t *fc, int i)
 {
     int t = ut_clamp_i(fc->temp_c[i], FAN_TMIN, FAN_TMAX);
@@ -230,6 +238,7 @@ static void apply_xy(void)
     g_ui.fe_sel = fan_set_point(cur_curve(), g_ui.fe_sel, t, p);
     fill_xy_bufs();
     g_ui.fe_input = 0;
+    fan_touch();
     ut_log("fan pt %d set", g_ui.fe_sel + 1);
 }
 
@@ -283,6 +292,7 @@ void editor_fan_key(uint32_t key)
         g_ui.fe_sel = fan_add_point(fc, t, p);
         fill_xy_bufs();
         g_ui.fe_input = 1;
+        fan_touch();
         break;
     }
     case '-':
@@ -290,6 +300,7 @@ void editor_fan_key(uint32_t key)
     case 'X':
         g_ui.fe_sel = fan_del_point(fc, g_ui.fe_sel);
         fill_xy_bufs();
+        fan_touch();
         break;
     case 'w':
     case 'W':
@@ -318,6 +329,7 @@ void editor_fan_key(uint32_t key)
         if (g_ui.fe_sel >= 0) {
             g_ui.fe_sel = fan_nudge_point(fc, g_ui.fe_sel, -1, 0);
             fill_xy_bufs();
+            fan_touch();
         }
         break;
     case 'l':
@@ -325,6 +337,7 @@ void editor_fan_key(uint32_t key)
         if (g_ui.fe_sel >= 0) {
             g_ui.fe_sel = fan_nudge_point(fc, g_ui.fe_sel, 1, 0);
             fill_xy_bufs();
+            fan_touch();
         }
         break;
     case 'j':
@@ -332,6 +345,7 @@ void editor_fan_key(uint32_t key)
         if (g_ui.fe_sel >= 0) {
             g_ui.fe_sel = fan_nudge_point(fc, g_ui.fe_sel, 0, -5);
             fill_xy_bufs();
+            fan_touch();
         }
         break;
     case 'k':
@@ -339,6 +353,7 @@ void editor_fan_key(uint32_t key)
         if (g_ui.fe_sel >= 0) {
             g_ui.fe_sel = fan_nudge_point(fc, g_ui.fe_sel, 0, 5);
             fill_xy_bufs();
+            fan_touch();
         }
         break;
     case NCKEY_ENTER:
@@ -383,11 +398,13 @@ void editor_fan_act(int id, int mx, int my)
             g_ui.fe_sel = fan_add_point(fc, t, p);
             fill_xy_bufs();
             g_ui.fe_input = 1;
+            fan_touch();
             return;
         }
         case ACT_FE_DEL:
             g_ui.fe_sel = fan_del_point(fc, g_ui.fe_sel);
             fill_xy_bufs();
+            fan_touch();
             return;
         case ACT_FE_WRITE:
             ui_flash("applying fan curve...");
@@ -447,13 +464,16 @@ void editor_fan_act(int id, int mx, int my)
         if (g_ui.fe_sel == near) {
             /* second click on the selected point moves it */
             g_ui.fe_sel = fan_set_point(fc, near, t, p);
+            fan_touch();
         } else {
             g_ui.fe_sel = near;
         }
     } else if (fc->n < FAN_POINTS) {
         g_ui.fe_sel = fan_add_point(fc, t, p);
+        fan_touch();
     } else {
         g_ui.fe_sel = fan_set_point(fc, g_ui.fe_sel, t, p);
+        fan_touch();
     }
     fill_xy_bufs();
 }

@@ -18,10 +18,12 @@ import os
 import pty
 import re
 import select
+import shutil
 import signal
 import subprocess
 import sys
 import termios
+import tempfile
 import threading
 import time
 
@@ -328,6 +330,75 @@ def flow_fan_buttons():
         s.close()
 
 
+def last_chip(buf):
+    """Last full "1:temp,pwm" point chip in the byte stream, as a
+    (temp, pwm) tuple. Full chips only appear in whole-view repaints
+    (initial paint, view switches) — notcurses otherwise emits diffs
+    with unchanged cells (the "1:" prefix) omitted."""
+    m = re.findall(rb"1:(\d+),(\d+)", buf)
+    return (int(m[-1][0]), int(m[-1][1])) if m else None
+
+
+def flow_fan_staging():
+    """Regression: a staged fan-curve edit must survive the POWER view
+    round-trip — ws_set_view(POWER) runs hw_refresh_live, which used to
+    overwrite the in-memory curve from hwmon and silently drop the edit.
+    Runs against an isolated CTRON_CONFIG so the real settings.ini and
+    the real EC stay untouched (the edit is never written)."""
+    tmpcfg = tempfile.mkdtemp(prefix="ctron-tui-")
+    oldcfg = os.environ.get("CTRON_CONFIG")
+    os.environ["CTRON_CONFIG"] = tmpcfg
+    s = None
+    try:
+        s = Session("fan_staging")
+        if not s.wait_render(6.0):
+            fail("fan_staging", "no frame rendered")
+            return
+        t0 = last_chip(s.bytes_since(0))   # initial full-screen paint
+        if t0 is None:
+            fail("fan_staging", "no point chip found in the frame")
+            return
+        m = s.mark()
+        s.key(b"3")                # focus workspace (FAN view by default)
+        s.key(b"l")                # nudge point 1 temp +1 (stages an edit)
+        time.sleep(0.5)
+        # the chip diff rewrites only the changed temp digits (the "1:"
+        # prefix and ",pwm" tail are unchanged), so the bare number is
+        # what shows up next to the graph updates
+        if f"{t0[0] + 1}".encode() not in s.bytes_since(m):
+            fail("fan_staging", f"'l' nudge produced no visible change (expected {t0[0] + 1} in the diff)")
+            return
+        ok("fan_staging", f"point 1 staged {t0[0]} -> {t0[0] + 1}")
+        m2 = s.mark()
+        s.key(b"P")                # POWER view: ws_set_view -> hw_refresh_live
+        if not s.wait_for(b"Platform profile", since=m2, timeout=15.0):
+            fail("fan_staging", "POWER view did not render")
+            return
+        m3 = s.mark()
+        s.key(b"F")                # back to FAN: full interior repaint
+        if not s.wait_for(b"FAN CURVE", since=m3, timeout=15.0):
+            fail("fan_staging", "did not return to the FAN view")
+            return
+        time.sleep(0.5)
+        t2 = last_chip(s.bytes_since(m3))
+        if t2 == (t0[0] + 1, t0[1]):
+            ok("fan_staging", "staged edit survived the POWER round-trip")
+        else:
+            fail("fan_staging", f"staged edit lost: chip reads {t2!r}, staged {(t0[0] + 1, t0[1])}")
+        s.key(b"h")                # undo the nudge before quitting
+        rc = s.quit_expect0()
+        if rc != 0:
+            fail("fan_staging", f"q exit {rc!r}")
+    finally:
+        if s is not None:
+            s.close()
+        if oldcfg is None:
+            os.environ.pop("CTRON_CONFIG", None)
+        else:
+            os.environ["CTRON_CONFIG"] = oldcfg
+        shutil.rmtree(tmpcfg, ignore_errors=True)
+
+
 def main():
     if not os.access(BIN, os.X_OK):
         print(f"no executable at {BIN} (run make first)")
@@ -335,7 +406,7 @@ def main():
     print(f"tui_smoke: {BIN} on {ROWS}x{COLS} pty")
     flows = [flow_open_quit, flow_settings_overlay,
              flow_power_stage_apply, flow_corefreq_overlay,
-             flow_fan_buttons]
+             flow_fan_buttons, flow_fan_staging]
     for f in flows:
         f()
     if failures:

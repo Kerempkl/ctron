@@ -533,9 +533,13 @@ int ctrl_set_kbd(hw_state_t *hw, hw_kbd_t lvl)
         snprintf(cmd, sizeof(cmd), "asusctl leds set %s", hw_kbd_name(lvl));
         rc = ut_exec(cmd, NULL, 0);
     }
-    if (rc != 0)
-        rc = ut_priv_write("/sys/class/leds/asus::kbd_backlight/brightness",
-                           hw_kbd_name(lvl));
+    if (rc != 0) {
+        /* the leds node takes an integer level, not the name — a
+         * name write fails EINVAL and the fallback never worked */
+        char val[8];
+        snprintf(val, sizeof(val), "%d", (int)lvl);
+        rc = ut_priv_write("/sys/class/leds/asus::kbd_backlight/brightness", val);
+    }
     if (rc == 0) {
         hw->kbd = lvl;
         ut_log("kbd backlight: %s", hw_kbd_name(lvl));
@@ -750,17 +754,22 @@ int ctrl_fan_write(hw_state_t *hw)
     }
 
     if (rc == 0) {
-        if (vok_cpu == FAN_POINTS && vok_gpu == FAN_POINTS)
+        if (vok_cpu == FAN_POINTS && vok_gpu == FAN_POINTS) {
             ut_log("fan curves written (cpu %s, gpu %s) · verified %d/%d + %d/%d pts",
                    hw->fan_cpu_on ? "on" : "off", hw->fan_gpu_on ? "on" : "off",
                    vok_cpu, FAN_POINTS, vok_gpu, FAN_POINTS);
-        else if (vok_cpu >= 0)
+            hw->fan_staged = false; /* written and verified: not staged */
+        } else if (vok_cpu >= 0) {
+            /* read-back mismatch: keep the staging so a retry 'w' does
+             * not get clobbered by the hwmon table in between */
             ut_log("fan curves written (cpu %s, gpu %s) · VERIFY FAILED: cpu %d/%d, gpu %d/%d pts",
                    hw->fan_cpu_on ? "on" : "off", hw->fan_gpu_on ? "on" : "off",
                    vok_cpu, FAN_POINTS, vok_gpu, FAN_POINTS);
-        else
+        } else {
             ut_log("fan curves written (cpu %s, gpu %s)",
                    hw->fan_cpu_on ? "on" : "off", hw->fan_gpu_on ? "on" : "off");
+            hw->fan_staged = false; /* no hwmon: nothing would clobber */
+        }
     } else {
         ut_log("fan curves: sysfs write FAILED (needs root; no passwordless sudo)");
     }

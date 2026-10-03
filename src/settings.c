@@ -138,6 +138,8 @@ int settings_load(hw_state_t *hw)
         fan_from_csv(&hw->fan_cpu, ct, cp);
     if (gt[0] && gp[0])
         fan_from_csv(&hw->fan_gpu, gt, gp);
+    if ((ct[0] && cp[0]) || (gt[0] && gp[0]))
+        hw->fan_staged = true; /* ini curves are the session's starting state */
     return 0;
 }
 

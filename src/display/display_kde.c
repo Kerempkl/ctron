@@ -110,7 +110,6 @@ static int kde_query(char *buf, size_t n, char *name, size_t name_n,
         return -1;
     *mode_count = kde_parse_modes(buf, modes, max_modes);
     return 0;
-    { FILE *df = fopen("/tmp/kde-dump.txt", "w"); if (df) { fwrite(buf, 1, strlen(buf), df); fclose(df); } }
 }
 
 /* Offline parser entry point for tests (no kscreen-doctor involved). */

@@ -323,12 +323,12 @@ void editor_corefreq_draw(struct ncplane *n, const rect_t *r)
                 snprintf(lab, sizeof lab, "%s", cf_group_label(g));
             else
                 cf_core_label(k, lab, sizeof lab);
-            snprintf(line, sizeof(line), "%s MHz: %s_ · Enter stages · Esc cancels",
+            snprintf(line, sizeof(line), "%s MHz: %.63s_ · Enter stages · Esc cancels",
                      lab, g_ui.cf_input.buf);
         } else {
             int id = (g_ui.cf_sel >= 0 && g_ui.cf_sel < hw->cpu_n)
                          ? hw->cpu_ids[g_ui.cf_sel] : 0;
-            snprintf(line, sizeof(line), "cpu %d MHz: %s_ · Enter stages · Esc cancels",
+            snprintf(line, sizeof(line), "cpu %d MHz: %.63s_ · Enter stages · Esc cancels",
                      id, g_ui.cf_input.buf);
         }
         ui_putln(n, x, r->y + 1, w, line, pal->accent, true);

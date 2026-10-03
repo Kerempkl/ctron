@@ -207,6 +207,7 @@ int profile_import(const char *name, hw_state_t *hw, char *err, size_t errn)
         fan_from_csv(&hw->fan_gpu, fg_t, fg_p);
     hw->fan_cpu_on = fan_cpu_on;
     hw->fan_gpu_on = fan_gpu_on;
+    hw->fan_staged = true; /* applied curves are not written to the EC yet */
 
     if (failed && err && errn)
         snprintf(err, errn, "%d step(s) failed (see log)", failed);

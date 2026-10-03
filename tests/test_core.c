@@ -1,4 +1,6 @@
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -311,6 +313,87 @@ static void check_asusd_enforced(void)
     CHECK(hw_asusd_enforced(&hw) == HW_PERFORMANCE, "conflict visible");
 }
 
+static void check_asusd_ron_parse(void)
+{
+    int ac = 9, bat = 9;
+
+    /* both takeovers armed with their profiles */
+    hw_asusd_ron_parse(
+        "(\n"
+        "    change_platform_profile_on_ac: true,\n"
+        "    change_platform_profile_on_battery: true,\n"
+        "    platform_profile_on_ac: Performance,\n"
+        "    platform_profile_on_battery: Quiet,\n"
+        ")\n", &ac, &bat);
+    CHECK(ac == HW_PERFORMANCE, "ron ac armed");
+    CHECK(bat == HW_QUIET, "ron bat armed");
+
+    /* AC off, battery armed — off means -1, not unknown */
+    hw_asusd_ron_parse(
+        "(\n"
+        "    change_platform_profile_on_ac: false,\n"
+        "    change_platform_profile_on_battery: true,\n"
+        "    platform_profile_on_battery: Balanced,\n"
+        ")\n", &ac, &bat);
+    CHECK(ac == -1, "ron ac off");
+    CHECK(bat == HW_BALANCED, "ron bat armed 2");
+
+    /* no takeover keys at all: both off */
+    hw_asusd_ron_parse("(\n    charge_control_end_threshold: 70,\n)\n", &ac, &bat);
+    CHECK(ac == -1 && bat == -1, "ron no keys -> off");
+
+    /* armed but the profile name is unreadable: unknown, not off */
+    hw_asusd_ron_parse(
+        "(\n"
+        "    change_platform_profile_on_ac: true,\n"
+        "    platform_profile_on_ac: Whatever,\n"
+        ")\n", &ac, &bat);
+    CHECK(ac == -2, "ron unknown profile");
+
+    /* NULL body: off, no crash */
+    hw_asusd_ron_parse(NULL, &ac, &bat);
+    CHECK(ac == -1 && bat == -1, "ron null body");
+}
+
+static void check_read_file_all(void)
+{
+    char tmp[] = "/tmp/ctron2-test-XXXXXX";
+    CHECK(mkdtemp(tmp) != NULL, "read_all mkdtemp");
+
+    char path[300];
+    snprintf(path, sizeof(path), "%s/ron.txt", tmp);
+    FILE *f = fopen(path, "w");
+    CHECK(f != NULL, "read_all open");
+    if (f) {
+        fputs("(\n    platform_profile_on_ac: Performance,\n    b: 70,\n)\n", f);
+        fclose(f);
+    }
+
+    char buf[256];
+    CHECK(ut_read_file_all(path, buf, sizeof(buf)) == 0, "read_all ok");
+    CHECK(!strcmp(buf, "(\n    platform_profile_on_ac: Performance,\n    b: 70,\n)"),
+          "read_all whole body");
+
+    /* single-line file behaves like ut_read_file's trim */
+    FILE *g = fopen(path, "w");
+    if (g) {
+        fputs("hello\n", g);
+        fclose(g);
+    }
+    CHECK(ut_read_file_all(path, buf, sizeof(buf)) == 0, "read_all single");
+    CHECK(!strcmp(buf, "hello"), "read_all trimmed");
+
+    /* missing and empty files fail */
+    unlink(path);
+    CHECK(ut_read_file_all(path, buf, sizeof(buf)) != 0, "read_all missing");
+    f = fopen(path, "w");
+    if (f)
+        fclose(f);
+    CHECK(ut_read_file_all(path, buf, sizeof(buf)) != 0, "read_all empty");
+    unlink(path);
+    rmdir(tmp);
+}
+
 int main(void)
 {
     check_fan_csv();
@@ -323,6 +406,8 @@ int main(void)
     check_cpu_list_parse();
     check_topology_group();
     check_asusd_enforced();
+    check_asusd_ron_parse();
+    check_read_file_all();
     check_ppt_order();
 
     if (failures) {
