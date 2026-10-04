@@ -99,6 +99,13 @@ typedef struct {
     bool cpu_boost;
     hw_kbd_t kbd;
 
+    /* GPU core-clock lock (nvidia-smi -lgc), session-tracked: the
+     * driver exposes no way to read the lock back, so this is what
+     * ctron itself set. 0 = driver default. gpu_mhz_max = hardware
+     * maximum, read once at init. */
+    int gpu_clock_lock;
+    int gpu_mhz_max;
+
     /* asusd power-source profile takeover (from /etc/asusd/asusd.ron):
      * -2 unknown (asusd absent), -1 auto-switching off, else the
      * hw_profile_t asusd enforces on that power source */

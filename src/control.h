@@ -46,6 +46,16 @@ int ctrl_set_panel_od(hw_state_t *hw, bool on);
 int ctrl_set_battery_limit(hw_state_t *hw, int pct);
 int ctrl_battery_oneshot(void);
 
+/* GPU core-clock lock (nvidia-smi -lgc): an indirect watt lever —
+ * laptop power limits are locked, so capping the core clock caps the
+ * draw. Lock verified by current-clock sampling (the driver exposes
+ * no lock flag); reset is rc-verified only. */
+int ctrl_gpu_clock_lock(hw_state_t *hw, int mhz);
+int ctrl_gpu_clock_reset(hw_state_t *hw);
+/* Pure: 1 when every sample (csv) stays at or below the lock (+2 MHz
+ * grid-rounding slack). Unit-tested. */
+int ctrl_gpu_clock_ok(int mhz, const char *samples);
+
 /* ---- display ---------------------------------------------------------- */
 
 int ctrl_set_hz(hw_state_t *hw, int hz);   /* nearest supported mode */

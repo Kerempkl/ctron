@@ -51,6 +51,17 @@ Notes:
   hotkeys"); note that XKB keycodes are the Linux input code **+ 8**
   (`KEY_PROG3` = 202 → `<I210>`). Bound keys are consumed by kwin —
   `kitty +kitten show_key` and friends never see them, which is normal.
+- **GPU clock lock (FA608PP, verified 2026-10-04)**: laptop GPU power
+  limits are locked (`power.limit` reads `[N/A]`) and the nb-wmi
+  `nv_dynamic_boost` / `nv_temp_target` rows apply without any
+  observable effect on this machine. The working lever is the core
+  clock: `nvidia-smi -lgc <mhz>,<mhz>` (reset `-rgc`) — a 1400 lock
+  pins the core at 1395 MHz (driver clock grid) under load. On driver
+  615.71.09 the applications-clocks queries are deprecated and no
+  event-reason bit marks the lock, so ctron verifies by sampling
+  `clocks.current.graphics` (every sample must stay at or below the
+  lock). Needs a sudoers rule for the real path
+  (`/usr/sbin/nvidia-smi`); the persistence-mode warning is cosmetic.
 
 ## Türkçe
 
@@ -100,3 +111,15 @@ Notlar:
   **8 fazlasıdır** (`KEY_PROG3` = 202 → `<I210>`) — bu tuzağa dikkat.
   Bağlanan tuşları kwin yakar; `kitty +kitten show_key` gibi araçlar
   göremez — bu normaldir.
+- **GPU saat kilidi (FA608PP, 2026-10-04'te doğrulandı)**: laptop GPU
+  watt limitleri kilitlidir (`power.limit` = `[N/A]`) ve nb-wmi
+  `nv_dynamic_boost` / `nv_temp_target` satırları bu makinede
+  gözlemlenebilir etki vermeden uygulanır. Çalışılan manivela çekirdek
+  saatidir: `nvidia-smi -lgc <mhz>,<mhz>` (sıfırlama `-rgc`) — 1400
+  kilidi, yük altında çekirdeği 1395 MHz'de (sürücü saati ızgarası)
+  sabitler. 615.71.09 sürücüsünde applications-clocks sorguları
+  deprecated ve kilit için hiçbir event-reason biti yanmıyor; ctron
+  bu yüzden `clocks.current.graphics` örnekleyerek doğrular (her
+  örnek kilidin altında kalmalı). Gerçek yol için sudoers kuralı
+  gerekir (`/usr/sbin/nvidia-smi`); persistence-mode uyarısı
+  kozmetiktir.

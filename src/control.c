@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <unistd.h>
 
 #define NB_WMI "/sys/devices/platform/asus-nb-wmi"
 #define ARMOURY_ATTR "/sys/class/firmware-attributes/asus-armoury/attributes"
@@ -421,8 +422,19 @@ int ctrl_set_nv_boost(hw_state_t *hw, int watts)
     watts = ut_clamp_i(watts, 5, 25);
     int rc = nbwmi_write("nv_dynamic_boost", watts);
     if (rc == 0) {
-        hw->nv_boost = watts;
-        ut_log("nv dynamic boost: %d W", watts);
+        /* rule 4: read the node back. The WMI layer may report stale
+         * values right after a write, and on laptops the platform can
+         * own the effective limit — a mismatch is reported, not faked. */
+        int back = ut_read_int(NB_WMI "/nv_dynamic_boost");
+        if (back == watts) {
+            hw->nv_boost = watts;
+            ut_log("nv dynamic boost: %d W (verified)", watts);
+        } else {
+            hw->nv_boost = watts;
+            ut_log("nv dynamic boost: %d W written (read-back %s — may be "
+                   "stale or platform-owned)",
+                   watts, back >= 0 ? "mismatch" : "unreadable");
+        }
     } else {
         ut_log("nv dynamic boost: FAILED");
     }
@@ -434,8 +446,16 @@ int ctrl_set_nv_temp(hw_state_t *hw, int celsius)
     celsius = ut_clamp_i(celsius, 75, 87);
     int rc = nbwmi_write("nv_temp_target", celsius);
     if (rc == 0) {
-        hw->nv_temp = celsius;
-        ut_log("nv temp target: %d°C", celsius);
+        int back = ut_read_int(NB_WMI "/nv_temp_target");
+        if (back == celsius) {
+            hw->nv_temp = celsius;
+            ut_log("nv temp target: %d°C (verified)", celsius);
+        } else {
+            hw->nv_temp = celsius;
+            ut_log("nv temp target: %d°C written (read-back %s — may be "
+                   "stale or platform-owned)",
+                   celsius, back >= 0 ? "mismatch" : "unreadable");
+        }
     } else {
         ut_log("nv temp target: FAILED");
     }
@@ -490,6 +510,98 @@ int ctrl_battery_oneshot(void)
     int rc = ut_exec("asusctl battery oneshot", NULL, 0);
     ut_log("battery oneshot: %s", rc == 0 ? "ok" : "failed (asusctl only)");
     return rc;
+}
+
+/* ---- GPU clock lock ----------------------------------------------------- */
+
+int ctrl_gpu_clock_ok(int mhz, const char *samples)
+{
+    int v[8];
+    int n = ut_parse_ints(samples, v, 8);
+
+    if (n < 1)
+        return 0; /* nothing readable: cannot verify */
+    for (int i = 0; i < n; i++)
+        if (v[i] > mhz + 2) /* +2: the driver snaps to its clock grid */
+            return 0;
+    return 1;
+}
+
+/* the driver reports success ("GPU clocks set to ...") but exposes no
+ * lock flag to read back (applications clocks are deprecated on 615+,
+ * the event-reason mask ignores the lock) — so rule 4 here means
+ * sampling the current clock: every sample must sit at or below the
+ * lock. Two load-race guards: a settle delay first (the current clock
+ * can still report the pre-lock boost right after the write), then up
+ * to three rounds — one stale high sample under load must not fail an
+ * applied lock; a consistent overshoot must. */
+static int gpu_clock_verify(int mhz, char *samples, size_t n)
+{
+    usleep(250000);
+    for (int round = 0; round < 3; round++) {
+        size_t off = 0;
+        samples[0] = '\0';
+        for (int i = 0; i < 3; i++) {
+            char one[32] = {0};
+            if (ut_exec("nvidia-smi --query-gpu=clocks.current.graphics "
+                        "--format=csv,noheader,nounits", one, sizeof(one)) == 0 &&
+                one[0])
+                off += (size_t)snprintf(samples + off, n - off, "%s%s",
+                                        off ? "," : "", one);
+            usleep(120000);
+        }
+        if (ctrl_gpu_clock_ok(mhz, samples))
+            return 1;
+        usleep(250000);
+    }
+    return 0;
+}
+
+int ctrl_gpu_clock_lock(hw_state_t *hw, int mhz)
+{
+    if (!hw->has_nvidia_smi) {
+        ut_log("gpu clock: nvidia-smi not available");
+        return -1;
+    }
+    int cap = hw->gpu_mhz_max > 0 ? hw->gpu_mhz_max : 4096;
+    mhz = ut_clamp_i(mhz, 200, cap);
+
+    char cmd[128], out[256] = {0};
+    snprintf(cmd, sizeof(cmd), "sudo -n /usr/sbin/nvidia-smi -lgc %d,%d 2>&1",
+             mhz, mhz);
+    int rc = ut_exec_raw(cmd, out, sizeof(out));
+    if (rc != 0 || !strstr(out, "GPU clocks set to")) {
+        ut_log("gpu clock: lock %d FAILED (need sudoers for nvidia-smi?) %s",
+               mhz, out[0] ? out : "no output");
+        return -1;
+    }
+    char samples[128];
+    if (!gpu_clock_verify(mhz, samples, sizeof(samples))) {
+        ut_log("gpu clock: lock %d VERIFY FAILED (samples: %s)", mhz, samples);
+        return -1;
+    }
+    hw->gpu_clock_lock = mhz;
+    ut_log("gpu clock: locked %d MHz (verified: %s)", mhz, samples);
+    return 0;
+}
+
+int ctrl_gpu_clock_reset(hw_state_t *hw)
+{
+    if (!hw->has_nvidia_smi) {
+        ut_log("gpu clock: nvidia-smi not available");
+        return -1;
+    }
+    char out[256] = {0};
+    int rc = ut_exec_raw("sudo -n /usr/sbin/nvidia-smi -rgc 2>&1", out,
+                         sizeof(out));
+    if (rc != 0) {
+        ut_log("gpu clock: reset FAILED %s", out[0] ? out : "no output");
+        return -1;
+    }
+    hw->gpu_clock_lock = 0;
+    /* no driver flag marks "unlocked": rc + output is all we get */
+    ut_log("gpu clock: lock reset (rc=0, not further verifiable)");
+    return 0;
 }
 
 /* ---- display ---------------------------------------------------------- */

@@ -204,6 +204,26 @@ int cmd_run(hw_state_t *hw, const char *key, const char *val,
         }
         return ctrl_set_nv_temp(hw, t);
     }
+    if (!strcasecmp(key, "gpu-clock")) {
+        int rc;
+        if (!strcasecmp(val, "reset") || !strcasecmp(val, "off")) {
+            rc = ctrl_gpu_clock_reset(hw);
+            if (rc != 0)
+                errf(err, errn, "gpu-clock: reset FAILED (sudoers rule for "
+                                "/usr/sbin/nvidia-smi? details in the log)");
+            return rc;
+        }
+        int mhz = atoi(val);
+        if (mhz < 200 || mhz > 4096) {
+            errf(err, errn, "gpu-clock: 200..4096 MHz | reset");
+            return -1;
+        }
+        rc = ctrl_gpu_clock_lock(hw, mhz);
+        if (rc != 0)
+            errf(err, errn, "gpu-clock: lock FAILED (sudoers rule for "
+                            "/usr/sbin/nvidia-smi? details in the log)");
+        return rc;
+    }
     if (!strcasecmp(key, "panel-od")) {
         int on = cmd_parse_bool(val);
         if (on < 0) {

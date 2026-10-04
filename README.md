@@ -79,6 +79,9 @@ telemetri.
 --status | --watch | --doctor | --setup | --version | --help
 --tui                                  force the TUI
 
+--gpu-clock <mhz>|reset                GPU core clock lock (indirect watt
+                                       cap; needs sudoers for nvidia-smi)
+
 --mode <name>                          apply a shortcut bundle
 mode list|show <name>|add <name> <steps>|delete <name>
 profile list

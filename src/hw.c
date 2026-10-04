@@ -427,6 +427,17 @@ void hw_init(hw_state_t *hw)
     hw->panel_od = (nbwmi_read("panel_od") == 1);
     hw->cpu_boost = (ut_read_int("/sys/devices/system/cpu/cpufreq/boost") != 0);
 
+    /* GPU hardware clock ceiling — read once, it is a fixed property */
+    if (hw->has_nvidia_smi) {
+        char out[64] = {0};
+        if (ut_exec("nvidia-smi --query-gpu=clocks.max.graphics "
+                    "--format=csv,noheader,nounits", out, sizeof(out)) == 0) {
+            int m = atoi(out);
+            if (m > 0 && m < 8192)
+                hw->gpu_mhz_max = m;
+        }
+    }
+
     read_profile(hw);
     read_epp(hw);
     read_kbd(hw);

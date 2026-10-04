@@ -87,7 +87,7 @@ typedef struct ui_ctx {
     /* staged edits — h/arrows only mutate these; nothing is written
      * until Apply (Enter / w / button) */
     int pwv_spl, pwv_sppt, pwv_fppt;   /* W */
-    int pwv_nvboost, pwv_nvtemp, pwv_mhz;
+    int pwv_gpuclock, pwv_mhz;         /* MHz; gpuclock 0 = driver default */
     int pwv_profile;                   /* hw_profile_t */
     int pwv_asusd_ac, pwv_asusd_bat;   /* -1 off, 0..2 profile */
     int pwv_epp;                       /* hw_epp_t */
@@ -132,8 +132,7 @@ enum {
     PW_T_EPP       = 1 << 1,
     PW_T_PPT       = 1 << 2,  /* SPL/SPPT/FPPT as one triple */
     PW_T_PPT_OFF   = 1 << 3,
-    PW_T_NVBOOST   = 1 << 4,
-    PW_T_NVTEMP    = 1 << 5,
+    PW_T_GPUCLOCK  = 1 << 4,
     PW_T_PANEL_OD  = 1 << 6,
     PW_T_CPUBOOST  = 1 << 7,
     PW_T_CPUFREQ   = 1 << 8,

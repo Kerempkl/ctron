@@ -88,8 +88,7 @@ enum {
     PW_SPPT,
     PW_FPPT,
     PW_PPT_LIMITS,
-    PW_NVBOOST,
-    PW_NVTEMP,
+    PW_GPUCLOCK,        /* nvidia-smi -lgc lock; 0 = driver default */
     PW_PANEL_OD,
     PW_CPUBOOST,
     PW_CPUFREQ,
@@ -102,6 +101,10 @@ static const int PW_PRESET_WATTS[3][3] = {
     { 80, 80, 80 },     /* P80 */
 };
 static const char *const PW_PRESET_NAMES[3] = { " Q45 ", " B60 ", " P80 " };
+
+/* GPU clock lock walk (h/l): 0 = driver default (-rgc), then the
+ * sensible laptop caps; 't' stages any exact value in between */
+static const int PW_GPU_STEPS[] = { 0, 800, 1000, 1200, 1400, 1600, 1800, 2100 };
 
 /* which preset the staged triple equals, or -1 (custom) */
 static int pw_preset_match(int spl, int sppt, int fppt)
@@ -125,11 +128,11 @@ static void pw_recompute_dirty(void)
         (hw->ppt_sppt > 0 && g_ui.pwv_sppt != hw->ppt_sppt) ||
         (hw->ppt_fppt > 0 && g_ui.pwv_fppt != hw->ppt_fppt) ||
         g_ui.pwv_ppt_off != hw->ppt_off ||
-        (hw->nv_boost > 0 && g_ui.pwv_nvboost != hw->nv_boost) ||
-        (hw->nv_temp > 0 && g_ui.pwv_nvtemp != hw->nv_temp) ||
+        g_ui.pwv_gpuclock != hw->gpu_clock_lock ||
         g_ui.pwv_panel_od != hw->panel_od ||
         g_ui.pwv_cpuboost != hw->cpu_boost ||
-        (hw->cpu_mhz_limit > 0 && g_ui.pwv_mhz != hw->cpu_mhz_limit);
+        ((g_ui.pw_touched & PW_T_CPUFREQ) &&
+         hw->cpu_mhz_limit > 0 && g_ui.pwv_mhz != hw->cpu_mhz_limit);
 }
 
 void pw_sync_from_hw(void)
@@ -150,13 +153,9 @@ void pw_sync_from_hw(void)
                   : (g_ui.pwv_sppt > 0 ? g_ui.pwv_sppt : 55);
     g_ui.pwv_fppt = hw->ppt_fppt > 0 ? hw->ppt_fppt
                   : (g_ui.pwv_fppt > 0 ? g_ui.pwv_fppt : 55);
-    g_ui.pwv_nvboost = hw->nv_boost > 0 ? hw->nv_boost
-                     : (g_ui.pwv_nvboost > 0 ? g_ui.pwv_nvboost : 5);
-    g_ui.pwv_nvtemp = hw->nv_temp > 0 ? hw->nv_temp
-                    : (g_ui.pwv_nvtemp > 0 ? g_ui.pwv_nvtemp : 75);
+    g_ui.pwv_gpuclock = hw->gpu_clock_lock; /* session-tracked, always known */
     g_ui.pwv_mhz = hw->cpu_mhz_limit > 0 ? hw->cpu_mhz_limit
-                 : (g_ui.pwv_mhz > 0 ? g_ui.pwv_mhz : hw->cpu_mhz_max);
-    g_ui.pwv_panel_od = hw->panel_od;
+                 : (g_ui.pwv_mhz > 0 ? g_ui.pwv_mhz : hw->cpu_mhz_max);    g_ui.pwv_panel_od = hw->panel_od;
     g_ui.pwv_cpuboost = hw->cpu_boost;
     g_ui.pwv_ppt_off = hw->ppt_off;
     g_ui.pw_quit_warned = false;
@@ -252,14 +251,24 @@ static void pw_nudge_row(int row, int dir)
         }
         g_ui.pw_touched |= PW_T_PPT_OFF;
         break;
-    case PW_NVBOOST:
-        g_ui.pwv_nvboost = ut_clamp_i(g_ui.pwv_nvboost + 5 * dir, 5, 25);
-        g_ui.pw_touched |= PW_T_NVBOOST;
+    case PW_GPUCLOCK: {
+        /* walk the preset list; typed values snap to their nearest
+         * step on the next h/l */
+        int n = (int)(sizeof(PW_GPU_STEPS) / sizeof(PW_GPU_STEPS[0]));
+        int idx = 0, best = 1 << 30;
+        for (int i = 0; i < n; i++) {
+            int d = g_ui.pwv_gpuclock > PW_GPU_STEPS[i]
+                        ? g_ui.pwv_gpuclock - PW_GPU_STEPS[i]
+                        : PW_GPU_STEPS[i] - g_ui.pwv_gpuclock;
+            if (d < best) {
+                best = d;
+                idx = i;
+            }
+        }
+        g_ui.pwv_gpuclock = PW_GPU_STEPS[(idx + (dir > 0 ? 1 : n - 1)) % n];
+        g_ui.pw_touched |= PW_T_GPUCLOCK;
         break;
-    case PW_NVTEMP:
-        g_ui.pwv_nvtemp = ut_clamp_i(g_ui.pwv_nvtemp + dir, 75, 87);
-        g_ui.pw_touched |= PW_T_NVTEMP;
-        break;
+    }
     case PW_PANEL_OD: g_ui.pwv_panel_od = !g_ui.pwv_panel_od; break;
     case PW_CPUBOOST: g_ui.pwv_cpuboost = !g_ui.pwv_cpuboost; break;
     case PW_CPUFREQ: {
@@ -341,29 +350,22 @@ static void pw_diff_summary(char *out, size_t n)
             pw_app(out, n, &off, e);
         }
     }
-    if ((g_ui.pw_touched & PW_T_NVBOOST) || hw->nv_boost > 0) {
-        if (g_ui.pwv_nvboost != hw->nv_boost) {
-            if (hw->nv_boost > 0)
-                snprintf(e, sizeof(e), "NV boost %d→%d W", hw->nv_boost, g_ui.pwv_nvboost);
-            else
-                snprintf(e, sizeof(e), "NV boost →%d W", g_ui.pwv_nvboost);
-            pw_app(out, n, &off, e);
-        }
-    }
-    if ((g_ui.pw_touched & PW_T_NVTEMP) || hw->nv_temp > 0) {
-        if (g_ui.pwv_nvtemp != hw->nv_temp) {
-            if (hw->nv_temp > 0)
-                snprintf(e, sizeof(e), "NV temp %d→%d °C", hw->nv_temp, g_ui.pwv_nvtemp);
-            else
-                snprintf(e, sizeof(e), "NV temp →%d °C", g_ui.pwv_nvtemp);
-            pw_app(out, n, &off, e);
-        }
+    if (g_ui.pwv_gpuclock != hw->gpu_clock_lock) {
+        if (g_ui.pwv_gpuclock > 0 && hw->gpu_clock_lock > 0)
+            snprintf(e, sizeof(e), "GPU %d→%d MHz", hw->gpu_clock_lock,
+                     g_ui.pwv_gpuclock);
+        else if (g_ui.pwv_gpuclock > 0)
+            snprintf(e, sizeof(e), "GPU lock %d MHz", g_ui.pwv_gpuclock);
+        else
+            snprintf(e, sizeof(e), "GPU lock reset");
+        pw_app(out, n, &off, e);
     }
     if (g_ui.pwv_panel_od != hw->panel_od)
         pw_app(out, n, &off, g_ui.pwv_panel_od ? "panel OD on" : "panel OD off");
     if (g_ui.pwv_cpuboost != hw->cpu_boost)
         pw_app(out, n, &off, g_ui.pwv_cpuboost ? "CPU boost on" : "CPU boost off");
-    if (hw->cpu_mhz_limit > 0 && g_ui.pwv_mhz != hw->cpu_mhz_limit) {
+    if ((g_ui.pw_touched & PW_T_CPUFREQ) &&
+        hw->cpu_mhz_limit > 0 && g_ui.pwv_mhz != hw->cpu_mhz_limit) {
         snprintf(e, sizeof(e), "CPU %d→%d MHz", hw->cpu_mhz_limit, g_ui.pwv_mhz);
         pw_app(out, n, &off, e);
     }
@@ -415,15 +417,13 @@ static void pw_apply(void)
         if (ctrl_set_ppt(hw, g_ui.pwv_spl, g_ui.pwv_sppt, g_ui.pwv_fppt) != 0)
             fails++;
     }
-    if (((g_ui.pw_touched & PW_T_NVBOOST) || hw->nv_boost > 0) &&
-        g_ui.pwv_nvboost != hw->nv_boost) {
-        if (ctrl_set_nv_boost(hw, g_ui.pwv_nvboost) != 0)
+    if (g_ui.pwv_gpuclock != hw->gpu_clock_lock) {
+        if (g_ui.pwv_gpuclock > 0) {
+            if (ctrl_gpu_clock_lock(hw, g_ui.pwv_gpuclock) != 0)
+                fails++;
+        } else if (ctrl_gpu_clock_reset(hw) != 0) {
             fails++;
-    }
-    if (((g_ui.pw_touched & PW_T_NVTEMP) || hw->nv_temp > 0) &&
-        g_ui.pwv_nvtemp != hw->nv_temp) {
-        if (ctrl_set_nv_temp(hw, g_ui.pwv_nvtemp) != 0)
-            fails++;
+        }
     }
     if (g_ui.pwv_panel_od != hw->panel_od) {
         if (ctrl_set_panel_od(hw, g_ui.pwv_panel_od) != 0)
@@ -433,9 +433,13 @@ static void pw_apply(void)
         if (ctrl_set_cpu_boost(hw, g_ui.pwv_cpuboost) != 0)
             fails++;
     }
-    /* skip the privileged no-op when no limit is set and the staging
-     * is just the cpuinfo maximum */
-    if (g_ui.pwv_mhz > 0 && g_ui.pwv_mhz != hw->cpu_mhz_limit &&
+    /* the CPU clock limit only when the user actually staged it: the
+     * live limit oscillates on its own under load (amd-pstate
+     * renegotiates per-core ceilings), so a staged-vs-live difference
+     * without a touch is NOT an apply request — writing it would fight
+     * the kernel and fail its own verification mid-load */
+    if ((g_ui.pw_touched & PW_T_CPUFREQ) &&
+        g_ui.pwv_mhz > 0 && g_ui.pwv_mhz != hw->cpu_mhz_limit &&
         !(hw->cpu_mhz_limit <= 0 && g_ui.pwv_mhz >= hw->cpu_mhz_max)) {
         if (ctrl_set_cpu_max_mhz(hw, g_ui.pwv_mhz) != 0)
             fails++;
@@ -536,13 +540,12 @@ static void pw_row_range(int row, char *out, size_t n, const char *unit)
     case PW_FPPT:
         snprintf(out, n, "%d–%d%s", pw_fmin, pw_fmax, unit);
         break;
-    case PW_NVBOOST:
-        snprintf(out, n, "5–25%s", unit);
-        break;
-    case PW_NVTEMP:
-        snprintf(out, n, "75–87%s", unit);
-        break;
-    case PW_CPUFREQ:
+    case PW_GPUCLOCK:
+        if (g_ui.hw->gpu_mhz_max > 0)
+            snprintf(out, n, "reset | 800-%d MHz", g_ui.hw->gpu_mhz_max);
+        else
+            snprintf(out, n, "reset | 800+ MHz");
+        break;    case PW_CPUFREQ:
         if (g_ui.hw->cpu_mhz_max > 0)
             snprintf(out, n, "%d–%d%s", g_ui.hw->cpu_mhz_min,
                      g_ui.hw->cpu_mhz_max, unit);
@@ -558,7 +561,7 @@ static bool pw_row_numeric(int row)
 {
     switch (row) {
     case PW_SPL: case PW_SPPT: case PW_FPPT:
-    case PW_NVBOOST: case PW_NVTEMP: case PW_CPUFREQ:
+    case PW_GPUCLOCK: case PW_CPUFREQ:
         return true;
     default:
         return false;
@@ -571,8 +574,7 @@ static int pw_staged_value(int row)
     case PW_SPL:     return g_ui.pwv_spl;
     case PW_SPPT:    return g_ui.pwv_sppt;
     case PW_FPPT:    return g_ui.pwv_fppt;
-    case PW_NVBOOST: return g_ui.pwv_nvboost;
-    case PW_NVTEMP:  return g_ui.pwv_nvtemp;
+    case PW_GPUCLOCK: return g_ui.pwv_gpuclock;
     case PW_CPUFREQ: return g_ui.pwv_mhz;
     default:         return 0;
     }
@@ -606,13 +608,13 @@ static void pw_commit_typed(void)
         g_ui.pw_touched |= PW_T_PPT;
         break;
     }
-    case PW_NVBOOST:
-        g_ui.pwv_nvboost = ut_clamp_i(v, 5, 25);
-        g_ui.pw_touched |= PW_T_NVBOOST;
-        break;
-    case PW_NVTEMP:
-        g_ui.pwv_nvtemp = ut_clamp_i(v, 75, 87);
-        g_ui.pw_touched |= PW_T_NVTEMP;
+    case PW_GPUCLOCK:
+        g_ui.pwv_gpuclock = v > 0 ? ut_clamp_i(v, 200,
+                                               hw->gpu_mhz_max > 0
+                                                   ? hw->gpu_mhz_max
+                                                   : 4096)
+                                  : 0; /* 0 = driver default */
+        g_ui.pw_touched |= PW_T_GPUCLOCK;
         break;
     case PW_CPUFREQ:
         if (hw->cpu_mhz_max > 0)
@@ -632,15 +634,13 @@ static void draw_power(struct ncplane *n, const rect_t *r)
     const hw_state_t *hw = g_ui.hw;
     int x = r->x + 2, w = r->w - 4;
 
-    char spl[56], sppt[56], fppt[56], nvb[56], nvt[56], cfq[56];
+    char spl[56], sppt[56], fppt[56], gclk[56], cfq[56];
     char pod[32], cb[32], lim[48];
-    char rspl[24], rsppt[24], rfppt[24], rnvb[24], rnvt[24], rcfq[32];
+    char rspl[24], rsppt[24], rfppt[24], rcfq[32];
     pw_refresh_limits();
     snprintf(rspl,  sizeof rspl,  "%d–%d", pw_smin, pw_smax);
     snprintf(rsppt, sizeof rsppt, "%d–%d", pw_pmin, pw_pmax);
     snprintf(rfppt, sizeof rfppt, "%d–%d", pw_fmin, pw_fmax);
-    snprintf(rnvb,  sizeof rnvb,  "5–25");
-    snprintf(rnvt,  sizeof rnvt,  "75–87");
     if (hw->cpu_mhz_max > 0)
         snprintf(rcfq, sizeof rcfq, "%d–%d", hw->cpu_mhz_min, hw->cpu_mhz_max);
     else
@@ -648,8 +648,18 @@ static void draw_power(struct ncplane *n, const rect_t *r)
     pw_val(spl,  sizeof(spl),  hw->ppt_spl,  g_ui.pwv_spl,  " W",  rspl);
     pw_val(sppt, sizeof(sppt), hw->ppt_sppt, g_ui.pwv_sppt, " W", rsppt);
     pw_val(fppt, sizeof(fppt), hw->ppt_fppt, g_ui.pwv_fppt, " W", rfppt);
-    pw_val(nvb,  sizeof(nvb),  hw->nv_boost, g_ui.pwv_nvboost, " W", rnvb);
-    pw_val(nvt,  sizeof(nvt),  hw->nv_temp,  g_ui.pwv_nvtemp, " °C", rnvt);
+    {
+        char live_g[24], staged_g[24];
+        if (hw->gpu_clock_lock > 0)
+            snprintf(live_g, sizeof(live_g), "%d MHz", hw->gpu_clock_lock);
+        else
+            snprintf(live_g, sizeof(live_g), "driver default");
+        if (g_ui.pwv_gpuclock > 0)
+            snprintf(staged_g, sizeof(staged_g), "%d MHz", g_ui.pwv_gpuclock);
+        else
+            snprintf(staged_g, sizeof(staged_g), "driver default");
+        pw_val_e(gclk, sizeof(gclk), live_g, staged_g);
+    }
     pw_val(cfq,  sizeof(cfq),  hw->cpu_mhz_limit, g_ui.pwv_mhz, " MHz", rcfq);
     pw_val_b(pod, sizeof(pod), hw->panel_od, g_ui.pwv_panel_od);
     pw_val_b(cb,  sizeof(cb),  hw->cpu_boost, g_ui.pwv_cpuboost);
@@ -708,7 +718,7 @@ static void draw_power(struct ncplane *n, const rect_t *r)
         "",              /* PW_PRESET: rendered as a button row */
         spl, sppt, fppt,
         lim,
-        nvb, nvt,
+        gclk,
         pod, cb,
         cfq,
     };
@@ -718,7 +728,7 @@ static void draw_power(struct ncplane *n, const rect_t *r)
         "Presets",
         "SPL (sustained)", "SPPT (slow boost)", "FPPT (fast boost)",
         "PPT limits",
-        "NV dynamic boost", "NV temp target",
+        "GPU clock limit",
         "Panel overdrive", "CPU boost", "CPU clock limit",
     };
 

@@ -53,6 +53,7 @@ enum {
     MS_FREQ    = 1 << 10,
     MS_FAN_CPU = 1 << 11,
     MS_FAN_GPU = 1 << 12,
+    MS_GPUCLOCK = 1 << 13,
 };
 
 /* values of the tracked fields at apply time */
@@ -61,7 +62,7 @@ typedef struct {
     int spl, sppt, fppt;
     int hz, bat, kbd;
     int boost, od;             /* 0/1 */
-    int nvb, nvt, mhz;
+    int nvb, nvt, mhz, gclock;
     fan_curve_t fan_cpu, fan_gpu;
 } mode_snap_t;
 

@@ -120,6 +120,47 @@ prioritized todo list and the distilled session lessons.
   `applying mode...` flash plus a short fragment (`drift'`) instead.
 - make 0 warnings, make test, make tuitest (8 flows), installed.
 
+### Session 2026-10-04 — GPU clock lock (-lgc) replaces the dead NV rows
+
+- User research: laptop GPU power limits are locked and the NV
+  boost/temp rows do nothing observable. Two sudo probes (user-run,
+  outputs in ~/gpu-probe*.out) proved on RTX 5070 / driver 615.71.09:
+  `-lgc`/`-rgc` both rc=0, a 1400 lock pins current at 1395 MHz under
+  load, applications-clocks QUERIES are deprecated and the
+  event-reason mask ignores the lock. Harness lesson from the probe
+  round: the tool's `/tmp` is an isolated namespace — scripts handed
+  to the user must live in the real home; and `sudo bash` resets
+  HOME=/root (output paths must be absolute).
+- Landed: `ctrl_gpu_clock_lock/reset` (ut_exec_raw + "GPU clocks set
+  to" check + rule-4-as-sampling via `ctrl_gpu_clock_ok`, unit-tested
+  with the 1395 grid-snap case), `hw->gpu_clock_lock/gpu_mhz_max`
+  (max read once at init), POWER rows: NV boost+temp REPLACED by one
+  "GPU clock limit" row (h/l walk reset+800..2100, t exact,
+  PW_T_GPUCLOCK staging), `gpu-clock <mhz|reset>` command key (CLI
+  `--gpu-clock`, modes, .ctr) + `MS_GPUCLOCK` drift bit.
+  `--nv-boost/--nv-temp` stay (FA507NVR may differ) but now verify by
+  read-back ("written (read-back mismatch — may be stale or
+  platform-owned)"). Doctor shows the lock state + max.
+- Privileges: needs a sudoers rule for `/usr/sbin/nvidia-smi` (real
+  path); without it everything fails cleanly. make 0 warnings, make
+  test, make tuitest (8 flows), installed. Field test of the actual
+  lock under a real game load still on the user's list.
+
+### Same-day follow-up — load-race verify fix + unstaged-CPU-apply gate
+
+- User field report (during an OCCT run): GPU lock FAILED under load,
+  and POWER's Apply wrote the CPU clock limit although the row was
+  never touched (the live limit oscillates on its own — amd-pstate
+  renegotiation, documented kernel behaviour).
+- Fixed: gpu_clock_verify settles 250 ms then takes up to 3 rounds of
+  3 samples (a stale pre-lock high sample no longer fails an applied
+  lock); CLI gpu-clock errors now name the sudoers cause; pw_apply /
+  pw_diff_summary / pw_recompute_dirty gate the CPU clock limit on
+  PW_T_CPUFREQ — an untouched row is displayed honestly (live drift
+  visible) but Apply no longer writes it mid-load (such writes fail
+  their own verification anyway while the driver pins the ceilings).
+  make 0 warnings, test + tuitest (8 flows), installed.
+
 ## Session 2026-10-02 — topbar focus chips fix (Kerempkl + GLM, FA608PP)
 
 - User report: the `1:profiles…4:telemetry` chips "only appear after

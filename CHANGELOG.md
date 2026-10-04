@@ -1,5 +1,58 @@
 # Changelog
 
+## 2026-10-04 — GPU lock verify survives load; POWER stops writing unstaged CPU limits
+
+- Field report: the GPU clock lock FAILED while the machine was under
+  load, and POWER's Apply tried to write the CPU clock limit without
+  the user ever touching that row (it kept moving during an OCCT run).
+- GPU verify race fixed: the first sampling round could still read the
+  PRE-lock boost clock (2500 > 1400) and fail an applied lock. The
+  verifier now settles 250 ms first and takes up to three rounds — one
+  stale high sample under load no longer fails an applied lock, a
+  consistent overshoot still does. The CLI error now names the likely
+  cause (sudoers rule for /usr/sbin/nvidia-smi) instead of a bare
+  "command failed".
+- POWER's staged-apply semantics corrected for the CPU clock limit:
+  the write only fires when the user actually staged it (PW_T_CPUFREQ).
+  The live limit legitimately oscillates on its own under load
+  (amd-pstate renegotiates per-core ceilings — kernel behaviour, not a
+  ctron bug), and mid-load writes then fail their own honest
+  verification (the driver pins the ceilings). The row still shows the
+  live drift; Apply just no longer fights the kernel over an untouched
+  field.
+
+## 2026-10-04 — GPU clock lock (-lgc): the laptop watt lever that works
+
+- Field research (user): laptop GPU power limits are locked
+  (`power.limit` reads `[N/A]`) and the existing NV rows (dynamic
+  boost / temp target via nb-wmi) apply without any observable effect.
+  The working lever is the core-clock lock: `nvidia-smi -lgc
+  <mhz>,<mhz>`, reset via `-rgc`.
+- Probes (RTX 5070 Laptop, driver 615.71.09): `-lgc` and `-rgc` both
+  rc=0 ("All done"); a 1400 lock pins the core clock at 1395 MHz
+  (driver clock grid) even with a light load running. The
+  applications-clocks QUERIES are deprecated on this driver and the
+  event-reason mask ignores the lock — there is no lock flag to read
+  back. Rule 4 adapted: after a lock, sample
+  `clocks.current.graphics` three times and require every sample at or
+  below the lock (+2 MHz grid slack); the reset is rc-verified only,
+  logged honestly as such.
+- POWER view: the two dead NV rows are replaced by one **"GPU clock
+  limit"** row — h/l walks reset + 800..2100 presets, `t` stages any
+  exact value; wired into the staged-apply machinery (PW_T_GPUCLOCK).
+  `gpu_mhz_max` (3090 here) is read once at init. New `gpu-clock
+  <mhz|reset>` command key → CLI `--gpu-clock`, modes and .ctr
+  profiles; `MS_GPUCLOCK` drift bit. `--nv-boost` / `--nv-temp` keys
+  stay (FA507NVR may behave differently) but gained read-back
+  verification: a mismatch now logs "written (read-back mismatch —
+  may be stale or platform-owned)" instead of a bare ok.
+- Privilege note: the lock needs a sudoers rule for the REAL path
+  (`/usr/sbin/nvidia-smi`); without it the write fails cleanly
+  (exit 1, never a prompt). The persistence-mode warning nvidia-smi
+  prints is cosmetic on laptops — the driver stays loaded.
+- Unit tests: `ctrl_gpu_clock_ok` sample verification, gpu-clock mask
+  parsing and drift; tuitest 8 flows green.
+
 ## 2026-10-03 — CONTROLS Mode row shows the applied mode and its drift
 
 - The Mode row used to show only the rotated picker candidate. It now

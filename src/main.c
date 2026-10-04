@@ -200,8 +200,14 @@ static int cmd_doctor(hw_state_t *hw)
     {
         char t1[16], t2[16];
         printf("  k10temp       : %s °C\n", dash_if(t1, sizeof(t1), hw->cpu_temp));
-        printf("  nvidia-smi    : %s (%s °C)\n", hw->has_nvidia_smi ? "yes" : "no",
-               dash_if(t2, sizeof(t2), hw->gpu_temp));
+    printf("  nvidia-smi    : %s (%s °C)\n", hw->has_nvidia_smi ? "yes" : "no",
+           dash_if(t2, sizeof(t2), hw->gpu_temp));
+    printf("  gpu clock lock: %s%s\n",
+           hw->gpu_clock_lock > 0 ? "locked (this session)" : "driver default",
+           hw->gpu_mhz_max > 0 ? "" : " (max unknown)");
+    if (hw->gpu_mhz_max > 0)
+        printf("  gpu clock max : %d MHz (lock: --gpu-clock <mhz>|reset)\n",
+               hw->gpu_mhz_max);
     }
     printf("  kbd led       : %s\n", hw->has_kbd_led ? "asus::kbd_backlight" : "missing");
     printf("  ppt sysfs     : %s\n",

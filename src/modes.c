@@ -141,6 +141,7 @@ static unsigned key_to_mask(const char *key, const char *val)
     if (!strcasecmp(key, "nv-boost"))      return MS_NVB;
     if (!strcasecmp(key, "nv-temp"))       return MS_NVT;
     if (!strcasecmp(key, "freq"))          return MS_FREQ;
+    if (!strcasecmp(key, "gpu-clock"))     return MS_GPUCLOCK;
     if (!strcasecmp(key, "fan"))           return MS_FAN_CPU | MS_FAN_GPU;
     if (!strcasecmp(key, "fan-curve")) {
         /* the curve CSV carries commas, so the first split token is
@@ -214,6 +215,7 @@ unsigned mode_snapshot(const hw_state_t *hw, unsigned want, mode_snap_t *snap)
     if (want & MS_FREQ) {
         if (hw->cpu_mhz_limit > 0) { kept |= MS_FREQ; snap->mhz = hw->cpu_mhz_limit; }
     }
+    if (want & MS_GPUCLOCK) { kept |= MS_GPUCLOCK; snap->gclock = hw->gpu_clock_lock; }
     if (want & MS_FAN_CPU) {
         if (hw->fan_cpu.n > 0) {
             kept |= MS_FAN_CPU;
@@ -289,6 +291,10 @@ int mode_drift_count(const hw_state_t *hw, unsigned mask,
     }
     if (mask & MS_FREQ) {
         if (hw->cpu_mhz_limit > 0 && hw->cpu_mhz_limit != snap->mhz)
+            drift++;
+    }
+    if (mask & MS_GPUCLOCK) {
+        if (hw->gpu_clock_lock != snap->gclock)
             drift++;
     }
     if (mask & MS_FAN_CPU) {

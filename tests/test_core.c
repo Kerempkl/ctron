@@ -399,11 +399,12 @@ static void check_mode_touch_mask(void)
     unsigned m = mode_touch_mask(
         "profile quiet, fan cool, hz 60, epp power, ppt Q45, battery 80, "
         "kbd low, cpu-boost off, panel-od on, nv-boost 15, nv-temp 80, "
-        "freq 3000, fan-curve cpu 40,50 80,90, fan-curve gpu 40,50 80,90, "
+        "freq 3000, gpu-clock 1400, fan-curve cpu 40,50 80,90, "
+        "fan-curve gpu 40,50 80,90, "
         "aura static red, ac-profile off, battery-profile quiet, fan-write");
     CHECK(m == (MS_PROFILE | MS_FAN_CPU | MS_FAN_GPU | MS_HZ | MS_EPP |
                 MS_PPT | MS_BAT | MS_KBD | MS_BOOST | MS_OD | MS_NVB |
-                MS_NVT | MS_FREQ),
+                MS_NVT | MS_FREQ | MS_GPUCLOCK),
           "touch mask full");
 
     CHECK(mode_touch_mask("fan-curve gpu 40,50 80,90") == MS_FAN_GPU,
@@ -440,7 +441,7 @@ static void check_mode_drift(void)
     unsigned mask = mode_touch_mask(
         "profile quiet, ppt Q45, hz 60, epp power, battery 80, kbd low, "
         "cpu-boost off, panel-od on, nv-boost 15, nv-temp 80, freq 3000, "
-        "fan cool");
+        "gpu-clock 1400, fan cool");
     mode_snap_t snap;
     unsigned kept = mode_snapshot(&hw, mask, &snap);
     CHECK(kept == mask, "snapshot keeps every readable field");
@@ -449,6 +450,12 @@ static void check_mode_drift(void)
     hw.profile = HW_BALANCED;
     CHECK(mode_drift_count(&hw, kept, &snap) == 1, "profile drift counts");
     hw.profile = HW_QUIET;
+
+    /* the gpu clock lock is session-tracked: any change drifts */
+    hw.gpu_clock_lock = 1400;
+    CHECK(mode_drift_count(&hw, kept, &snap) == 1, "gpu lock drift counts");
+    hw.gpu_clock_lock = 0;
+    CHECK(mode_drift_count(&hw, kept, &snap) == 0, "gpu restore clears");
 
     /* a stale live read (0) is never drift */
     hw.ppt_spl = 0;
@@ -480,6 +487,18 @@ static void check_mode_drift(void)
     CHECK(mode_drift_count(&hw, full, &snap) == 0, "restore clears drift");
 }
 
+static void check_gpu_clock(void)
+{
+    /* probe 2026-10-04: -lgc 1400 -> current reads 1395 (driver grid) */
+    CHECK(ctrl_gpu_clock_ok(1400, "180,1395,1395") == 1, "samples under lock");
+    CHECK(ctrl_gpu_clock_ok(1400, "1395") == 1, "single sample");
+    CHECK(ctrl_gpu_clock_ok(1400, "1500") == 0, "sample above lock");
+    CHECK(ctrl_gpu_clock_ok(1400, "1402") == 1, "grid-rounding slack");
+    CHECK(ctrl_gpu_clock_ok(1400, "1403") == 0, "slack boundary");
+    CHECK(ctrl_gpu_clock_ok(1400, "") == 0, "no samples");
+    CHECK(ctrl_gpu_clock_ok(1400, "garbage") == 0, "garbage samples");
+}
+
 int main(void)
 {
     check_fan_csv();
@@ -497,6 +516,7 @@ int main(void)
     check_mode_touch_mask();
     check_mode_drift();
     check_ppt_order();
+    check_gpu_clock();
 
     if (failures) {
         fprintf(stderr, "%d failure(s)\n", failures);
