@@ -161,6 +161,15 @@ prioritized todo list and the distilled session lessons.
   their own verification anyway while the driver pins the ceilings).
   make 0 warnings, test + tuitest (8 flows), installed.
 
+### Same-day mini — hz validation ceiling 500 → 2000
+
+- User spotted the hardcoded 500 in cmd_hz. It already rejected
+  current hardware (540 Hz panels) and ran after the `hz max`
+  computation, so `--hz max` would fail on such a panel too. The TUI
+  row never went through it (real modes only). Ceiling now 2000 —
+  the band is a garbage filter; ctrl_set_hz snaps to the nearest real
+  mode. 15/6000 boundary-tested, no write on rejection.
+
 ## Session 2026-10-02 — topbar focus chips fix (Kerempkl + GLM, FA608PP)
 
 - User report: the `1:profiles…4:telemetry` chips "only appear after

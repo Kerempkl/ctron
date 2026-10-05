@@ -110,7 +110,10 @@ static int cmd_hz(hw_state_t *hw, const char *val, char *err, size_t errn)
     } else {
         hz = atoi(val);
     }
-    if (hz < 30 || hz > 500) {
+    /* garbage guard only — the upper side must stay above any real
+     * panel (540 Hz exists today): ctrl_set_hz snaps to the nearest
+     * supported mode anyway, so overshooting is harmless */
+    if (hz < 30 || hz > 2000) {
         errf(err, errn, "hz: bad value '%s'", val);
         return -1;
     }

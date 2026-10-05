@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-10-04 — hz validation ceiling 500 → 2000
+
+- The 500 Hz ceiling in cmd_hz already rejected current hardware (540
+  Hz panels exist) and — worse — ran after the `hz max` computation,
+  so even `--hz max` would fail on such a panel. The TUI Refresh row
+  was never affected (it cycles real compositor modes). The band is
+  only a garbage filter — ctrl_set_hz snaps to the nearest supported
+  mode anyway — so the ceiling is now 2000, far above any announced
+  panel. Lower bound unchanged (30). Boundary-tested: 15 and 6000
+  rejected, no hardware write on rejection.
+
 ## 2026-10-04 — GPU lock verify survives load; POWER stops writing unstaged CPU limits
 
 - Field report: the GPU clock lock FAILED while the machine was under
