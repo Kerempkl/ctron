@@ -189,6 +189,16 @@ prioritized todo list and the distilled session lessons.
   Documented in HARDWARE.md EN/TR. No code changes; sampler scripts
   live in ~ (freq-watch*.sh/out).
 
+### Session 2026-10-07 — POWER firmware-behaviour badge (GLM / FA608PP)
+
+- Knowledge-to-UX follow-up: the moving CPU ceiling raised "bug?"
+  reports twice, so the row now carries a `· firmware` badge while the
+  package temp is >= 90 °C (hysteresis 88/90, draw-time statics — the
+  asusd-conflict precedent) plus one rising-edge log line. Zero extra
+  reads; HELP documents it; --status deliberately left badge-free
+  (one-shot temp would misread). make 0 warnings, test + tuitest
+  (8 flows), installed.
+
 ### Session 2026-10-06 — util write-path hardening (P4 item 1, GLM / FA608PP)
 
 - Quick pick from the P4 audit leftovers: `ut_write_file`'s single

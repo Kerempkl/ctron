@@ -71,6 +71,15 @@ static bool view_binds_key(ws_view_t v, uint32_t key)
 #define PW_ERR_RGB 0xFF4D5E
 #define PW_TOAST_MS 5000
 
+/* firmware-behaviour badge thresholds: at high package temp the SMU
+ * manages the boost ceilings itself (Dynamic Boost power shift + the
+ * shared heatsink — measured 2026-10-06: sawtooth 4.3-5.4 GHz with the
+ * package pinned at the ~95 °C soft limit), so a moving "CPU clock
+ * limit" is expected platform behaviour, not a bug. Hysteresis keeps
+ * the badge from flickering around one threshold. */
+#define PW_FW_TEMP_ON  90
+#define PW_FW_TEMP_OFF 88
+
 static long now_ms(void)
 {
     struct timespec ts;
@@ -661,6 +670,23 @@ static void draw_power(struct ncplane *n, const rect_t *r)
         pw_val_e(gclk, sizeof(gclk), live_g, staged_g);
     }
     pw_val(cfq,  sizeof(cfq),  hw->cpu_mhz_limit, g_ui.pwv_mhz, " MHz", rcfq);
+    {
+        /* badge + one rising-edge log line while the SMU owns the
+         * ceilings (draw-time statics: the asusd-conflict precedent) */
+        static int fw_badge;
+        if (!fw_badge && hw->cpu_temp >= PW_FW_TEMP_ON) {
+            fw_badge = 1;
+            ut_log("cpu ceiling: firmware-managed at %d °C — oscillation "
+                   "expected, not a bug", hw->cpu_temp);
+        } else if (fw_badge && hw->cpu_temp > 0 &&
+                   hw->cpu_temp <= PW_FW_TEMP_OFF) {
+            fw_badge = 0;
+        }
+        if (fw_badge) {
+            size_t cl = strlen(cfq);
+            snprintf(cfq + cl, sizeof(cfq) - cl, " · firmware");
+        }
+    }
     pw_val_b(pod, sizeof(pod), hw->panel_od, g_ui.pwv_panel_od);
     pw_val_b(cb,  sizeof(cb),  hw->cpu_boost, g_ui.pwv_cpuboost);
     if (g_ui.pwv_ppt_off != hw->ppt_off)
@@ -929,6 +955,7 @@ static void draw_help(struct ncplane *n, const rect_t *r)
         "POWER",
         "  j k          move · h/l (or arrows) stage the value (nothing writes)",
         "  auto-profile rows: what asusd re-applies on AC/battery events",
+        "  ceiling moving on its own at high temp = firmware (expected)",
         "  presets      h/l walks Q45/B60/P80 and stages; click a button too",
         "  t            type an exact value for the selected row",
         "  Enter/w      apply all staged edits · r reverts to live values",

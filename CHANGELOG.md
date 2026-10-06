@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-10-07 — POWER: firmware-behaviour badge for the moving CPU ceiling
+
+- The freq-watch experiments proved the CPU boost ceiling is
+  firmware-owned under load (Dynamic Boost power shift + shared
+  heatsink; sawtooth 4.3-5.4 GHz with the package at the ~95 °C soft
+  limit) — yet the moving "CPU clock limit" row twice raised a
+  "is this a bug?" report. The row now gets a `· firmware` badge
+  whenever the package temp is >= 90 °C (hysteresis: clears <= 88),
+  with a single rising-edge log line ("oscillation expected, not a
+  bug"). Zero extra reads: the badge reuses cpu_temp, already sampled
+  every poll. HELP view documents the behaviour; no CLI change (a
+  one-shot --status badge would misread a momentary temp).
+
 ## 2026-10-06 — docs: CCD disable vs CPU boost ceilings (BIOS works, runtime does not)
 
 - Three-run freq-watch comparison on the FA608PP (GPU 114 W): 16 cores
