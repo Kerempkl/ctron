@@ -106,10 +106,11 @@
 
 ## Denetimden kalan (P4 — 2026-10-03 tam kod denetiminden, öncelik sırasıyla)
 
-1. **util**: `ut_write_file` hata yolunda `fclose` çağrılmıyor
-   (fwrite/fflush kısa devresi atlıyor) → fd sızıntısı; tek satırlık
-   düzeltme. `ut_priv_write` tek-tırnak sanitizasyonu yok (mevcut
-   çağıranlar sabit yol + sayısal değer; savunma olarak `'` reddi).
+1. **[BİTTİ 10-06]** util: `ut_write_file` hata yolundaki fd sızıntısı
+   kapandı (fwrite/fflush kısa devresi fclose'u atlıyordu — fclose artık
+   her koşulda çağrılıyor) ve `ut_priv_write` sudo fallback'i exec'ten
+   ÖNCE değer/yoldaki `'`'ı temiz -1 ile reddediyor. /dev/full +
+   /proc/self/fd sayımıyla mutasyon-kanıt test (`check_util_write`).
 2. **daeboard**: `exchange()` recv timeout'suz — bağlayıp cevap
    vermeyen daemon `db_up()`'ta TUI'yi sonsuz bloklar (SO_RCVTIMEO ~2 sn).
    `db_action_in`: `strncmp(s,"ctron",5)` "ctronx=" öneklerini de

@@ -1,7 +1,10 @@
 # Ctron Handoff
 
-Latest session — **2026-10-03** **GLM / FA608PP** (full code audit +
-P1–P3 fixes, see below). Before that **2026-10-02** **Kerempkl + GLM /
+Latest session — **2026-10-06** **GLM / FA608PP** (util write-path
+hardening — P4 item 1, see below). Before that **2026-10-04** **GLM /
+FA608PP** (GPU clock lock -lgc + verify-race/unstaged-CPU fixes, hz
+ceiling) and **2026-10-03** **GLM / FA608PP** (full code audit +
+P1–P3 fixes). Before that **2026-10-02** **Kerempkl + GLM /
 FA608PP** (two
 rounds: cpufreq writes + per-core indexing on real kernel cpu ids,
 then the CORE LIMITS physical-core/CCD view). Before that
@@ -169,6 +172,23 @@ prioritized todo list and the distilled session lessons.
   row never went through it (real modes only). Ceiling now 2000 —
   the band is a garbage filter; ctrl_set_hz snaps to the nearest real
   mode. 15/6000 boundary-tested, no write on rejection.
+
+### Session 2026-10-06 — util write-path hardening (P4 item 1, GLM / FA608PP)
+
+- Quick pick from the P4 audit leftovers: `ut_write_file`'s single
+  `fwrite && fflush && fclose` expression leaked the fd whenever the
+  write or flush failed (the short-circuit skipped fclose). fclose now
+  runs unconditionally and its result ANDs into the outcome.
+  `ut_priv_write`'s sudo fallback rejects a `'` in the value or path
+  with a clean -1 before any exec (callers pass fixed sysfs paths and
+  plain values — no behaviour change).
+- `check_util_write` in test_core: write roundtrip, the /dev/full leak
+  path (/proc/self/fd counted across 50 failed writes), and both quote
+  rejections (reached through an unwritable path, nothing exec'd).
+  Mutation-proven: with the old code the leak check fails at ~50 leaked
+  fds. P4 item 1 CLOSED in NEXT.md (both halves).
+- make 0 warnings, make test, make tuitest (8 flows), installed.
+  Uncommitted per protocol.
 
 ## Session 2026-10-02 — topbar focus chips fix (Kerempkl + GLM, FA608PP)
 

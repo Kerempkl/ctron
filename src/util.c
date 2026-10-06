@@ -67,10 +67,10 @@ int ut_write_file(const char *path, const char *val)
     if (!f)
         return -1;
     size_t len = strlen(val);
-    int ok = (fwrite(val, 1, len, f) == len) && (fflush(f) == 0) && (fclose(f) == 0);
-    if (!ok)
-        return -1;
-    return 0;
+    int ok = (fwrite(val, 1, len, f) == len) && (fflush(f) == 0);
+    /* fclose always runs — a failed write must not leak the fd. */
+    ok = (fclose(f) == 0) && ok;
+    return ok ? 0 : -1;
 }
 
 int ut_write_int(const char *path, long v)
@@ -85,7 +85,9 @@ int ut_priv_write(const char *path, const char *val)
     if (ut_write_file(path, val) == 0)
         return 0;
 
-    /* Only plain values are ever passed by callers; quote defensively. */
+    /* The fallback shells out; a single quote would break the quoting. */
+    if (strchr(val, '\'') || strchr(path, '\''))
+        return -1;
     char cmd[768];
     snprintf(cmd, sizeof(cmd),
              "printf '%%s' '%s' | sudo -n tee '%s' >/dev/null 2>&1", val, path);

@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-10-06 — util: failed writes close the fd; priv write rejects quotes
+
+- `ut_write_file` chained `fwrite && fflush && fclose` in one
+  expression, so a failed write or flush short-circuited past `fclose`
+  and leaked the fd — P4 item 1's leak (an fopen failure never leaks:
+  it returns before any fd exists; the leak bit when the open
+  succeeded but the write or flush failed, e.g. a full or erroring
+  filesystem). `fclose` now runs
+  unconditionally and its result ANDs into the outcome.
+- `ut_priv_write`'s sudo fallback built a single-quoted shell command
+  from the raw value/path. Callers only ever pass fixed sysfs paths
+  and plain numeric/text values, but a `'` in either is now rejected
+  with a clean -1 BEFORE any exec — defense in depth, no behaviour
+  change for existing callers.
+- Test `check_util_write` in test_core: write roundtrip, the /dev/full
+  leak path (/proc/self/fd counted across 50 failed writes), and both
+  quote rejections (reached through an unwritable path, so the guard
+  fires before the fallback and nothing is exec'd). Mutation-proven:
+  with the old code the leak check fails with ~50 leaked fds.
+  Closes P4 item 1 (NEXT.md).
+
 ## 2026-10-04 — hz validation ceiling 500 → 2000
 
 - The 500 Hz ceiling in cmd_hz already rejected current hardware (540

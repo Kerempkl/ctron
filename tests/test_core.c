@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <dirent.h>
 #include <sys/stat.h>
 
 #include "control.h"
@@ -394,6 +395,50 @@ static void check_read_file_all(void)
     rmdir(tmp);
 }
 
+static long count_fds(void)
+{
+    DIR *d = opendir("/proc/self/fd");
+    if (!d)
+        return -1;
+    long n = 0;
+    while (readdir(d))
+        n++;
+    closedir(d);
+    return n;
+}
+
+static void check_util_write(void)
+{
+    char tmp[] = "/tmp/ctron2-test-XXXXXX";
+    CHECK(mkdtemp(tmp) != NULL, "write mkdtemp");
+
+    char path[300];
+    snprintf(path, sizeof(path), "%s/w.txt", tmp);
+    CHECK(ut_write_file(path, "42") == 0, "write ok");
+    char buf[64];
+    CHECK(ut_read_file(path, buf, sizeof(buf)) == 0 && !strcmp(buf, "42"),
+          "write roundtrip");
+    unlink(path);
+
+    /* fopen succeeds on /dev/full but the write fails — exactly the path
+     * where the old code short-circuited past fclose and leaked the fd. */
+    long fds0 = count_fds();
+    for (int i = 0; i < 50; i++)
+        ut_write_file("/dev/full", "42");
+    long fds1 = count_fds();
+    if (fds0 >= 0 && fds1 >= 0)
+        CHECK(fds1 - fds0 <= 4, "failed writes leak no fds");
+
+    /* the sudo fallback shells out; quotes must be rejected BEFORE any
+     * exec (both probes use unwritable paths so the fallback is reached) */
+    snprintf(path, sizeof(path), "%s/nodir/w.txt", tmp);
+    CHECK(ut_priv_write(path, "4'2") != 0, "priv rejects quote in value");
+    CHECK(ut_priv_write("/no'such/dir/w", "42") != 0,
+          "priv rejects quote in path");
+
+    rmdir(tmp);
+}
+
 static void check_mode_touch_mask(void)
 {
     unsigned m = mode_touch_mask(
@@ -513,6 +558,7 @@ int main(void)
     check_asusd_enforced();
     check_asusd_ron_parse();
     check_read_file_all();
+    check_util_write();
     check_mode_touch_mask();
     check_mode_drift();
     check_ppt_order();
