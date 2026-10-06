@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-10-06 — docs: CCD disable vs CPU boost ceilings (BIOS works, runtime does not)
+
+- Three-run freq-watch comparison on the FA608PP (GPU 114 W): 16 cores
+  sawtooth 4.3-5.4 GHz under load; CCD2 offlined via /sys clamps to
+  the nominal 2500 MHz at the 95 °C soft limit — the firmware keeps
+  budgeting power for 16 cores regardless of runtime offlining; CCD2
+  disabled in BIOS re-configures the SMU for the true 8-core topology
+  — CPU package power drops (~80 -> 45-60 W observed) and the ceiling
+  holds 5386 MHz ~80-85 % of the time with shallow, fast-recovering
+  dips. Recorded in HARDWARE.md (EN + TR): runtime CPU offlining is
+  not a substitute for a BIOS CCD change (reboot required). No code
+  changes.
+
 ## 2026-10-06 — util: failed writes close the fd; priv write rejects quotes
 
 - `ut_write_file` chained `fwrite && fflush && fclose` in one

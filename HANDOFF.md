@@ -173,6 +173,22 @@ prioritized todo list and the distilled session lessons.
   the band is a garbage filter; ctrl_set_hz snaps to the nearest real
   mode. 15/6000 boundary-tested, no write on rejection.
 
+### Session 2026-10-06 — CCD disable experiment resolved (docs only, GLM / FA608PP)
+
+- The freq-watch2 sampler (nproc column + 3 min window) settled the
+  earlier open CCD question (amd-pstate clock-behavior notes): under
+  GPU 114 W, 16 cores sawtooth 4.3-5.4 GHz; **runtime** CPU offline
+  does NOT change the firmware power policy — the machine clamped to
+  the nominal 2500 MHz at the 95 °C soft limit; **BIOS-level** CCD
+  disable re-configures the SMU for the true 8-core topology — CPU
+  package power dropped ~80 -> 45-60 W (user's btop observation) and
+  the ceiling held 5386 ~80-85 % of the time, dips shallow and
+  fast-recovering. Gaming on 8C/16T single-CCD is sensible
+  (cross-CCD latency gone + sustained max boost); scripting runtime
+  offlining is not a substitute — BIOS change + reboot required.
+  Documented in HARDWARE.md EN/TR. No code changes; sampler scripts
+  live in ~ (freq-watch*.sh/out).
+
 ### Session 2026-10-06 — util write-path hardening (P4 item 1, GLM / FA608PP)
 
 - Quick pick from the P4 audit leftovers: `ut_write_file`'s single

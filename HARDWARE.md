@@ -62,6 +62,20 @@ Notes:
   `clocks.current.graphics` (every sample must stay at or below the
   lock). Needs a sudoers rule for the real path
   (`/usr/sbin/nvidia-smi`); the persistence-mode warning is cosmetic.
+- **CCD disable vs CPU boost ceilings (FA608PP, measured 2026-10-06)**:
+  under full GPU load (114 W) the CPU boost ceiling oscillates on its
+  own — firmware CPPC management (Dynamic Boost power shift + shared
+  heatsink; sawtooth ~4.3-5.4 GHz with the package temp pinned at the
+  ~95 °C soft limit). Runtime CPU offlining does NOT change that
+  policy: with CCD2 offlined via /sys the machine clamped to the
+  nominal 2500 MHz at 95 °C — worse than 16 cores. Disabling the CCD
+  in BIOS does: with the true 8-core topology the SMU re-budgets
+  power (CPU package power observed dropping ~80 -> 45-60 W) and the
+  ceiling holds 5386 MHz ~80-85 % of the time, dips shallow and
+  recovering within seconds. Practical: 8C/16T single-CCD (no
+  cross-CCD latency) is a sensible gaming configuration, but
+  scripting runtime offlining is NOT a substitute — a BIOS change +
+  reboot is required.
 
 ## Türkçe
 
@@ -123,3 +137,17 @@ Notlar:
   örnek kilidin altında kalmalı). Gerçek yol için sudoers kuralı
   gerekir (`/usr/sbin/nvidia-smi`); persistence-mode uyarısı
   kozmetiktir.
+- **CCD kapatma vs CPU boost tavanları (FA608PP, 2026-10-06'da
+  ölçüldü)**: tam GPU yükünde (114 W) CPU boost tavanı kendi kendine
+  salınır — firmware CPPC yönetimi (Dynamic Boost güç aktarımı +
+  paylaşımlı soğutucu; testere ~4,3-5,4 GHz, paket sıcaklığı ~95 °C
+  yumuşak sınıra çakılı). Runtime çekirdek çevrimdışı bırakma bu
+  politikayı DEĞİŞTİRMİYOR: CCD2'yi /sys üzerinden kapatınca makine
+  nominal 2500 MHz'e 95 °C'de kilitlendi — 16 çekirdektekinden kötü.
+  BIOS'tan CCD kapatmak değiştiriyor: gerçek 8-çekirdek topolojisiyle
+  SMU gücü yeniden bütçeliyor (CPU paket gücü ~80 -> 45-60 W'a düştü
+  gözlendi) ve tavan zamanın ~%80-85'inde 5386 MHz'de kalıyor;
+  dalışlar sığ ve saniyeler içinde toparlıyor. Pratik: 8C/16T tek CCD
+  (CCD'ler arası gecikme yok) oyun için makul bir yapı; runtime
+  offline betiklemek yerine geçmez — BIOS değişikliği + reboot
+  gerekir.
