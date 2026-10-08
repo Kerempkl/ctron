@@ -45,6 +45,17 @@
   optional root-owned wrapper recipe for hardening. "ppt off" now has
   a real effect on this machine (was a silent no-op).
 
+## 2026-10-08 — fan enable, and settings that did not do what they said
+
+- Custom fan curves use the kernel values: write `1` to apply the curve, `2` for factory auto. A read of `2` is off. `0` was rejected, so the old "off" write did nothing and "on" selected automatic. The enable write is checked, and a verified curve includes the enable read-back. On the FA507NVR both curves read `2`, so `--status` now prints `(off)`.
+- Settings "no sudo" skips the `sudo -n tee` fallback. "GPU temp (nvidia-smi)" is honoured, and the query is skipped while the NVIDIA display function's `runtime_status` is `suspended` or `suspending`.
+- `--gpu-clock` uses `command -v nvidia-smi` instead of `/usr/sbin/nvidia-smi`.
+- Mode steps split on commas that start a command, so `ppt 45,55,55` and fan-curve csv survive.
+- The daeboard socket exchange gives up after 2 seconds. A `ctron` line must be that word; a line without `=` no longer hides a later assignment.
+- Selected rows pad by display cells, so the `▸` marker does not shift the value column.
+- `scripts/__pycache__/` is no longer tracked.
+- CLI matches the TUI command set: `--gpu-clock`, `--ac-profile`, `--battery-profile`, `--freq core`, `--freq ccd`, and `--fan cpu|gpu on|off` are documented. `--status` shows a GPU-clock line and how many threads sit below the ceiling.
+
 ## 2026-10-07 — POWER: firmware-behaviour badge for the moving CPU ceiling
 
 - The freq-watch experiments proved the CPU boost ceiling is

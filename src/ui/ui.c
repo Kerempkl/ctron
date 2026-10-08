@@ -252,8 +252,10 @@ void ui_row(struct ncplane *n, int x, int y, int w,
     if (lw > 28)
         lw = 28;
     ui_trunc(lb, lw);
+    /* %-Ns pads bytes. "▸ " is 2 cells and 4 bytes, so the value
+     * column used to shift right by 2 cells on the selected row. */
     char line[256];
-    snprintf(line, sizeof(line), "%-*s%s", lw, lb, vb);
+    ut_cell_join(line, sizeof(line), lb, lw, vb);
     ui_trunc(line, w - 2);
     ncplane_putstr_yx(n, y, x, line);
 }

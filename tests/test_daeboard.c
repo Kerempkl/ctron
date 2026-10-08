@@ -34,6 +34,16 @@ int main(void)
     CHECK(strcmp(cmd, "profile") == 0 && strcmp(val, "performance") == 0, "action pair");
     CHECK(db_action_in(text, "enter", cmd, (int)sizeof cmd, val, (int)sizeof val) != 0,
           "light row has no ctron action");
+
+    const char *skip =
+        "[f6]\n"
+        "ctron note without equals\n"
+        "ctrone = profile quiet\n"
+        "ctron = hz 60\n";
+    CHECK(db_action_in(skip, "f6", cmd, (int)sizeof cmd, val, (int)sizeof val) == 0,
+          "bad ctron lines do not hide a later action");
+    CHECK(strcmp(cmd, "hz") == 0 && strcmp(val, "60") == 0,
+          "later ctron assignment is the one kept");
     if (failures) {
         fprintf(stderr, "%d failed\n", failures);
         return 1;

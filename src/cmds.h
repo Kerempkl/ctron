@@ -19,4 +19,8 @@ int cmd_run(hw_state_t *hw, const char *key, const char *val,
 /* Parse a boolean-ish value: on/off/1/0/true/false. -1 when invalid. */
 int cmd_parse_bool(const char *s);
 
+/* 1 when `key` is a command name. Used to split mode steps on commas
+ * that begin a new command, not commas inside a value. */
+int cmd_is_key(const char *key);
+
 #endif /* CTRON_CMDS_H */

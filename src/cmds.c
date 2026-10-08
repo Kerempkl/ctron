@@ -12,6 +12,22 @@
 #include <string.h>
 #include <strings.h>
 
+int cmd_is_key(const char *key)
+{
+    static const char *const keys[] = {
+        "profile", "ac-profile", "battery-profile", "epp", "freq", "hz",
+        "battery", "battery-oneshot", "ppt", "nv-boost", "nv-temp",
+        "gpu-clock", "panel-od", "cpu-boost", "kbd", "aura", "fan",
+        "fan-curve", "fan-write", NULL
+    };
+    if (!key || !key[0])
+        return 0;
+    for (int i = 0; keys[i]; i++)
+        if (!strcasecmp(key, keys[i]))
+            return 1;
+    return 0;
+}
+
 int cmd_parse_bool(const char *s)
 {
     if (!s)
@@ -170,9 +186,38 @@ int cmd_run(hw_state_t *hw, const char *key, const char *val,
             }
             return ctrl_set_cpu_max_mhz_core(hw, cpu, mhz);
         }
+        {
+            int ccd;
+            if (sscanf(val, "ccd %d %d", &ccd, &mhz) == 2) {
+                int rc = 0, n = 0, k;
+                if (hw->topo_odd || ccd < 0 || ccd >= hw->ccd_n ||
+                    mhz < 100 || mhz > 10000) {
+                    errf(err, errn, "freq: ccd <0..%d> <MHz>",
+                         hw->ccd_n > 0 ? hw->ccd_n - 1 : 0);
+                    return -1;
+                }
+                for (k = 0; k < hw->core_n && k < HW_CPU_MAX; k++) {
+                    int sib;
+                    if (hw->core_ccd[k] != ccd)
+                        continue;
+                    n++;
+                    if (ctrl_set_cpu_max_mhz_core(hw, hw->core_cpu[k], mhz) != 0)
+                        rc = -1;
+                    sib = hw->core_sib[k];
+                    if (sib >= 0 &&
+                        ctrl_set_cpu_max_mhz_core(hw, sib, mhz) != 0)
+                        rc = -1;
+                }
+                if (n == 0) {
+                    errf(err, errn, "freq: ccd %d has no cores", ccd);
+                    return -1;
+                }
+                return rc;
+            }
+        }
         mhz = atoi(val);
         if (mhz < 100 || mhz > 10000) {
-            errf(err, errn, "freq: MHz value | core <N> <MHz>");
+            errf(err, errn, "freq: <MHz> | core <id> <MHz> | ccd <n> <MHz>");
             return -1;
         }
         return ctrl_set_cpu_max_mhz(hw, mhz);
@@ -212,8 +257,7 @@ int cmd_run(hw_state_t *hw, const char *key, const char *val,
         if (!strcasecmp(val, "reset") || !strcasecmp(val, "off")) {
             rc = ctrl_gpu_clock_reset(hw);
             if (rc != 0)
-                errf(err, errn, "gpu-clock: reset FAILED (sudoers rule for "
-                                "/usr/sbin/nvidia-smi? details in the log)");
+                errf(err, errn, "gpu-clock: reset FAILED (see the log)");
             return rc;
         }
         int mhz = atoi(val);
@@ -223,8 +267,7 @@ int cmd_run(hw_state_t *hw, const char *key, const char *val,
         }
         rc = ctrl_gpu_clock_lock(hw, mhz);
         if (rc != 0)
-            errf(err, errn, "gpu-clock: lock FAILED (sudoers rule for "
-                            "/usr/sbin/nvidia-smi? details in the log)");
+            errf(err, errn, "gpu-clock: lock FAILED (see the log)");
         return rc;
     }
     if (!strcasecmp(key, "panel-od")) {
@@ -266,7 +309,25 @@ int cmd_run(hw_state_t *hw, const char *key, const char *val,
             return ctrl_fan_set_enabled(hw, true, true);
         if (!strcasecmp(val, "off"))
             return ctrl_fan_set_enabled(hw, false, false);
-        errf(err, errn, "fan: stock|silent|cool|full|on|off");
+        {
+            char side[8] = {0}, sw[8] = {0};
+            int on;
+            if (sscanf(val, "%7s %7s", side, sw) == 2 &&
+                (!strcasecmp(side, "cpu") || !strcasecmp(side, "gpu"))) {
+                on = cmd_parse_bool(sw);
+                if (on < 0) {
+                    errf(err, errn, "fan: cpu|gpu on|off");
+                    return -1;
+                }
+                /* the other side must be the live switch, not a stale
+                 * saved flag, or this write turns it the wrong way */
+                hw_refresh_live(hw);
+                if (!strcasecmp(side, "cpu"))
+                    return ctrl_fan_set_enabled(hw, on != 0, hw->fan_gpu_on);
+                return ctrl_fan_set_enabled(hw, hw->fan_cpu_on, on != 0);
+            }
+        }
+        errf(err, errn, "fan: stock|silent|cool|full|on|off|cpu on|gpu off");
         return -1;
     }
     if (!strcasecmp(key, "fan-curve"))

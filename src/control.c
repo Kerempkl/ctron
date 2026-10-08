@@ -628,22 +628,41 @@ static int gpu_clock_verify(int mhz, char *samples, size_t n)
     return 0;
 }
 
+/* sudo resets PATH, so the binary has to be an absolute path. It is
+ * not /usr/sbin/nvidia-smi on NixOS or Debian. */
+static int nvidia_smi_bin(char *out, size_t n)
+{
+    FILE *p = popen("command -v nvidia-smi 2>/dev/null", "r");
+    if (!p)
+        return -1;
+    if (!fgets(out, (int)n, p)) {
+        pclose(p);
+        out[0] = '\0';
+        return -1;
+    }
+    pclose(p);
+    out[strcspn(out, "\r\n")] = '\0';
+    if (out[0] != '/' || strchr(out, '\'') || strchr(out, ' '))
+        return -1;
+    return 0;
+}
+
 int ctrl_gpu_clock_lock(hw_state_t *hw, int mhz)
 {
-    if (!hw->has_nvidia_smi) {
-        ut_log("gpu clock: nvidia-smi not available");
+    char bin[256];
+    if (!hw->has_nvidia_smi || nvidia_smi_bin(bin, sizeof(bin)) != 0) {
+        ut_log("gpu clock: nvidia-smi is not on PATH");
         return -1;
     }
     int cap = hw->gpu_mhz_max > 0 ? hw->gpu_mhz_max : 4096;
     mhz = ut_clamp_i(mhz, 200, cap);
 
-    char cmd[128], out[256] = {0};
-    snprintf(cmd, sizeof(cmd), "sudo -n /usr/sbin/nvidia-smi -lgc %d,%d 2>&1",
-             mhz, mhz);
+    char cmd[512], out[256] = {0};
+    snprintf(cmd, sizeof(cmd), "sudo -n '%s' -lgc %d,%d 2>&1", bin, mhz, mhz);
     int rc = ut_exec_raw(cmd, out, sizeof(out));
     if (rc != 0 || !strstr(out, "GPU clocks set to")) {
-        ut_log("gpu clock: lock %d FAILED (need sudoers for nvidia-smi?) %s",
-               mhz, out[0] ? out : "no output");
+        ut_log("gpu clock: lock %d FAILED (sudo -n %s) %s",
+               mhz, bin, out[0] ? out : "no output");
         return -1;
     }
     char samples[128];
@@ -658,15 +677,17 @@ int ctrl_gpu_clock_lock(hw_state_t *hw, int mhz)
 
 int ctrl_gpu_clock_reset(hw_state_t *hw)
 {
-    if (!hw->has_nvidia_smi) {
-        ut_log("gpu clock: nvidia-smi not available");
+    char bin[256], cmd[512];
+    if (!hw->has_nvidia_smi || nvidia_smi_bin(bin, sizeof(bin)) != 0) {
+        ut_log("gpu clock: nvidia-smi is not on PATH");
         return -1;
     }
     char out[256] = {0};
-    int rc = ut_exec_raw("sudo -n /usr/sbin/nvidia-smi -rgc 2>&1", out,
-                         sizeof(out));
+    snprintf(cmd, sizeof(cmd), "sudo -n '%s' -rgc 2>&1", bin);
+    int rc = ut_exec_raw(cmd, out, sizeof(out));
     if (rc != 0) {
-        ut_log("gpu clock: reset FAILED %s", out[0] ? out : "no output");
+        ut_log("gpu clock: reset FAILED (sudo -n %s) %s",
+               bin, out[0] ? out : "no output");
         return -1;
     }
     hw->gpu_clock_lock = 0;
@@ -843,6 +864,15 @@ static void fan_point(const hw_state_t *hw, bool cpu, int i, int *temp, int *pwm
     *pwm  = (fc->n > 0) ? fc->pwm[idx] : 0;
 }
 
+/* pwmN_enable read-back. Points are not enough: the driver keeps them
+ * while the curve is off (enable 2). */
+static int fan_enable_ok(const char *base, const char *pwm, bool on)
+{
+    char p[300];
+    snprintf(p, sizeof(p), "%s/%s_enable", base, pwm);
+    return ut_read_int(p) == fan_enable_raw(on);
+}
+
 /* rule 4 — verify the writes by reading back. The custom-curve hwmon
  * reads back what was written (unlike the nb-wmi PPT cache), so a
  * mismatch is a real failure, not staleness. */
@@ -877,6 +907,7 @@ int ctrl_fan_write(hw_state_t *hw)
 {
     char base[256];
     int rc = 0;
+    int enable_bad = 0;
     int vok_cpu = -1, vok_gpu = -1; /* -1: no hwmon, not verified */
 
     if (fan_curve_base(hw, base, sizeof(base)) == 0) {
@@ -903,15 +934,28 @@ int ctrl_fan_write(hw_state_t *hw)
             snprintf(val, sizeof(val), "%d", pg);
             if (ut_priv_write(path, val) != 0) rc = -1;
         }
+        /* Points clear pwmN_enable in the driver. 1 turns the stored
+         * curve on; 2 selects factory auto. 0 is rejected. */
         char path[300], val[8];
+        int en_cpu = 0, en_gpu = 0;
         snprintf(path, sizeof(path), "%s/pwm1_enable", base);
-        snprintf(val, sizeof(val), "%d", hw->fan_cpu_on ? 2 : 0);
-        ut_priv_write(path, val);
+        snprintf(val, sizeof(val), "%d", fan_enable_raw(hw->fan_cpu_on));
+        if (ut_priv_write(path, val) != 0)
+            rc = -1;
         snprintf(path, sizeof(path), "%s/pwm2_enable", base);
-        snprintf(val, sizeof(val), "%d", hw->fan_gpu_on ? 2 : 0);
-        ut_priv_write(path, val);
+        snprintf(val, sizeof(val), "%d", fan_enable_raw(hw->fan_gpu_on));
+        if (ut_priv_write(path, val) != 0)
+            rc = -1;
 
         fan_verify(hw, base, &vok_cpu, &vok_gpu);
+        en_cpu = fan_enable_ok(base, "pwm1", hw->fan_cpu_on);
+        en_gpu = fan_enable_ok(base, "pwm2", hw->fan_gpu_on);
+        if (!en_cpu || !en_gpu) {
+            rc = -1;
+            enable_bad = 1;
+            ut_log("fan enable read-back: cpu %s, gpu %s",
+                   en_cpu ? "ok" : "FAILED", en_gpu ? "ok" : "FAILED");
+        }
     }
 
     /* asusctl persistence: survive asusd restarts */
@@ -938,7 +982,7 @@ int ctrl_fan_write(hw_state_t *hw)
 
     if (rc == 0) {
         if (vok_cpu == FAN_POINTS && vok_gpu == FAN_POINTS) {
-            ut_log("fan curves written (cpu %s, gpu %s) · verified %d/%d + %d/%d pts",
+            ut_log("fan curves written (cpu %s, gpu %s) · verified %d/%d + %d/%d pts, enable ok",
                    hw->fan_cpu_on ? "on" : "off", hw->fan_gpu_on ? "on" : "off",
                    vok_cpu, FAN_POINTS, vok_gpu, FAN_POINTS);
             hw->fan_staged = false; /* written and verified: not staged */
@@ -953,7 +997,7 @@ int ctrl_fan_write(hw_state_t *hw)
                    hw->fan_cpu_on ? "on" : "off", hw->fan_gpu_on ? "on" : "off");
             hw->fan_staged = false; /* no hwmon: nothing would clobber */
         }
-    } else {
+    } else if (!enable_bad) {
         ut_log("fan curves: sysfs write FAILED (needs root; no passwordless sudo)");
     }
     return rc;

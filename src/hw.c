@@ -3,8 +3,10 @@
 #endif
 #include "hw.h"
 #include "util.h"
+#include "settings.h"
 #include "display/display.h"
 
+#include <dirent.h>
 #include <glob.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -291,18 +293,81 @@ static void fan_hwmon_read(hw_state_t *hw)
     }
     char p[300];
     snprintf(p, sizeof(p), "%s/pwm1_enable", base);
-    hw->fan_cpu_on = (ut_read_int(p) == 2);
+    hw->fan_cpu_on = fan_raw_is_on(ut_read_int(p));
     snprintf(p, sizeof(p), "%s/pwm2_enable", base);
-    hw->fan_gpu_on = (ut_read_int(p) == 2);
+    hw->fan_gpu_on = fan_raw_is_on(ut_read_int(p));
 }
 
 /* ---- GPU temperature (cached) ---------------------------------------- */
+
+int hw_gpu_temp_allowed(int pref_on, const char *runtime_status)
+{
+    if (!pref_on)
+        return 0;
+    if (runtime_status &&
+        (!strcmp(runtime_status, "suspended") ||
+         !strcmp(runtime_status, "suspending")))
+        return 0;
+    return 1;
+}
+
+/* PCI display function of vendor 0x10de. Cached; an empty path means
+ * there is no runtime file and the query may proceed. */
+static int gpu_runtime_status(char *out, size_t n)
+{
+    static char path[320];
+    static int looked = 0;
+    DIR *d;
+    struct dirent *de;
+
+    if (!looked) {
+        looked = 1;
+        d = opendir("/sys/bus/pci/devices");
+        if (d) {
+            while ((de = readdir(d)) != NULL) {
+                char vp[360], cp[360], vb[16], cb[16];
+                if (de->d_name[0] == '.')
+                    continue;
+                snprintf(vp, sizeof(vp),
+                         "/sys/bus/pci/devices/%s/vendor", de->d_name);
+                snprintf(cp, sizeof(cp),
+                         "/sys/bus/pci/devices/%s/class", de->d_name);
+                if (ut_read_file(vp, vb, sizeof(vb)) != 0)
+                    continue;
+                if (strcmp(vb, "0x10de") != 0)
+                    continue;
+                if (ut_read_file(cp, cb, sizeof(cb)) != 0)
+                    continue;
+                if (strncmp(cb, "0x03", 4) != 0)
+                    continue;
+                snprintf(path, sizeof(path),
+                         "/sys/bus/pci/devices/%s/power/runtime_status",
+                         de->d_name);
+                break;
+            }
+            closedir(d);
+        }
+    }
+    if (!path[0])
+        return -1;
+    return ut_read_file(path, out, n);
+}
 
 static int gpu_temp_cached(void)
 {
     static int cached = -1;
     static time_t last = 0;
     time_t now = time(NULL);
+    char runtime[32];
+    const char *st = NULL;
+
+    if (gpu_runtime_status(runtime, sizeof(runtime)) == 0)
+        st = runtime;
+    if (!hw_gpu_temp_allowed(g_prefs.gpu_temp, st)) {
+        cached = -1;
+        last = now;
+        return -1;
+    }
     if (now - last < 2)
         return cached;
 

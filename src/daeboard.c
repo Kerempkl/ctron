@@ -10,7 +10,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/un.h>
+#include <time.h>
 #include <unistd.h>
 
 #define DB_SOCK "/run/daeboard/daeboard.sock"
@@ -62,8 +64,31 @@ static int exchange(const char *cmd, char *reply, int replyn)
 		close(fd);
 		return -1;
 	}
+	/* A daemon that accepts and never replies must not freeze the
+	 * TUI. db_up() is called from the LIGHT view draw path. The
+	 * whole exchange, including skipped "fire" lines, is capped. */
+	struct timespec t0;
+	clock_gettime(CLOCK_MONOTONIC, &t0);
 	for (;;) {
+		struct timespec now;
+		struct timeval tv;
+		long elapsed_ms, left_ms;
+		clock_gettime(CLOCK_MONOTONIC, &now);
+		elapsed_ms = (now.tv_sec - t0.tv_sec) * 1000
+			+ (now.tv_nsec - t0.tv_nsec) / 1000000;
+		left_ms = 2000 - elapsed_ms;
+		if (left_ms <= 0) {
+			close(fd);
+			return -1;
+		}
+		tv.tv_sec = left_ms / 1000;
+		tv.tv_usec = (left_ms % 1000) * 1000;
+		setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
 		n = (int)recv(fd, buf, sizeof buf - 1, 0);
+		if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+			close(fd);
+			return -1;
+		}
 		if (n <= 0) {
 			close(fd);
 			return -1;
@@ -287,12 +312,16 @@ int db_action_in(const char *text, const char *key,
 				if (strcasecmp(name, key) == 0)
 					in = 1;
 			}
-		} else if (in && strncmp(s, "ctron", 5) == 0) {
+		} else if (in && strncmp(s, "ctron", 5) == 0 &&
+			   (s[5] == '\0' || s[5] == '=' || s[5] == ' ' || s[5] == '\t')) {
 			char *eq = strchr(s, '=');
 			char *c, *v;
 
+			/* "ctron" with no '=' is not an action. A later
+			 * "ctron = ..." in the same section still counts.
+			 * "ctrone = ..." is a different word and is ignored. */
 			if (!eq)
-				return -1;
+				goto next_line;
 			c = eq + 1;
 			while (*c == ' ' || *c == '\t')
 				c++;
@@ -310,6 +339,7 @@ int db_action_in(const char *text, const char *key,
 			snprintf(val, (size_t)valn, "%s", v);
 			return 0;
 		}
+	next_line:
 		if (*eol == '\n')
 			p = eol + 1;
 		else

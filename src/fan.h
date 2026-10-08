@@ -34,4 +34,12 @@ int fan_set_point(fan_curve_t *fc, int idx, int temp, int pwm);
 /* Scale every pwm by num/den (clamped). Used by the Silent/Cool presets. */
 void fan_scale(fan_curve_t *dst, const fan_curve_t *src, int num, int den);
 
+/* asus_custom_fan_curve pwmN_enable (kernel asus-wmi, 6.18 and 7.x):
+ * 1 applies the stored curve, 2 is factory automatic. The points stay
+ * in sysfs either way. 0 is rejected. 3 restores the factory curve.
+ * Writing any point clears the enable, so 1 has to be written after
+ * the points. `on` is nonzero for "custom curve on". */
+int fan_enable_raw(int on);
+int fan_raw_is_on(int raw);
+
 #endif /* CTRON_FAN_H */

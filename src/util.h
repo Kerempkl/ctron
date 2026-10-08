@@ -24,8 +24,11 @@ int ut_write_file(const char *path, const char *val);
 int ut_write_int(const char *path, long v);
 
 /* Privileged write chain: direct write first, then `sudo -n tee`.
- * Returns 0 on success. Never prompts for a password. */
+ * Returns 0 on success. Never prompts for a password.
+ * The sudo step runs only when ut_sudo_fallback_allowed() is nonzero.
+ * The default is allowed. settings.c replaces it so "no sudo" is real. */
 int ut_priv_write(const char *path, const char *val);
+int ut_sudo_fallback_allowed(void);
 
 /* ---- process helpers ------------------------------------------------- */
 
@@ -57,6 +60,13 @@ int ut_parse_ints(const char *s, int *out, int max);
 
 /* Clamp helpers. */
 int ut_clamp_i(int v, int lo, int hi);
+
+/* Display cells in a UTF-8 string (lead bytes, not continuation). */
+int ut_cells(const char *s);
+
+/* Copy `left`, pad with spaces to `cells` display cells, then `right`. */
+void ut_cell_join(char *dst, size_t n, const char *left, int cells,
+                  const char *right);
 
 /* ---- ring log (footer of the TUI, --status tail) --------------------- */
 

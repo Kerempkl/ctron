@@ -10,6 +10,11 @@
 #include <string.h>
 #include <strings.h>
 
+int ut_sudo_fallback_allowed(void)
+{
+    return g_prefs.write_pref != PREF_NO_SUDO;
+}
+
 prefs_t g_prefs = {
     .poll_ms   = 250,
     .write_pref = PREF_ASUSCTL_FIRST,

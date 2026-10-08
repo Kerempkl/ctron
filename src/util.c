@@ -80,10 +80,20 @@ int ut_write_int(const char *path, long v)
     return ut_write_file(path, buf);
 }
 
+/* Overridden by settings.c. A binary that does not link settings
+ * keeps the sudo fallback (the daeboard unit test). */
+__attribute__((weak)) int ut_sudo_fallback_allowed(void)
+{
+    return 1;
+}
+
 int ut_priv_write(const char *path, const char *val)
 {
     if (ut_write_file(path, val) == 0)
         return 0;
+
+    if (!ut_sudo_fallback_allowed())
+        return -1;
 
     /* The fallback shells out; a single quote would break the quoting. */
     if (strchr(val, '\'') || strchr(path, '\''))
@@ -246,6 +256,31 @@ int ut_clamp_i(int v, int lo, int hi)
     if (v > hi)
         return hi;
     return v;
+}
+
+int ut_cells(const char *s)
+{
+    int cells = 0;
+    if (!s)
+        return 0;
+    for (; *s; s++)
+        if ((*s & 0xC0) != 0x80)
+            cells++;
+    return cells;
+}
+
+void ut_cell_join(char *dst, size_t n, const char *left, int cells,
+                  const char *right)
+{
+    int pad;
+    if (!dst || n == 0)
+        return;
+    left = left ? left : "";
+    right = right ? right : "";
+    pad = cells - ut_cells(left);
+    if (pad < 0)
+        pad = 0;
+    snprintf(dst, n, "%s%*s%s", left, pad, "", right);
 }
 
 /* ---- ring log -------------------------------------------------------- */

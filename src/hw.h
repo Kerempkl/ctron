@@ -7,6 +7,12 @@
 /* parse "0-31" / "0-15,32-47" style cpu lists; pure, unit-tested */
 int hw_cpu_list_parse(const char *s, int *ids, int max);
 
+/* 1 when a GPU temperature query is allowed. pref_on is the Settings
+ * toggle. runtime_status NULL means no runtime file (always-on GPU).
+ * "suspended" and "suspending" are skipped so nvidia-smi does not
+ * wake a sleeping dGPU. */
+int hw_gpu_temp_allowed(int pref_on, const char *runtime_status);
+
 /* cached sysfs device paths: probed once, an empty entry means probe
  * on next use, a failed read drops the entry (suspend/resume can
  * renumber hwmon/power-supply indices) */

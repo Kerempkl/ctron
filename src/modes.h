@@ -79,6 +79,12 @@ unsigned mode_snapshot(const hw_state_t *hw, unsigned want, mode_snap_t *snap);
 int mode_drift_count(const hw_state_t *hw, unsigned mask,
                      const mode_snap_t *snap);
 
+/* Split a step list on commas that begin a new command. Commas inside
+ * values (ppt 45,55,55 and fan-curve csv) stay in the step. Returns
+ * the number of steps. `out` may be NULL to count only. Each row of
+ * `out` is MODE_STEPS_MAX bytes. */
+int mode_split_steps(const char *steps, char (*out)[MODE_STEPS_MAX], int max);
+
 /* Execute a comma separated step list ("profile performance, fan cool").
  * Stops at the first failing step. Returns 0 when all steps applied. */
 int mode_apply(hw_state_t *hw, const char *steps, char *err, size_t errn);

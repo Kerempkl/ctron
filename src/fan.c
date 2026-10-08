@@ -219,3 +219,13 @@ void fan_scale(fan_curve_t *dst, const fan_curve_t *src, int num, int den)
         dst->pwm[i] = ut_clamp_i(p, 0, 255);
     }
 }
+
+int fan_enable_raw(int on)
+{
+    return on ? 1 : 2;
+}
+
+int fan_raw_is_on(int raw)
+{
+    return raw == 1;
+}

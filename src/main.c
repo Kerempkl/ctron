@@ -46,14 +46,19 @@ static void print_usage(const char *prog)
     printf("  profile apply|export|delete <name>\n\n");
     printf("Hardware (key = value pairs, same as mode steps):\n");
     printf("  --profile quiet|balanced|performance\n");
+    printf("  --ac-profile off|quiet|balanced|performance\n");
+    printf("  --battery-profile off|quiet|balanced|performance\n");
     printf("  --epp power|balance_power|balance_performance|performance\n");
-    printf("  --freq <mhz>            CPU max frequency\n");
+    printf("  --freq <mhz>                 every thread\n");
+    printf("  --freq core <cpu-id> <mhz>   one thread (kernel id)\n");
+    printf("  --freq ccd <n> <mhz>         every thread in that CCD\n");
     printf("  --hz <rate|max>         display refresh (compositor backend)\n");
     printf("  --battery <20..100>     charge limit\n");
     printf("  --battery-oneshot       charge to full once\n");
-    printf("  --ppt Q45|B60|P80|<spl>,<sppt>,<fppt>\n");
+    printf("  --ppt Q45|B60|P80|<spl>,<sppt>,<fppt>|off|on\n");
     printf("  --nv-boost <5..25 W>    NVIDIA dynamic boost\n");
     printf("  --nv-temp <75..87 C>    NVIDIA temp target\n");
+    printf("  --gpu-clock <mhz>|reset NVIDIA core-clock lock\n");
     printf("  --panel-od on|off       panel overdrive\n");
     printf("  --cpu-boost on|off      cpufreq boost\n");
     printf("  --kbd off|low|med|high  keyboard backlight\n");
@@ -62,7 +67,7 @@ static void print_usage(const char *prog)
     printf("  --daeboard-stop     ask the daemon to quit\n");
     printf("  --daeboard-reload   recompile ~/.config/ctron/daeboard.binds\n");
     printf("  --aura <effect> [color|hex]\n");
-    printf("  --fan stock|silent|cool|full|on|off\n");
+    printf("  --fan stock|silent|cool|full|on|off|cpu on|cpu off|gpu on|gpu off\n");
     printf("  --fan-curve cpu|gpu <temps> <pwms>\n");
     printf("  --fan-write             write in-memory curve to the EC\n\n");
     printf("Config: %s [--config-dir DIR]\n", prog);
@@ -135,6 +140,23 @@ static int cmd_status(hw_state_t *hw)
         fan_to_csv(&hw->fan_gpu, gt, sizeof(gt), gp, sizeof(gp));
         printf("  Fan curve cpu  : %s %s (%s)\n", ct, cp, hw->fan_cpu_on ? "on" : "off");
         printf("  Fan curve gpu  : %s %s (%s)\n", gt, gp, hw->fan_gpu_on ? "on" : "off");
+    }
+    if (hw->gpu_clock_lock > 0)
+        printf("  GPU clock      : locked %d MHz\n", hw->gpu_clock_lock);
+    else if (hw->gpu_mhz_max > 0)
+        printf("  GPU clock      : driver default (max %d MHz)\n", hw->gpu_mhz_max);
+    if (hw->cpu_n > 0 && hw->cpu_mhz_limit > 0) {
+        int below = 0;
+        for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
+            int id = hw->cpu_ids[c];
+            int lim = hw->cpu_mhz_core[id];
+            if (lim > 0 && hw->cpu_mhz_limit - lim > 2)
+                below++;
+        }
+        if (below > 0)
+            printf("  CPU cores      : %d of %d threads below %d MHz "
+                   "(--freq ccd N M | --freq core ID M)\n",
+                   below, hw->cpu_n, hw->cpu_mhz_limit);
     }
     return 0;
 }
@@ -498,7 +520,7 @@ int main(int argc, char *argv[])
         /* --freq core N M: absorb the two extra tokens when the value
          * starts with "core" (--fan-curve pattern) */
         if (!val && !strcmp(key, "freq") && i + 1 < argc &&
-            !strcmp(argv[i + 1], "core")) {
+            (!strcmp(argv[i + 1], "core") || !strcmp(argv[i + 1], "ccd"))) {
             char joined[64] = {0};
             int got = 0;
             while (got < 3 && i + 1 < argc && argv[i + 1][0] != '-') {
@@ -514,6 +536,18 @@ int main(int argc, char *argv[])
 
         /* multi-token flags: --fan-curve cpu T P (3 tokens after the flag),
          * --aura effect [color|hex] (1-2 tokens) */
+        /* --fan cpu on  /  --fan gpu off  (two tokens; presets stay one) */
+        if (!val && !strcmp(key, "fan") && i + 2 < argc &&
+            (!strcmp(argv[i + 1], "cpu") || !strcmp(argv[i + 1], "gpu")) &&
+            argv[i + 2][0] != '-') {
+            char joined[32];
+            snprintf(joined, sizeof(joined), "%s %s", argv[i + 1], argv[i + 2]);
+            i += 2;
+            if (run_flag(&hw, key, joined) != 0)
+                rc = 1;
+            continue;
+        }
+
         if (!val && (!strcmp(key, "fan-curve") || !strcmp(key, "aura"))) {
             int want = !strcmp(key, "fan-curve") ? 3 : 1;
             char joined[256] = {0};

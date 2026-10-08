@@ -144,8 +144,6 @@ static unsigned key_to_mask(const char *key, const char *val)
     if (!strcasecmp(key, "gpu-clock"))     return MS_GPUCLOCK;
     if (!strcasecmp(key, "fan"))           return MS_FAN_CPU | MS_FAN_GPU;
     if (!strcasecmp(key, "fan-curve")) {
-        /* the curve CSV carries commas, so the first split token is
-         * "fan-curve cpu 40" — the fan side is val's first word */
         char side[8] = {0};
         sscanf(val, "%7s", side);
         if (!strcasecmp(side, "cpu"))      return MS_FAN_CPU;
@@ -155,28 +153,103 @@ static unsigned key_to_mask(const char *key, const char *val)
     return 0;
 }
 
+static int step_starts_key(const char *s)
+{
+    char key[32];
+    int i = 0;
+
+    if (!s)
+        return 0;
+    while (s[i] && s[i] != ' ' && s[i] != '\t' && s[i] != ',' &&
+           i < (int)sizeof(key) - 1) {
+        key[i] = s[i];
+        i++;
+    }
+    if (i == 0)
+        return 0;
+    key[i] = '\0';
+    return cmd_is_key(key);
+}
+
+/* Comma that begins the next command, or NULL when this is the last step. */
+static const char *step_sep(const char *start)
+{
+    const char *c = strchr(start, ',');
+    while (c) {
+        const char *n = c + 1;
+        while (*n == ' ' || *n == '\t')
+            n++;
+        if (*n == '\0' || step_starts_key(n))
+            return c;
+        c = strchr(c + 1, ',');
+    }
+    return NULL;
+}
+
+int mode_split_steps(const char *steps, char (*out)[MODE_STEPS_MAX], int max)
+{
+    const char *p = steps ? steps : "";
+    int n = 0;
+
+    while (*p) {
+        const char *end;
+        size_t len;
+
+        while (*p == ' ' || *p == '\t')
+            p++;
+        if (*p == ',') {
+            p++;
+            continue;
+        }
+        if (!*p)
+            break;
+        end = step_sep(p);
+        len = end ? (size_t)(end - p) : strlen(p);
+        while (len && (p[len - 1] == ' ' || p[len - 1] == '\t'))
+            len--;
+        if (out && n < max) {
+            if (len >= MODE_STEPS_MAX)
+                len = MODE_STEPS_MAX - 1;
+            memcpy(out[n], p, len);
+            out[n][len] = '\0';
+        }
+        n++;
+        if (!end)
+            break;
+        p = end + 1;
+    }
+    return n;
+}
+
+static void step_key_val(const char *step, char *key, size_t keyn, const char **val)
+{
+    const char *sp = strchr(step, ' ');
+    size_t kn = 0;
+
+    if (sp)
+        kn = (size_t)(sp - step);
+    else
+        kn = strlen(step);
+    if (kn >= keyn)
+        kn = keyn - 1;
+    memcpy(key, step, kn);
+    key[kn] = '\0';
+    *val = sp ? sp + 1 : "";
+}
+
 unsigned mode_touch_mask(const char *steps)
 {
-    char buf[MODE_STEPS_MAX];
+    char got[32][MODE_STEPS_MAX];
+    int n = mode_split_steps(steps, got, 32);
     unsigned mask = 0;
-    char *save = NULL;
 
-    snprintf(buf, sizeof(buf), "%s", steps ? steps : "");
-    for (char *tok = strtok_r(buf, ",", &save); tok;
-         tok = strtok_r(NULL, ",", &save)) {
-        char *s = ut_trim(tok);
+    if (n > 32)
+        n = 32;
+    for (int i = 0; i < n; i++) {
         char key[32];
-        char *sp = strchr(s, ' ');
-        if (sp) {
-            size_t kn = (size_t)(sp - s);
-            if (kn >= sizeof(key))
-                kn = sizeof(key) - 1;
-            memcpy(key, s, kn);
-            key[kn] = '\0';
-        } else {
-            snprintf(key, sizeof(key), "%s", s);
-        }
-        mask |= key_to_mask(key, sp ? ut_trim(sp + 1) : "");
+        const char *val;
+        step_key_val(got[i], key, sizeof(key), &val);
+        mask |= key_to_mask(key, ut_trim((char *)val));
     }
     return mask;
 }
@@ -310,29 +383,23 @@ int mode_drift_count(const hw_state_t *hw, unsigned mask,
 
 int mode_apply(hw_state_t *hw, const char *steps, char *err, size_t errn)
 {
-    char buf[MODE_STEPS_MAX];
-    snprintf(buf, sizeof(buf), "%s", steps ? steps : "");
+    char got[32][MODE_STEPS_MAX];
+    int n = mode_split_steps(steps, got, 32);
+    if (n > 32) {
+        if (err && errn)
+            snprintf(err, errn, "too many steps");
+        return -1;
+    }
 
-    char *save = NULL;
-    for (char *tok = strtok_r(buf, ",", &save); tok;
-         tok = strtok_r(NULL, ",", &save)) {
-        char *step = ut_trim(tok);
+    for (int i = 0; i < n; i++) {
+        char *step = got[i];
         if (!*step)
             continue;
 
-        /* split "key [rest]" */
-        char *sp = strchr(step, ' ');
         char key[32];
-        if (sp) {
-            size_t kn = (size_t)(sp - step);
-            if (kn >= sizeof(key))
-                kn = sizeof(key) - 1;
-            memcpy(key, step, kn);
-            key[kn] = '\0';
-        } else {
-            snprintf(key, sizeof(key), "%s", step);
-        }
-        const char *val = sp ? ut_trim(sp + 1) : "";
+        const char *val;
+        step_key_val(step, key, sizeof(key), &val);
+        val = ut_trim((char *)val);
 
         char serr[128];
         if (cmd_run(hw, key, val, serr, sizeof(serr)) != 0) {

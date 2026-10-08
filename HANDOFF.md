@@ -1,6 +1,13 @@
 # Ctron Handoff
 
-Latest session — **2026-10-06** **GLM / FA608PP** (util write-path
+Latest session — **2026-10-08** **Grok / FA507NVR**: audit follow-up,
+rebased onto `07d19c2` (PPT/ryzenadj). Fan enable is `1` on / `2` auto;
+`--status` shows both curves `(off)` while `pwmN_enable` is 2. CLI
+matches the TUI command set (`--freq ccd`, `--fan cpu|gpu on|off`,
+`--gpu-clock`, asusd auto profiles). `make` is warning-free and
+`make test` passes. Not done live: writing enable `1`, a hung daeboard
+socket, and `--gpu-clock`. This machine's sudo is `NOPASSWD: ALL`.
+The FA608PP sudoers rule was not checked. Before that **2026-10-06** **GLM / FA608PP** (util write-path
 hardening — P4 item 1, see below). Before that **2026-10-04** **GLM /
 FA608PP** (GPU clock lock -lgc + verify-race/unstaged-CPU fixes, hz
 ceiling) and **2026-10-03** **GLM / FA608PP** (full code audit +

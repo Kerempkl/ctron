@@ -8,6 +8,7 @@
 #include <dirent.h>
 #include <sys/stat.h>
 
+#include "cmds.h"
 #include "control.h"
 #include "fan.h"
 #include "hw.h"
@@ -436,7 +437,77 @@ static void check_util_write(void)
     CHECK(ut_priv_write("/no'such/dir/w", "42") != 0,
           "priv rejects quote in path");
 
+    int saved_pref = g_prefs.write_pref;
+    char locked[300];
+    FILE *f;
+    snprintf(locked, sizeof(locked), "%s/locked.txt", tmp);
+    f = fopen(locked, "w");
+    CHECK(f != NULL, "nosudo file");
+    if (f) {
+        fputs("old\n", f);
+        fclose(f);
+    }
+    chmod(locked, 0444);
+    g_prefs.write_pref = PREF_NO_SUDO;
+    CHECK(ut_priv_write(locked, "new") != 0, "no sudo skips tee");
+    CHECK(ut_read_file(locked, buf, sizeof(buf)) == 0 && !strcmp(buf, "old"),
+          "no sudo left the file alone");
+    g_prefs.write_pref = saved_pref;
+    chmod(locked, 0644);
+    unlink(locked);
+
     rmdir(tmp);
+}
+
+static void check_mode_split(void)
+{
+    char got[8][MODE_STEPS_MAX];
+    int n = mode_split_steps(
+        "profile performance, ppt 45,55,55, fan-curve cpu 40,50 80,90, hz 144",
+        got, 8);
+    CHECK(n == 4, "split count");
+    CHECK(!strcmp(got[0], "profile performance"), "split profile");
+    CHECK(!strcmp(got[1], "ppt 45,55,55"), "split ppt commas");
+    CHECK(!strcmp(got[2], "fan-curve cpu 40,50 80,90"), "split fan commas");
+    CHECK(!strcmp(got[3], "hz 144"), "split hz");
+    CHECK(cmd_is_key("fan-curve") == 1, "fan-curve is a key");
+    CHECK(cmd_is_key("55") == 0, "a number is not a key");
+}
+
+static void check_fan_enable(void)
+{
+    CHECK(fan_enable_raw(1) == 1, "curve on writes 1");
+    CHECK(fan_enable_raw(0) == 2, "curve off writes 2");
+    CHECK(fan_raw_is_on(1) == 1, "read 1 is on");
+    CHECK(fan_raw_is_on(2) == 0, "read 2 is automatic");
+    CHECK(fan_raw_is_on(0) == 0, "read 0 is not on");
+    CHECK(fan_raw_is_on(3) == 0, "read 3 is not on");
+}
+
+static void check_gpu_temp_gate(void)
+{
+    CHECK(hw_gpu_temp_allowed(0, "active") == 0, "gpu pref off");
+    CHECK(hw_gpu_temp_allowed(1, "suspended") == 0, "gpu suspended");
+    CHECK(hw_gpu_temp_allowed(1, "suspending") == 0, "gpu suspending");
+    CHECK(hw_gpu_temp_allowed(1, "active") == 1, "gpu active");
+    CHECK(hw_gpu_temp_allowed(1, NULL) == 1, "gpu without a runtime node");
+}
+
+static void check_cell_join(void)
+{
+    char marked[64], plain[64];
+    char *mv, *pv;
+    ut_cell_join(marked, sizeof(marked), "▸ hi ", 8, "V");
+    ut_cell_join(plain, sizeof(plain), "  hi ", 8, "V");
+    mv = strchr(marked, 'V');
+    pv = strchr(plain, 'V');
+    CHECK(mv != NULL && pv != NULL, "value marker present");
+    if (mv)
+        *mv = '\0';
+    if (pv)
+        *pv = '\0';
+    CHECK(ut_cells(marked) == 8 && ut_cells(plain) == 8,
+          "selected marker does not shift the value");
 }
 
 static void check_mode_touch_mask(void)
@@ -578,6 +649,10 @@ int main(void)
     check_asusd_ron_parse();
     check_read_file_all();
     check_util_write();
+    check_mode_split();
+    check_fan_enable();
+    check_gpu_temp_gate();
+    check_cell_join();
     check_mode_touch_mask();
     check_mode_drift();
     check_ppt_order();
