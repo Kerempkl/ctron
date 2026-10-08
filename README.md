@@ -81,6 +81,15 @@ telemetri.
 
 --gpu-clock <mhz>|reset                GPU core clock lock (indirect watt
                                        cap; needs sudoers for nvidia-smi)
+--ppt Q45|B60|P80|off|on|<spl>,<sppt>,<fppt>
+                                       CPU watt limits — on locked-PPT
+                                       laptops this needs ryzenadj
+                                       (sudoers rule must name the
+                                       literal path, e.g.
+                                       /usr/bin/ryzenadj); SMU limits
+                                       are volatile: re-apply after
+                                       reboot/profile changes
+                                       (see HARDWARE.md)
 
 --mode <name>                          apply a shortcut bundle
 mode list|show <name>|add <name> <steps>|delete <name>

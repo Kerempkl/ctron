@@ -40,6 +40,12 @@ int ctrl_set_ppt(hw_state_t *hw, int spl, int sppt, int fppt);
  * current values) and put them back afterwards. */
 int ctrl_ppt_off(hw_state_t *hw);
 int ctrl_ppt_restore(hw_state_t *hw);
+/* Pure: the ryzenadj invocation for a watt triple (W in, mW out).
+ * SECURITY INVARIANT: fixed flag order, integers only — SPL→STAPM
+ * (-a), SPPT→SLOW (-c), FPPT→FAST (-b); ctron never passes any other
+ * ryzenadj flag. Unit-tested. */
+void ctrl_ppt_ryzen_cmd(const char *path, int spl, int sppt, int fppt,
+                        char *out, size_t n);
 int ctrl_set_nv_boost(hw_state_t *hw, int watts);
 int ctrl_set_nv_temp(hw_state_t *hw, int celsius);
 int ctrl_set_panel_od(hw_state_t *hw, bool on);

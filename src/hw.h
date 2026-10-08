@@ -23,6 +23,16 @@ typedef struct {
 
 #include "fan.h"
 
+/* PPT write interface, resolved once at init (probe order):
+ *   ARMOURY  asus-armoury firmware-attributes current_value (official)
+ *   RYZENADJ sudo -n ryzenadj SMU mailbox (no read-back on Dragon Range)
+ *   LEGACY   asus-nb-wmi sysfs (accepted but ignored on FA608PP) */
+typedef enum {
+    HW_PPT_LEGACY = 0,
+    HW_PPT_ARMOURY,
+    HW_PPT_RYZENADJ,
+} hw_ppt_mode_t;
+
 /* ---- enums with canonical names ------------------------------------- */
 
 typedef enum { HW_QUIET = 0, HW_BALANCED, HW_PERFORMANCE, HW_PROF_COUNT } hw_profile_t;
@@ -91,6 +101,7 @@ typedef struct {
     int bat_mw;            /* mW, >0 discharging, <0 charging */
     int bat_limit;         /* charge_control_end_threshold, 0 unknown */
     int ppt_spl, ppt_sppt, ppt_fppt;   /* W, 0 unknown/stale */
+    int ppt_mode;                      /* hw_ppt_mode_t */
     bool ppt_off;                       /* limits removed (platform maxima) */
     int ppt_saved_spl, ppt_saved_sppt, ppt_saved_fppt; /* to restore */
     int nv_boost;          /* W, 0 unknown */

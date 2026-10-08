@@ -544,6 +544,25 @@ static void check_gpu_clock(void)
     CHECK(ctrl_gpu_clock_ok(1400, "garbage") == 0, "garbage samples");
 }
 
+static void check_ppt_ryzen_cmd(void)
+{
+    char cmd[160];
+
+    /* name-based mapping: SPL->STAPM(-a), SPPT->SLOW(-c), FPPT->FAST(-b),
+     * W in -> mW out, fixed flag order */
+    ctrl_ppt_ryzen_cmd("/usr/bin/ryzenadj", 30, 50, 40, cmd, sizeof(cmd));
+    CHECK(!strcmp(cmd, "sudo -n /usr/bin/ryzenadj -a 30000 -c 50000 -b 40000"),
+          "ryzen cmd mapping + mW");
+
+    ctrl_ppt_ryzen_cmd(NULL, 45, 55, 55, cmd, sizeof(cmd));
+    CHECK(!strcmp(cmd, "sudo -n ryzenadj -a 45000 -c 55000 -b 55000"),
+          "ryzen cmd bare fallback");
+
+    /* only integers ever enter the string — no injection surface */
+    ctrl_ppt_ryzen_cmd("/x/r", 0, 0, 0, cmd, sizeof(cmd));
+    CHECK(!strcmp(cmd, "sudo -n /x/r -a 0 -c 0 -b 0"), "ryzen cmd zero");
+}
+
 int main(void)
 {
     check_fan_csv();
@@ -562,6 +581,7 @@ int main(void)
     check_mode_touch_mask();
     check_mode_drift();
     check_ppt_order();
+    check_ppt_ryzen_cmd();
     check_gpu_clock();
 
     if (failures) {

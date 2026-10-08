@@ -314,6 +314,80 @@ int ctrl_set_cpu_boost(hw_state_t *hw, bool on)
 
 /* ---- power ------------------------------------------------------------ */
 
+void ctrl_ppt_ryzen_cmd(const char *path, int spl, int sppt, int fppt,
+                        char *out, size_t n)
+{
+    snprintf(out, n, "sudo -n %s -a %d -c %d -b %d",
+             path && path[0] ? path : "ryzenadj",
+             spl * 1000, sppt * 1000, fppt * 1000);
+}
+
+/* one PPT write through the resolved interface (hw->ppt_mode). Values
+ * arrive already clamped and ordered. ryzenadj invocation paths are
+ * tried in order: the sudoers rule must match the invoked path
+ * LITERALLY (Arch merged-usr keeps /usr/sbin a symlink to bin — same
+ * inode, but sudoers matching is by string), then the bare name as a
+ * portable last resort (sudo resolves it via its own secure_path). */
+static int ppt_write(hw_state_t *hw, int spl, int sppt, int fppt)
+{
+    switch (hw->ppt_mode) {
+    case HW_PPT_ARMOURY: {
+        const char *attrs[3] = { "ppt_pl1_spl", "ppt_pl2_sppt", "ppt_pl3_fppt" };
+        int vals[3];
+        int rc = 0;
+        vals[0] = spl; vals[1] = sppt; vals[2] = fppt;
+        for (int i = 0; i < 3; i++) {
+            char path[384], val[16];
+            snprintf(path, sizeof(path), "%s/%s/current_value",
+                     ARMOURY_ATTR, attrs[i]);
+            snprintf(val, sizeof(val), "%d", vals[i]);
+            if (ut_priv_write(path, val) != 0)
+                rc = -1;
+        }
+        return rc;
+    }
+    case HW_PPT_RYZENADJ: {
+        static const char *const paths[] = {
+            "/usr/bin/ryzenadj", "/usr/sbin/ryzenadj", "ryzenadj",
+        };
+        for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
+            char cmd[160];
+            ctrl_ppt_ryzen_cmd(paths[i], spl, sppt, fppt, cmd, sizeof(cmd));
+            if (ut_exec(cmd, NULL, 0) == 0)
+                return 0;
+        }
+        return -1;
+    }
+    default: {
+        int rc = 0;
+        if (nbwmi_write("ppt_pl1_spl", spl) != 0)   rc = -1;
+        if (nbwmi_write("ppt_pl2_sppt", sppt) != 0) rc = -1;
+        if (nbwmi_write("ppt_fppt", fppt) != 0)     rc = -1;
+        return rc;
+    }
+    }
+}
+
+static void ppt_log_ok(const hw_state_t *hw, int spl, int sppt, int fppt)
+{
+    switch (hw->ppt_mode) {
+    case HW_PPT_ARMOURY:
+        ut_log("ppt: %d/%d/%d W via armoury", spl, sppt, fppt);
+        break;
+    case HW_PPT_RYZENADJ:
+        /* Dragon Range exposes no SMU read-back (monitoring table
+         * unsupported): field-verified 2026-10-08, never claimed live.
+         * SMU limits are volatile — a reboot, suspend or platform
+         * profile change can silently clear them; re-apply after. */
+        ut_log("ppt: %d/%d/%d W via ryzenadj (no read-back on this platform "
+               "— re-apply after reboot/profile change)", spl, sppt, fppt);
+        break;
+    default:
+        ut_log("ppt: %d/%d/%d W via legacy nb-wmi (unverifiable on this "
+               "platform)", spl, sppt, fppt);
+    }
+}
+
 void ctrl_ppt_limits(const hw_state_t *hw,
                      int *spl_min, int *spl_max,
                      int *sppt_min, int *sppt_max,
@@ -330,10 +404,13 @@ void ctrl_ppt_limits(const hw_state_t *hw,
         char path[384], buf[32];
         *req[i].min = req[i].dmin;
         *req[i].max = req[i].dmax;
-        snprintf(path, sizeof(path), "%s/%s/min", ARMOURY_ATTR, req[i].attr);
+        /* real firmware-attribute file names are min_value/max_value
+         * (the earlier "min"/"max" reads never existed → silently fell
+         * back to these defaults everywhere) */
+        snprintf(path, sizeof(path), "%s/%s/min_value", ARMOURY_ATTR, req[i].attr);
         if (ut_read_file(path, buf, sizeof(buf)) == 0 && atoi(buf) > 0)
             *req[i].min = atoi(buf);
-        snprintf(path, sizeof(path), "%s/%s/max", ARMOURY_ATTR, req[i].attr);
+        snprintf(path, sizeof(path), "%s/%s/max_value", ARMOURY_ATTR, req[i].attr);
         if (ut_read_file(path, buf, sizeof(buf)) == 0 && atoi(buf) > 0)
             *req[i].max = atoi(buf);
     }
@@ -357,19 +434,15 @@ int ctrl_set_ppt(hw_state_t *hw, int spl, int sppt, int fppt)
     ctrl_ppt_limits(hw, &smin, &smax, &pmin, &pmax, &fmin, &fmax);
     ctrl_ppt_order(&spl, &sppt, &fppt, smin, smax, pmin, pmax, fmin, fmax);
 
-    int rc = 0;
-    if (nbwmi_write("ppt_pl1_spl", spl) != 0)  rc = -1;
-    if (nbwmi_write("ppt_pl2_sppt", sppt) != 0) rc = -1;
-    if (nbwmi_write("ppt_fppt", fppt) != 0)    rc = -1;
-
+    int rc = ppt_write(hw, spl, sppt, fppt);
     if (rc == 0) {
         hw->ppt_spl = spl;
         hw->ppt_sppt = sppt;
         hw->ppt_fppt = fppt;
         hw->ppt_off = false;
-        ut_log("ppt: %d/%d/%d W", spl, sppt, fppt);
+        ppt_log_ok(hw, spl, sppt, fppt);
     } else {
-        ut_log("ppt: FAILED (needs root; no passwordless sudo)");
+        ut_log("ppt: FAILED (needs the sudoers rule for the write path — see --doctor)");
     }
     return rc;
 }
@@ -384,19 +457,17 @@ int ctrl_ppt_off(hw_state_t *hw)
 
     int smin, smax, pmin, pmax, fmin, fmax;
     ctrl_ppt_limits(hw, &smin, &smax, &pmin, &pmax, &fmin, &fmax);
-    int rc = 0;
-    if (nbwmi_write("ppt_pl1_spl", smax) != 0)   rc = -1;
-    if (nbwmi_write("ppt_pl2_sppt", pmax) != 0)  rc = -1;
-    if (nbwmi_write("ppt_fppt", fmax) != 0)      rc = -1;
+    int rc = ppt_write(hw, smax, pmax, fmax);
 
     if (rc == 0) {
         hw->ppt_spl = smax;
         hw->ppt_sppt = pmax;
         hw->ppt_fppt = fmax;
         hw->ppt_off = true;
-        ut_log("ppt: limits removed (%d/%d/%d W maxima)", smax, pmax, fmax);
+        ut_log("ppt: limits removed (%d/%d/%d W maxima — now actually enforced "
+               "where the interface works)", smax, pmax, fmax);
     } else {
-        ut_log("ppt: removing limits FAILED (needs root)");
+        ut_log("ppt: removing limits FAILED (needs the sudoers rule)");
     }
     return rc;
 }

@@ -403,6 +403,20 @@ void hw_init(hw_state_t *hw)
     hw->has_nvidia_smi = ut_have_cmd("nvidia-smi");
     hw->has_kbd_led    = ut_path_exists("/sys/class/leds/asus::kbd_backlight/brightness");
 
+    /* PPT write interface (probe, no sudo): official armoury attribute
+     * first; on FA608PP it is ENODEV and the legacy nb-wmi nodes are
+     * accepted-but-ignored, so ryzenadj (field-verified 2026-10-08) is
+     * the working fallback when installed */
+    hw->ppt_mode = HW_PPT_LEGACY;
+    {
+        char probe[32];
+        if (hw_armoury_read("ppt_pl1_spl", probe, sizeof(probe)) == 0 &&
+            probe[0])
+            hw->ppt_mode = HW_PPT_ARMOURY;
+        else if (ut_have_cmd("ryzenadj"))
+            hw->ppt_mode = HW_PPT_RYZENADJ;
+    }
+
     int min_khz = ut_read_int("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_min_freq");
     int max_khz = ut_read_int("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq");
     hw->cpu_mhz_min = min_khz > 0 ? min_khz / 1000 : 400;

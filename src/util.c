@@ -139,6 +139,14 @@ static int exec_run(const char *cmd, char *out, size_t n, bool raw)
         } else {
             out[strcspn(out, "\r\n")] = '\0';
         }
+    } else {
+        /* drain anyway: a child that prints (ryzenadj does) while the
+         * caller wants no output races our pclose for the pipe — its
+         * write hits a closed read end and it dies on SIGPIPE (141),
+         * turning a successful command into a fake failure */
+        char sink[4096];
+        while (fread(sink, 1, sizeof sink, p) > 0)
+            ;
     }
 
     int st = pclose(p);

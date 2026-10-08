@@ -1,5 +1,50 @@
 # Changelog
 
+## 2026-10-08 — ut_exec SIGPIPE race: printing children failed as fake errors
+
+- Root cause of the first ryzenadj round reporting FAILED while the
+  journal showed every command running as root: `exec_run` skipped
+  reading the pipe entirely when the caller passed no output buffer,
+  so a child that PRINTS (ryzenadj's "Successfully set ...") raced our
+  pclose for the pipe — its write hit a closed read end and it died on
+  SIGPIPE (exit 141), turning a successful write into a fake failure.
+  Latent forever because previous children (asusctl, tee, kscreen)
+  printed nothing. The pipe is now always drained. Proven live:
+  `--ppt 30,40,50` rc=0 with exactly one sudo journal entry.
+
+## 2026-10-08 — PPT watt limits actually apply: armoury probe + ryzenadj write path
+
+- Field research (OCCT): setting 30/40/50 W from ctron did nothing —
+  package power hit 80 W. Diagnosis: the legacy nb-wmi nodes accept
+  writes (readback shows them) but the SMU ignores them; the official
+  asus-armoury attributes report ppt_* (and nv_*) "unavailable"
+  (ENODEV) on FA608PP — firmware owns the power budget. `ryzenadj`
+  (SMU mailbox, /dev/mem as root — verified working, limits pinned at
+  40 W under load) is the only effective interface here.
+- Landed: `hw->ppt_mode` probe at init (armoury current_value →
+  ryzenadj on PATH → legacy nb-wmi; no sudo at init), a common
+  `ppt_write()` used by set/off/restore, and the pure, unit-tested
+  `ctrl_ppt_ryzen_cmd()` builder — fixed flag order, integers only,
+  name-based mapping SPL→STAPM(-a), SPPT→SLOW(-c), FPPT→FAST(-b),
+  W→mW. The ryzenadj invocation tries /usr/bin → /usr/sbin → bare
+  name: sudoers matches the invoked path LITERALLY (merged-usr
+  symlink is invisible to it), so the rule must name the path ctron
+  calls. SECURITY INVARIANT: ctron never passes any other ryzenadj
+  flag (no --tctl-temp) — documented in the header.
+- Honesty: Dragon Range has no SMU read-back (monitoring table
+  unsupported) — the log says "via ryzenadj (no read-back on this
+  platform — re-apply after reboot/profile change)", never "verified".
+  SMU limits are volatile: reboot/suspend/profile changes can clear
+  them. `--doctor` shows the resolved interface ("ppt iface"). The
+  ctrl_ppt_limits filename bug is fixed too (min/max → min_value/
+  max_value — the old names never existed, so real firmware limits
+  were never read).
+- Known risk documented (not changed): NOPASSWD ryzenadj is broad
+  (root can also raise --tctl-temp); arg-constrained sudoers rules are
+  weak (* crosses argument boundaries) — HARDWARE.md carries an
+  optional root-owned wrapper recipe for hardening. "ppt off" now has
+  a real effect on this machine (was a silent no-op).
+
 ## 2026-10-07 — POWER: firmware-behaviour badge for the moving CPU ceiling
 
 - The freq-watch experiments proved the CPU boost ceiling is

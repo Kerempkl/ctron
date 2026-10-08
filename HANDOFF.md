@@ -189,6 +189,42 @@ prioritized todo list and the distilled session lessons.
   Documented in HARDWARE.md EN/TR. No code changes; sampler scripts
   live in ~ (freq-watch*.sh/out).
 
+### Session 2026-10-08 — PPT via ryzenadj + ut_exec SIGPIPE root-cause (GLM / FA608PP)
+
+- User OCCT field test: `--ppt 30/40/50` did nothing (package hit
+  80 W). Full diagnosis: legacy nb-wmi accepts-and-ignores; asus-armoury
+  says ppt_*/nv_* "unavailable" (ENODEV) — firmware owns the budget;
+  ryzenadj (SMU mailbox, /dev/mem as root) WORKS (user-verified: limits
+  pinned under load). Also found: ctrl_ppt_limits read non-existent
+  "min"/"max" attribute files (real names min_value/max_value) — real
+  firmware limits were never read anywhere.
+- Landed: `hw->ppt_mode` probe (armoury → ryzenadj on PATH → legacy;
+  no sudo at init), common `ppt_write()` for set/off/restore, pure
+  unit-tested `ctrl_ppt_ryzen_cmd()` (fixed flag order SPL→-a,
+  SPPT→-c, FPPT→-b, W→mW, ints only; invocation paths /usr/bin →
+  /usr/sbin → bare because sudoers matches paths LITERALLY — merged-usr
+  /usr/sbin→bin symlink is invisible to it; user's manual `sudo
+  ryzenadj` matched the /usr/bin rule via secure_path). doctor shows
+  "ppt iface". Honesty: no read-back on Dragon Range — log says so +
+  "re-apply after reboot/profile change" (SMU limits are volatile).
+  Security invariant: ctron never passes other ryzenadj flags
+  (no --tctl-temp); NOPASSWD-ryzenadj breadth + optional root-owned
+  wrapper recipe documented in HARDWARE.md. "ppt off" now real here.
+- **Debugging gem**: first live run FAILED although journal showed
+  every command running as root. Isolation program → `ut_exec` with
+  out=NULL returned 141 (SIGPIPE): exec_run never read the pipe when
+  the caller wanted no output, so a PRINTING child (ryzenadj's
+  "Successfully set ...") raced pclose and died writing to a closed
+  read end — success became a fake failure. Latent forever (asusctl/
+  tee/kscreen print nothing). Fix: always drain. Live proof: rc=0,
+  exactly one sudo journal entry. This also makes every future
+  printing tool (planned: none) safe.
+- make 0 warnings, make test (incl. check_ppt_ryzen_cmd), make tuitest
+  (8 flows), installed. User field protocol pending: OCCT with
+  `ctron --ppt 30,40,50` (expect the ordered triple to pin ~40-50 W),
+  then `--ppt off`, and after the next reboot confirm the limits
+  cleared (volatility).
+
 ### Session 2026-10-07 — POWER firmware-behaviour badge (GLM / FA608PP)
 
 - Knowledge-to-UX follow-up: the moving CPU ceiling raised "bug?"

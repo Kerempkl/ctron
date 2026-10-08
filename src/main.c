@@ -212,6 +212,10 @@ static int cmd_doctor(hw_state_t *hw)
     printf("  kbd led       : %s\n", hw->has_kbd_led ? "asus::kbd_backlight" : "missing");
     printf("  ppt sysfs     : %s\n",
            ut_path_exists("/sys/devices/platform/asus-nb-wmi/ppt_pl1_spl") ? "yes" : "no");
+    printf("  ppt iface     : %s\n",
+           hw->ppt_mode == HW_PPT_ARMOURY ? "armoury firmware-attributes"
+           : hw->ppt_mode == HW_PPT_RYZENADJ ? "ryzenadj (sudo -n; no read-back)"
+           : "legacy nb-wmi (unverifiable)");
     printf("  display       : %s\n", d ? d->name : "no backend detected");
     printf("  sudo -n       : %s\n",
            system("sudo -n true >/dev/null 2>&1") == 0 ? "passwordless" : "unavailable");

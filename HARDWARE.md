@@ -51,6 +51,29 @@ Notes:
   hotkeys"); note that XKB keycodes are the Linux input code **+ 8**
   (`KEY_PROG3` = 202 → `<I210>`). Bound keys are consumed by kwin —
   `kitty +kitten show_key` and friends never see them, which is normal.
+- **CPU PPT watt limits (FA608PP, 2026-10-08)**: the legacy nb-wmi
+  `ppt_*` nodes accept writes (readback echoes them) but the SMU
+  ignores them under load — an OCCT test with 30/40/50 W set pinned
+  the package at 80 W. The official asus-armoury attributes report
+  ppt_* (and nv_*) "unavailable" (ENODEV). The only working interface
+  is **ryzenadj** (SMU mailbox via /dev/mem as root; without the
+  ryzen_smu module): user-verified pinning limits under load. ctron
+  probes the interface once at init (`--doctor` → "ppt iface") and
+  maps SPL→stapm(-a), SPPT→slow(-c), FPPT→fast(-b). Requires a
+  sudoers rule naming the path LITERALLY (`/usr/bin/ryzenadj` —
+  sudoers cannot see through the merged-usr /usr/sbin→bin symlink).
+  Honesty limits: Dragon Range exposes no SMU read-back, so writes are
+  logged as unverified; SMU limits are VOLATILE — a reboot, suspend or
+  platform-profile change can clear them, re-apply after. Security
+  note: NOPASSWD ryzenadj also unlocks `--tctl-temp` (raising the
+  thermal cap) for anything running as the user; argument-constrained
+  sudoers rules are weak protection (`*` spans argument boundaries).
+  Optional hardening — a root-owned wrapper that only ever forwards
+  three integers:
+  `/usr/local/bin/ctron-ppt`:
+  `#!/bin/sh\n[ $# -eq 3 ] || exit 2\ncase "$1$2$3" in *[!0-9]*) exit 2;; esac\nexec /usr/bin/ryzenadj -a "$1" -c "$2" -b "$3"\n`
+  + sudoers `NOPASSWD: /usr/local/bin/ctron-ppt` (ctron keeps using
+  the direct path until a future opt-in).
 - **GPU clock lock (FA608PP, verified 2026-10-04)**: laptop GPU power
   limits are locked (`power.limit` reads `[N/A]`) and the nb-wmi
   `nv_dynamic_boost` / `nv_temp_target` rows apply without any
@@ -125,6 +148,29 @@ Notlar:
   **8 fazlasıdır** (`KEY_PROG3` = 202 → `<I210>`) — bu tuzağa dikkat.
   Bağlanan tuşları kwin yakar; `kitty +kitten show_key` gibi araçlar
   göremez — bu normaldir.
+- **CPU PPT watt limitleri (FA608PP, 2026-10-08)**: eski nb-wmi `ppt_*`
+  düğümleri yazımı kabul ediyor (geri okuma değeri yansıtıyor) ama SMU
+  yük altında yok sayıyor — 30/40/50 W ayarlanan OCCT testinde paket
+  80 W'a çıktı. Resmi asus-armoury öznitelikleri ppt_* (ve nv_*) için
+  "unavailable" (ENODEV) diyor. Çalışan tek arayüz **ryzenadj**
+  (root'ta /dev/mem üzerinden SMU posta kutusu; ryzen_smu modülü
+  olmadan): kullanıcı tarafından yük altında doğrulandı. ctron arayüzü
+  init'te bir kez yoklar (`--doctor` → "ppt iface") ve
+  SPL→stapm(-a), SPPT→slow(-c), FPPT→fast(-b) eşler. Sudoers kuralı
+  yolu LITERAL yazmalıdır (`/usr/bin/ryzenadj` — sudoers, merged-usr
+  /usr/sbin→bin symlink'in içini göremez). Dürüstlük sınırları:
+  Dragon Range'te SMU geri okuması yok → yazımlar doğrulanmamış olarak
+  loglanır; SMU limitleri UÇUCUDUR — reboot, suspend veya platform
+  profili değişimi temizleyebilir, sonra yeniden uygula. Güvenlik
+  notu: NOPASSWD ryzenadj, kullanıcı adına çalışan her şeye
+  `--tctl-temp`'i (termal tavanı yükseltme) de açar; argüman-kısıtlı
+  sudoers kuralları zayıf korumadır (`*` argüman sınırlarını aşar).
+  İsteğe bağlı sertleştirme — yalnız üç tam sayıyı ileten root-sahipli
+  sarmalayıcı:
+  `/usr/local/bin/ctron-ppt`:
+  `#!/bin/sh\n[ $# -eq 3 ] || exit 2\ncase "$1$2$3" in *[!0-9]*) exit 2;; esac\nexec /usr/bin/ryzenadj -a "$1" -c "$2" -b "$3"\n`
+  + sudoers `NOPASSWD: /usr/local/bin/ctron-ppt` (ctron, ileride bir
+  tercih açılana dek doğrudan yolu kullanır).
 - **GPU saat kilidi (FA608PP, 2026-10-04'te doğrulandı)**: laptop GPU
   watt limitleri kilitlidir (`power.limit` = `[N/A]`) ve nb-wmi
   `nv_dynamic_boost` / `nv_temp_target` satırları bu makinede
