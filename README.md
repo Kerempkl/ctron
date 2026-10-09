@@ -93,8 +93,8 @@ telemetri.
 
 --mode <name>                          apply a shortcut bundle
 mode list|show <name>|add <name> <steps>|delete <name>
-profile list
-profile apply|export|delete <name>
+snapshot list
+snapshot apply|export|delete <name>   (alias: profile)
 
 --profile quiet|balanced|performance
 --epp power|balance_power|balance_performance|performance

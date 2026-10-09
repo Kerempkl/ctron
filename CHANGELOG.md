@@ -1,5 +1,35 @@
 # Changelog
 
+## 2026-10-09 — SNAPSHOTS: the PROFILES panel renewed (rename, preview, diff, notes, folder-ready)
+
+- The panel is now SNAPSHOTS — "profile" already meant three other
+  things (the platform profile row, the asusd auto-profile rows, the
+  --profile flag). CLI: `ctron snapshot list|apply|export|delete` with
+  `profile` kept as an alias; `.ctr` files and the profiles/ directory
+  are unchanged (old snapshots keep working). Topbar chip 1:snapshots,
+  HELP updated.
+- Save preview: typing a name shows exactly what export will capture
+  ("Performance · epp … · fans on +curves") — the in-memory-state
+  surprise from the fan incident is visible before saving.
+- Live diff: with a snapshot selected, the footer lists which tracked
+  fields applying it would change ("Δ profile · hz · curve-cpu") or
+  "≡ live"; metadata is parsed once per selection change, the diff
+  itself is draw-time integer compares (no extra polls).
+- Every export now stamps "# saved: YYYY-MM-DD HH:MM"; `c` edits a
+  one-line "# note:" shown with the date in the summary.
+- `r` renames in place (the delete-and-resave dance is gone).
+- Folder-ready names: "oyun/turbo" saves to profiles/oyun/turbo.ctr
+  ('/' groups one level deep, "."/".." segments are rejected, lists
+  show "group/name"); a full grouping UI stays future work.
+- Fixed en route (found by the new flow_snapshots harness test): the
+  global s/ESC settings shortcut swallowed 's' whenever the panel was
+  focused — keyboard saving had NEVER worked, only the Save button.
+  The focused panel now owns 's'.
+- Tests: check_snapshots (sanitize incl. traversal rejection, meta
+  parse, diff equal/changed/curve, note roundtrip, rename semantics);
+  tui_smoke flow_snapshots covers save→rename→note→delete against an
+  isolated config (10 flows total).
+
 ## 2026-10-09 — fan graph live-temp marker sat ~20 °C right
 
 - The live `▲` marker on the fan graph's temperature axis plotted the

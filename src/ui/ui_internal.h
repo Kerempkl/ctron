@@ -52,12 +52,16 @@ typedef struct ui_ctx {
 
     rect_t rc_prof, rc_ctl, rc_ws, rc_telem;
 
-    /* profiles panel */
+    /* snapshots panel (ex-PROFILES) */
     char profs[MAX_PROFILES][PROFILE_NAME_MAX];
     int prof_n, prof_sel;
     int prof_top;          /* first visible list entry (scroll) */
-    tinput_t prof_name;
-    bool prof_typing;
+    int prof_input;        /* typing mode: 0 none, 1 save, 2 rename, 3 note */
+    tinput_t prof_name;    /* save/rename name field */
+    tinput_t prof_note;    /* note field */
+    profile_meta_t prof_meta;   /* cached parse of the selected snapshot */
+    int prof_meta_sel;     /* selection the cache was parsed for */
+    bool prof_meta_ok;
 
     /* controls panel */
     int ctl_sel;

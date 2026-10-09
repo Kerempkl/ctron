@@ -8,10 +8,12 @@
 #include <stdio.h>
 #include <string.h>
 
-/* Left-top panel: saved .ctr profiles — list, apply, save, delete, rename.
- *
- * Keys (panel focused): j/k select · Enter apply · s save current ·
- * d delete · n new name (then Enter saves, Esc cancels) */
+/* Left-top panel: SNAPSHOTS — saved .ctr states ("group/name" entries
+ * group into subdirectories). Enter applies, s saves the current
+ * state (with a live preview of what will be captured), r renames,
+ * c edits the one-line note, d deletes. While a snapshot is selected
+ * the footer shows its summary plus which tracked fields differ from
+ * the live state (Δ … / ≡ live). */
 
 enum {
     ACT_PL_ITEM = 1,   /* + index */
@@ -21,17 +23,31 @@ enum {
     ACT_PL_NEW,
 };
 
+enum { PL_INPUT_NONE = 0, PL_INPUT_SAVE, PL_INPUT_RENAME, PL_INPUT_NOTE };
+
 static int list_rows(void)
 {
-    return g_ui.rc_prof.h - 6;
+    return g_ui.rc_prof.h - 7; /* list + summary + diff + button rows */
+}
+
+/* parse the selected snapshot's metadata only when the selection
+ * changed — the draw-time diff is then just integer compares */
+static void ensure_meta(void)
+{
+    if (g_ui.prof_meta_sel == g_ui.prof_sel && g_ui.prof_meta_ok)
+        return;
+    g_ui.prof_meta_sel = g_ui.prof_sel;
+    g_ui.prof_meta_ok = false;
+    if (g_ui.prof_n > 0 && g_ui.prof_sel < g_ui.prof_n)
+        g_ui.prof_meta_ok =
+            profile_meta_parse(g_ui.profs[g_ui.prof_sel], &g_ui.prof_meta) == 0;
 }
 
 void panel_profiles_draw(struct ncplane *n, const rect_t *r)
 {
     const palette_t *pal = ui_palette(g_prefs.theme);
-    hw_state_t *hw = g_ui.hw;
 
-    ui_box(n, r, "PROFILES", g_ui.focus == FOC_PROFILES);
+    ui_box(n, r, "SNAPSHOTS", g_ui.focus == FOC_PROFILES);
     int x = r->x + 2, w = r->w - 4;
     if (w < 10)
         return;
@@ -51,13 +67,25 @@ void panel_profiles_draw(struct ncplane *n, const rect_t *r)
             g_ui.prof_top = 0;
     }
 
-    if (g_ui.prof_typing) {
-        char line[128];
-        snprintf(line, sizeof(line), "name: %.100s_", g_ui.prof_name.buf);
+    if (g_ui.prof_input != PL_INPUT_NONE) {
+        const char *act = g_ui.prof_input == PL_INPUT_SAVE ? "save"
+                        : g_ui.prof_input == PL_INPUT_RENAME ? "rename"
+                                                             : "note";
+        const tinput_t *fld = g_ui.prof_input == PL_INPUT_NOTE
+                                  ? &g_ui.prof_note : &g_ui.prof_name;
+        char line[160];
+        snprintf(line, sizeof(line), "%s: %.90s_ · Enter ok · Esc cancel",
+                 act, fld->buf);
         ui_putln(n, x, r->y + 1, w, line, pal->accent, true);
-        ui_putln(n, x, r->y + 2, w, "Enter: save · Esc: cancel", pal->muted, false);
+        if (g_ui.prof_input == PL_INPUT_SAVE) {
+            char prev[160];
+            profile_capture_line(g_ui.hw, prev, sizeof(prev));
+            char line2[192];
+            snprintf(line2, sizeof(line2), "will save: %.140s", prev);
+            ui_putln(n, x, r->y + 2, w, line2, pal->muted, false);
+        }
     } else {
-        char hint[80] = "j/k select · Enter apply · s save";
+        char hint[80] = "j/k · Enter apply · s save · r ren · c note · d del";
         if (g_ui.prof_n > rows) {
             if (g_ui.prof_top > 0)
                 strncat(hint, " ▲", sizeof(hint) - strlen(hint) - 1);
@@ -78,13 +106,20 @@ void panel_profiles_draw(struct ncplane *n, const rect_t *r)
         shown++;
     }
     if (g_ui.prof_n == 0)
-        ui_putln(n, x, r->y + 3, w, "(none — press s to save current)", pal->muted, false);
+        ui_putln(n, x, r->y + 3, w, "(none — press s to save current)",
+                 pal->muted, false);
 
-    /* summary of selection */
+    /* selection footer: summary + live diff (meta cached per selection) */
+    ensure_meta();
     if (g_ui.prof_n > 0 && g_ui.prof_sel < g_ui.prof_n) {
         char sum[128];
         if (profile_summary(g_ui.profs[g_ui.prof_sel], sum, sizeof(sum)) == 0)
-            ui_putln(n, x, r->y + r->h - 3, w, sum, pal->text, false);
+            ui_putln(n, x, r->y + r->h - 4, w, sum, pal->text, false);
+        if (g_ui.prof_meta_ok) {
+            char diff[96];
+            profile_meta_diff(g_ui.hw, &g_ui.prof_meta, diff, sizeof(diff));
+            ui_putln(n, x, r->y + r->h - 3, w, diff, pal->muted, false);
+        }
     }
 
     int by = r->y + r->h - 2;
@@ -92,10 +127,18 @@ void panel_profiles_draw(struct ncplane *n, const rect_t *r)
         { " Apply ", false, TGT(TGT_PANEL_PROFILES, ACT_PL_APPLY) },
         { " Save ",  false, TGT(TGT_PANEL_PROFILES, ACT_PL_SAVE) },
         { " Del ",   false, TGT(TGT_PANEL_PROFILES, ACT_PL_DEL) },
-        { " New ",   g_ui.prof_typing, TGT(TGT_PANEL_PROFILES, ACT_PL_NEW) },
+        { " New ",   g_ui.prof_input == PL_INPUT_SAVE,
+          TGT(TGT_PANEL_PROFILES, ACT_PL_NEW) },
     };
     ui_btn_row(n, by, x, w, row, 4);
-    (void)hw;
+}
+
+static void refresh_list(void)
+{
+    g_ui.prof_n = profile_list(g_ui.profs, MAX_PROFILES);
+    if (g_ui.prof_sel >= g_ui.prof_n && g_ui.prof_sel > 0)
+        g_ui.prof_sel--;
+    g_ui.prof_meta_sel = -1; /* force a meta re-parse */
 }
 
 static void apply_selected(void)
@@ -103,13 +146,13 @@ static void apply_selected(void)
     if (g_ui.prof_n == 0 || g_ui.prof_sel >= g_ui.prof_n)
         return;
     char err[128];
-    ui_flash("applying profile...");
+    ui_flash("applying snapshot...");
     if (profile_import(g_ui.profs[g_ui.prof_sel], g_ui.hw, err, sizeof(err)) == 0)
-        ut_log("applied profile '%s'", g_ui.profs[g_ui.prof_sel]);
+        ut_log("applied snapshot '%s'", g_ui.profs[g_ui.prof_sel]);
     else
         ut_log("apply failed: %s", err[0] ? err : "?");
-    ctrl_fan_write(g_ui.hw); /* curves ride along in the profile */
-    pw_sync_from_hw();       /* the profile may have changed power fields */
+    ctrl_fan_write(g_ui.hw); /* curves ride along in the snapshot */
+    pw_sync_from_hw();       /* it may have changed power fields */
 }
 
 static void save_current(void)
@@ -121,22 +164,52 @@ static void save_current(void)
         for (int i = 0; i < g_ui.prof_n; i++)
             if (!strcmp(g_ui.profs[i], g_ui.prof_name.buf))
                 g_ui.prof_sel = i;
+        g_ui.prof_meta_sel = -1;
     }
+}
+
+static void rename_selected(void)
+{
+    if (g_ui.prof_n == 0 || g_ui.prof_sel >= g_ui.prof_n)
+        return;
+    const char *old = g_ui.profs[g_ui.prof_sel];
+    if (profile_rename(old, g_ui.prof_name.buf) != 0)
+        return;
+    refresh_list();
+    for (int i = 0; i < g_ui.prof_n; i++)
+        if (!strcmp(g_ui.profs[i], g_ui.prof_name.buf))
+            g_ui.prof_sel = i;
+    g_ui.prof_meta_sel = -1;
+}
+
+static void note_selected(void)
+{
+    if (g_ui.prof_n == 0 || g_ui.prof_sel >= g_ui.prof_n)
+        return;
+    if (profile_set_note(g_ui.profs[g_ui.prof_sel], g_ui.prof_note.buf) == 0)
+        g_ui.prof_meta_sel = -1; /* refresh the cached summary */
 }
 
 void panel_profiles_key(uint32_t key)
 {
-    if (g_ui.prof_typing) {
+    if (g_ui.prof_input != PL_INPUT_NONE) {
+        tinput_t *fld = g_ui.prof_input == PL_INPUT_NOTE
+                            ? &g_ui.prof_note : &g_ui.prof_name;
         if (key == NCKEY_ESC) {
-            g_ui.prof_typing = false;
+            g_ui.prof_input = PL_INPUT_NONE;
             return;
         }
         if (key == NCKEY_ENTER || key == '\r' || key == '\n') {
-            g_ui.prof_typing = false;
-            save_current();
+            if (g_ui.prof_input == PL_INPUT_SAVE)
+                save_current();
+            else if (g_ui.prof_input == PL_INPUT_RENAME)
+                rename_selected();
+            else
+                note_selected();
+            g_ui.prof_input = PL_INPUT_NONE;
             return;
         }
-        tin_key(&g_ui.prof_name, key);
+        tin_key(fld, key);
         return;
     }
 
@@ -159,15 +232,30 @@ void panel_profiles_key(uint32_t key)
         break;
     case 's':
     case 'S':
-        g_ui.prof_typing = true;
+        if (!g_ui.prof_name.buf[0])
+            tin_set(&g_ui.prof_name, "my-snapshot");
+        g_ui.prof_input = PL_INPUT_SAVE;
+        break;
+    case 'r':
+    case 'R':
+        if (g_ui.prof_n > 0 && g_ui.prof_sel < g_ui.prof_n) {
+            tin_set(&g_ui.prof_name, g_ui.profs[g_ui.prof_sel]);
+            g_ui.prof_input = PL_INPUT_RENAME;
+        }
+        break;
+    case 'c':
+    case 'C':
+        if (g_ui.prof_n > 0 && g_ui.prof_sel < g_ui.prof_n) {
+            ensure_meta();
+            tin_set(&g_ui.prof_note, g_ui.prof_meta_ok ? g_ui.prof_meta.note : "");
+            g_ui.prof_input = PL_INPUT_NOTE;
+        }
         break;
     case 'd':
     case 'D':
         if (g_ui.prof_n > 0 && g_ui.prof_sel < g_ui.prof_n) {
             profile_delete(g_ui.profs[g_ui.prof_sel]);
-            g_ui.prof_n = profile_list(g_ui.profs, MAX_PROFILES);
-            if (g_ui.prof_sel >= g_ui.prof_n && g_ui.prof_sel > 0)
-                g_ui.prof_sel--;
+            refresh_list();
         }
         break;
     case 'n':
@@ -175,7 +263,7 @@ void panel_profiles_key(uint32_t key)
         char name[32];
         profile_gen_name(name, sizeof(name));
         tin_set(&g_ui.prof_name, name);
-        g_ui.prof_typing = true;
+        g_ui.prof_input = PL_INPUT_SAVE;
         break;
     }
     default:
@@ -198,7 +286,9 @@ void panel_profiles_act(int id)
     switch (id) {
     case ACT_PL_APPLY: apply_selected(); break;
     case ACT_PL_SAVE:
-        g_ui.prof_typing = true;
+        if (!g_ui.prof_name.buf[0])
+            tin_set(&g_ui.prof_name, "my-snapshot");
+        g_ui.prof_input = PL_INPUT_SAVE;
         break;
     case ACT_PL_DEL:
         panel_profiles_key('d');

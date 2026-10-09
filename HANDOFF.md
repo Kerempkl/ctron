@@ -229,6 +229,24 @@ prioritized todo list and the distilled session lessons.
   via `--fan off`, or editing the curve so 255 starts later) were
   handed to the user.
 
+### Session 2026-10-09 — SNAPSHOTS panel renewal (GLM / FA608PP)
+
+- User decisions: rename to SNAPSHOTS, features 1-4 (save preview,
+  live diff, timestamp+note, rename), folder infrastructure ready but
+  no grouping UI yet. All landed: profile.c grew profile_capture_line,
+  profile_meta_parse/meta_diff (pure, unit-tested), profile_rename,
+  profile_set_note, a "# saved:" header on export, '/'-grouping names
+  (one level, traversal-safe), and a 1-level-deep list; the panel has
+  a 3-mode typing field (save/rename/note) + summary/diff footer;
+  CLI snapshot (profile alias). Meta is cached per selection change —
+  the diff is draw-time int compares, zero extra polls.
+- Bug found by the new flow: the global s/ESC settings shortcut ate
+  's' with the panel focused — keyboard save never worked (button
+  only). The focused panel now owns 's'.
+- make 0 warnings, make test (check_snapshots), make tuitest (10
+  flows), installed; live CLI verified (empty list, grouped export
+  test/grp1, alias). Committed by the agent.
+
 ### Session 2026-10-09 — fan graph live-temp marker fix (GLM / FA608PP)
 
 - User field report: CPU at 73 °C but the `▲` marker sat in the 90s.

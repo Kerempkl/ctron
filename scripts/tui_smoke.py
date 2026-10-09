@@ -564,6 +564,72 @@ def flow_fan_grid():
         s.close()
 
 
+def flow_snapshots():
+    """SNAPSHOTS panel round-trip against an isolated CTRON_CONFIG:
+    save (with preview) → rename → note → delete. No hardware writes
+    (export only reads hw state; apply is never pressed)."""
+    tmpcfg = tempfile.mkdtemp(prefix="ctron-tui-")
+    oldcfg = os.environ.get("CTRON_CONFIG")
+    os.environ["CTRON_CONFIG"] = tmpcfg
+    s = None
+    try:
+        s = Session("snapshots")
+        if not s.wait_render(6.0):
+            fail("snapshots", "no frame rendered")
+            return
+        s.key(b"1")                # focus the snapshots panel
+        m = s.mark()
+        s.key(b"s")                # save mode: name typing + preview
+        if not s.wait_for(b"save:", since=m, timeout=8.0):
+            fail("snapshots", "'s' did not open save typing")
+            return
+        ok("snapshots", "save typing + preview shown")
+        s.key(b"t"); s.key(b"s"); s.key(b"1")
+        m = s.mark()
+        s.key(b"\r")
+        if not s.wait_for(b"ts1", since=m, timeout=8.0):
+            fail("snapshots", "saved entry did not appear in the list")
+            return
+        ok("snapshots", "saved ts1 listed")
+        s.key(b"r")                # rename: seeded with ts1
+        time.sleep(0.2)
+        for _ in range(3):
+            s.key(b"\x7f")
+        s.key(b"t"); s.key(b"s"); s.key(b"2")
+        m = s.mark()
+        s.key(b"\r")
+        if not s.wait_for(b"ts2", since=m, timeout=8.0):
+            fail("snapshots", "rename did not produce ts2")
+            return
+        ok("snapshots", "renamed to ts2")
+        s.key(b"c")                # note
+        time.sleep(0.2)
+        s.key(b"n"); s.key(b"1")
+        m = s.mark()
+        s.key(b"\r")
+        if not s.wait_for(b"n1", since=m, timeout=8.0):
+            fail("snapshots", "note not reflected in the summary")
+            return
+        ok("snapshots", "note shown in summary")
+        m = s.mark()
+        s.key(b"d")                # delete
+        if not s.wait_for(b"(none", since=m, timeout=8.0):
+            fail("snapshots", "delete left the list non-empty")
+            return
+        ok("snapshots", "deleted; list empty again")
+        rc = s.quit_expect0()
+        if rc != 0:
+            fail("snapshots", f"q exit {rc!r}")
+    finally:
+        if s is not None:
+            s.close()
+        if oldcfg is None:
+            os.environ.pop("CTRON_CONFIG", None)
+        else:
+            os.environ["CTRON_CONFIG"] = oldcfg
+        shutil.rmtree(tmpcfg, ignore_errors=True)
+
+
 def main():
     if not os.access(BIN, os.X_OK):
         print(f"no executable at {BIN} (run make first)")
@@ -572,7 +638,7 @@ def main():
     flows = [flow_open_quit, flow_settings_overlay,
              flow_power_stage_apply, flow_corefreq_overlay,
              flow_fan_buttons, flow_fan_staging, flow_view_hotkeys,
-             flow_mode_drift, flow_fan_grid]
+             flow_mode_drift, flow_fan_grid, flow_snapshots]
     for f in flows:
         f()
     if failures:

@@ -634,6 +634,93 @@ static void check_ppt_ryzen_cmd(void)
     CHECK(!strcmp(cmd, "sudo -n /x/r -a 0 -c 0 -b 0"), "ryzen cmd zero");
 }
 
+static void check_snapshots(void)
+{
+    char tmp[] = "/tmp/ctron2-test-XXXXXX";
+    CHECK(mkdtemp(tmp) != NULL, "snap mkdtemp");
+    setenv("CTRON_CONFIG", tmp, 1);
+
+    char safe[PROFILE_NAME_MAX];
+    profile_sanitize_name("oyun/turbo 2", safe, sizeof(safe));
+    CHECK(!strcmp(safe, "oyun/turbo-2"), "sanitize group slash");
+    profile_sanitize_name("a/../b", safe, sizeof(safe));
+    CHECK(!strcmp(safe, "a/--/b"), "sanitize dotdot rejected");
+    profile_sanitize_name("//x//y//", safe, sizeof(safe));
+    CHECK(!strcmp(safe, "x/y"), "sanitize collapse+trim");
+    profile_sanitize_name("..", safe, sizeof(safe));
+    CHECK(!strcmp(safe, "p"), "sanitize only dotdot");
+
+    hw_state_t hw;
+    memset(&hw, 0, sizeof(hw));
+    snprintf(hw.model, sizeof(hw.model), "test");
+    hw.profile = HW_PERFORMANCE;
+    hw.epp = HW_EPP_PERF;
+    hw.bat_limit = 80;
+    hw.hz_cur = 165;
+    hw.cpu_mhz_limit = 5386;
+    hw.kbd = HW_KBD_MED;
+    hw.fan_cpu_on = hw.fan_gpu_on = true;
+    fan_from_csv(&hw.fan_cpu, "40,70", "90,200");
+    fan_default(&hw.fan_gpu);
+
+    CHECK(profile_export("grup/t1", &hw) == 0, "export with group");
+
+    char list[MAX_PROFILES][PROFILE_NAME_MAX];
+    int n = profile_list(list, MAX_PROFILES);
+    bool seen = false;
+    for (int i = 0; i < n; i++)
+        if (!strcmp(list[i], "grup/t1"))
+            seen = true;
+    CHECK(seen, "grouped export listed");
+
+    profile_meta_t m;
+    CHECK(profile_meta_parse("grup/t1", &m) == 0, "meta parse");
+    CHECK(!strcmp(m.profile, "Performance"), "meta profile");
+    CHECK(m.hz == 165 && m.bat == 80, "meta hz/bat");
+    CHECK(m.fan_cpu_on == 1 && m.fan_gpu_on == 1, "meta fan flags");
+    CHECK(m.saved[0] != '\0', "meta saved header");
+
+    char diff[96];
+    profile_meta_diff(&hw, &m, diff, sizeof(diff));
+    CHECK(!strcmp(diff, "\xe2\x89\xa1 live"), "diff none when equal");
+    hw.profile = HW_QUIET;
+    profile_meta_diff(&hw, &m, diff, sizeof(diff));
+    CHECK(strstr(diff, "profile") != NULL, "diff profile change");
+    hw.profile = HW_PERFORMANCE;
+    hw.fan_cpu.pwm[0] += 1;
+    profile_meta_diff(&hw, &m, diff, sizeof(diff));
+    CHECK(strstr(diff, "curve-cpu") != NULL, "diff curve change");
+    hw.fan_cpu.pwm[0] -= 1;
+
+    CHECK(profile_set_note("grup/t1", "oyun ayarlari") == 0, "set note");
+    CHECK(profile_meta_parse("grup/t1", &m) == 0 &&
+              !strcmp(m.note, "oyun ayarlari"), "note roundtrip");
+    char sum[128];
+    CHECK(profile_summary("grup/t1", sum, sizeof(sum)) == 0 &&
+              strstr(sum, "oyun ayarlari") && strstr(sum, "Performance"),
+          "summary carries note + fields");
+
+    CHECK(profile_rename("grup/t1", "grup/t2") == 0, "rename");
+    n = profile_list(list, MAX_PROFILES);
+    bool old_gone = true, new_seen = false;
+    for (int i = 0; i < n; i++) {
+        if (!strcmp(list[i], "grup/t1"))
+            old_gone = false;
+        if (!strcmp(list[i], "grup/t2"))
+            new_seen = true;
+    }
+    CHECK(old_gone && new_seen, "rename reflected in list");
+    CHECK(profile_rename("grup/t2", "grup/t2") != 0, "rename onto existing fails");
+
+    CHECK(profile_delete("grup/t2") == 0, "delete");
+    char pdir[512];
+    snprintf(pdir, sizeof(pdir), "%s/profiles/grup", tmp);
+    rmdir(pdir);
+    snprintf(pdir, sizeof(pdir), "%s/profiles", tmp);
+    rmdir(pdir);
+    rmdir(tmp);
+}
+
 int main(void)
 {
     check_fan_csv();
@@ -658,6 +745,7 @@ int main(void)
     check_ppt_order();
     check_ppt_ryzen_cmd();
     check_gpu_clock();
+    check_snapshots();
 
     if (failures) {
         fprintf(stderr, "%d failure(s)\n", failures);

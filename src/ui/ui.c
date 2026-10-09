@@ -399,7 +399,7 @@ static void draw_topbar(struct ncplane *n, unsigned dimy, unsigned dimx)
     ncplane_set_channels(n, ch);
 
     static const char *names[FOC_COUNT] = {
-        "1:profiles", "2:controls", "3:workspace", "4:telemetry"
+        "1:snapshots", "2:controls", "3:workspace", "4:telemetry"
     };
     /* lay the chips out right-aligned from their real widths: a fixed
      * dimx-44 stride pushed "4:telemetry" past the last column and
@@ -557,7 +557,7 @@ static void try_quit(void)
 static void dispatch_key(uint32_t key, const struct ncinput *ni)
 {
     /* typing modes swallow printable keys first */
-    if (g_ui.prof_typing && g_ui.focus == FOC_PROFILES) {
+    if (g_ui.prof_input != 0 && g_ui.focus == FOC_PROFILES) {
         panel_profiles_key(key);
         return;
     }
@@ -596,6 +596,14 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
             return;
         }
         panel_settings_key(key);
+        return;
+    }
+
+    /* the focused snapshots panel owns s (save): the global s/ESC
+     * settings shortcut used to swallow it, so keyboard saving never
+     * worked — only the Save button did */
+    if (g_ui.focus == FOC_PROFILES && (key == 's' || key == 'S')) {
+        panel_profiles_key(key);
         return;
     }
 
@@ -680,7 +688,7 @@ int ui_run(hw_state_t *hw)
     g_ui.md_field = -1;
     g_ui.prof_n = profile_list(g_ui.profs, MAX_PROFILES);
     g_ui.mode_n = modes_load(g_ui.modes, MODES_MAX);
-    tin_set(&g_ui.prof_name, "my-profile");
+    tin_set(&g_ui.prof_name, "my-snapshot");
 
     hw_refresh_live(hw);
     settings_load(hw);

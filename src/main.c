@@ -31,7 +31,7 @@ static void print_version(void)
 
 static void print_usage(const char *prog)
 {
-    printf("Usage: %s [flags] | %s mode <sub> | %s profile <sub>\n\n", prog, prog, prog);
+    printf("Usage: %s [flags] | %s mode <sub> | %s snapshot <sub>\n\n", prog, prog, prog);
     printf("No arguments opens the fullscreen TUI (needs a terminal).\n\n");
     printf("Information:\n");
     printf("  --status, -s        live hardware snapshot\n");
@@ -39,11 +39,11 @@ static void print_usage(const char *prog)
     printf("  --doctor            capability report\n");
     printf("  --help, -h          this help\n");
     printf("  --version, -V       version\n\n");
-    printf("Modes & profiles:\n");
+    printf("Modes & snapshots:\n");
     printf("  --mode <name>       apply a shortcut bundle (see modes.ini)\n");
     printf("  mode list|show <n>|add <name> <steps>|delete <n>\n");
-    printf("  profile list\n");
-    printf("  profile apply|export|delete <name>\n\n");
+    printf("  snapshot list   (alias: profile)\n");
+    printf("  snapshot apply|export|delete <name>\n\n");
     printf("Hardware (key = value pairs, same as mode steps):\n");
     printf("  --profile quiet|balanced|performance\n");
     printf("  --ac-profile off|quiet|balanced|performance\n");
@@ -315,7 +315,7 @@ static int cmd_mode(int argc, char **argv, hw_state_t *hw)
 static int cmd_profile(int argc, char **argv, hw_state_t *hw)
 {
     if (argc < 3) {
-        fprintf(stderr, "usage: ctron profile list|apply|export|delete <name>\n");
+        fprintf(stderr, "usage: ctron snapshot list|apply|export|delete <name> (alias: profile)\n");
         return 2;
     }
     const char *sub = argv[2];
@@ -328,7 +328,7 @@ static int cmd_profile(int argc, char **argv, hw_state_t *hw)
         return 0;
     }
     if (argc < 4) {
-        fprintf(stderr, "profile %s needs a name\n", sub);
+        fprintf(stderr, "snapshot %s needs a name\n", sub);
         return 2;
     }
     const char *name = argv[3];
@@ -347,7 +347,7 @@ static int cmd_profile(int argc, char **argv, hw_state_t *hw)
     if (!strcmp(sub, "delete"))
         return profile_delete(name) == 0 ? 0 : 1;
 
-    fprintf(stderr, "unknown profile subcommand: %s\n", sub);
+    fprintf(stderr, "unknown snapshot subcommand: %s\n", sub);
     return 2;
 }
 
@@ -454,12 +454,12 @@ int main(int argc, char *argv[])
         settings_dir(dir, sizeof(dir));
         printf("ctron config lives in %s\n", dir);
         printf("edit %s/modes.ini to manage shortcut bundles;\n", dir);
-        printf("profiles are stored in %s/profiles/*.ctr\n", dir);
+        printf("snapshots live in %s/profiles/*.ctr (group: name/sub)\n", dir);
         return 0;
     }
     if (!strcmp(argv[1], "mode"))
         return cmd_mode(argc, argv, &hw);
-    if (!strcmp(argv[1], "profile"))
+    if (!strcmp(argv[1], "snapshot") || !strcmp(argv[1], "profile"))
         return cmd_profile(argc, argv, &hw);
 
     /* status / watch need a live snapshot */
