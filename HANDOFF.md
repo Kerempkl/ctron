@@ -229,6 +229,19 @@ prioritized todo list and the distilled session lessons.
   via `--fan off`, or editing the curve so 255 starts later) were
   handed to the user.
 
+### Session 2026-10-09 — the 2401 trap (GLM / FA608PP)
+
+- User: switching to turbo from Quiet never lifted the 2401 ceiling.
+  Three-layer fix (see CHANGELOG): raise-only cpu_mhz_max snapshot +
+  no pre-clamp in the writers; wait-for-live-ceiling write rounds with
+  two-round stability verification; profile_import re-asserts freq
+  after the other steps settle. Pinwatch probe (no writes): quiet→perf
+  opens cpuinfo in ~2.5 s and scaling NEVER follows on its own —
+  someone must re-write; the old code wrote 2401 happily (its own
+  stale clamp) and called it verified.
+- Machine left on 30w-silent (quiet/2401/silent curve). make 0
+  warnings, tests + tuitest green, installed.
+
 ### Session 2026-10-09 — snapshot apply fixed: curves were dead code (GLM / FA608PP)
 
 - User switched between two real snapshots: fan curve + CPU limit did

@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-10-09 — quiet→performance freq transitions: the 2401 trap, three layers deep
+
+- User report: "quiet'tayken 2401 limiti var, geçiş yapılmıyor" — a
+  snapshot with "profile performance, freq 5386" applied from Quiet
+  ended at 2401 every time. Root cause was three stacked:
+  1. ctron's OWN clamp: hw_init snapshots cpuinfo while still Quiet
+     (2401) and ctrl_set_cpu_max_mhz pre-clamped the request to that
+     snapshot — writing and "verifying" 2401 while reporting success.
+     The snapshot is now raise-only (cpu_limits_sweep never lowers
+     cpu_mhz_max) and the writers no longer pre-clamp; the honest
+     limits are the live-ceiling wait plus the hardware itself.
+  2. the transition window: Quiet pins the cpuinfo ceiling at the
+     base clock; after the profile switch amd-pstate re-opens it in
+     ~2-3 s but never raises scaling_max on its own — a write landing
+     inside the window is clamped and never re-applied. The write now
+     waits for the live cpuinfo ceiling to allow the value.
+  3. stability: a value that verified once could still be re-pinned
+     moments later; success now requires verification on two
+     consecutive rounds (0.9 s apart), and profile_import re-asserts
+     the freq lines once more after every other step has settled.
+- Live-proven both directions: quiet(2401) → turbo apply → 5386
+  stable at +4 s and +7 s; back to silent → 2401/quiet with its exact
+  curve. Apply cost in the quiet→performance case is ~5-6 s (the
+  window is real); same-window standalone writes are unchanged.
+
 ## 2026-10-09 — snapshot apply: fan curves never applied (dead parser branch)
 
 - User field report: switching between two snapshots changed nothing —

@@ -128,48 +128,94 @@ int ctrl_set_epp(hw_state_t *hw, hw_epp_t e)
 
 int ctrl_set_cpu_max_mhz(hw_state_t *hw, int mhz)
 {
-    mhz = ut_clamp_i(mhz, hw->cpu_mhz_min, hw->cpu_mhz_max);
+    /* NO pre-clamp to hw->cpu_mhz_max: under Quiet that snapshot holds
+     * the base clock (2401 here) and would silently rewrite the
+     * requested 5386 as 2401 — "verified" at the wrong value. Real
+     * limits are enforced by the round loop below (waits for the live
+     * cpuinfo ceiling) and by the hardware itself; callers validate
+     * the range (cmds/UI). If this write opens a wider ceiling than
+     * ever seen, remember it. */
     char val[24];
     snprintf(val, sizeof(val), "%d", mhz * 1000);
-    int rc = cpufreq_write_all(hw, "scaling_max_freq", val);
-    if (rc == 0) {
-        /* rule 4: the driver may clamp the request without failing
-         * (observed on amd-pstate: policy pinned at nominal — writes
-         * above it "succeed" then read back lower). Verify every cpu.
-         * A platform-profile switch just before this write makes
-         * amd-pstate re-open the ceiling over ~3 s (Quiet holds the
-         * base clock), so a failed verify is retried briefly before
-         * being declared a driver clamp. */
-        int bad = 0, back_khz = 0;
-        for (int attempt = 0; attempt < 3; attempt++) {
-            bad = 0;
-            back_khz = 0;
+
+    /* Quiet pins the cpuinfo ceiling at the base clock; after a
+     * profile switch amd-pstate (a) re-opens cpuinfo over ~1-3 s and
+     * (b) ASYNCHRONOUSLY re-pins scaling_max to the base clock ~2-4 s
+     * after the switch, clobbering writes that landed earlier (live
+     * repro: snapshot "profile performance, freq 5386" from Quiet
+     * verified mid-apply and still ended at 2401). So a write is only
+     * accepted after it survives verification on two consecutive
+     * rounds — and a collapse triggers a re-write. Rounds sleep 0.9 s;
+     * the ceiling check reads cpuinfo live instead of trusting the
+     * init snapshot. */
+    int wrote_at_ms = 0, waited_ms = 0;
+    int bad = 1, back_khz = 0;
+    int ok_streak = 0;
+    int rc = 0;
+    for (int round = 0; round < 8; round++) {
+        if (round > 0) {
+            usleep(900000);
+            waited_ms += 900;
+        }
+        if (ok_streak == 0) {
+            int info_khz = 0;
             for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
-                char rp[96];
-                int id = hw->cpu_ids[c];
-                snprintf(rp, sizeof(rp),
-                         "/sys/devices/system/cpu/cpu%d/cpufreq/scaling_max_freq", id);
-                int rv = ut_read_int(rp);
-                if (rv <= 0 || rv / 1000 - mhz > 2 || mhz - rv / 1000 > 2)
-                    bad++;
-                if (rv > back_khz)
-                    back_khz = rv;
+                char ip[96];
+                snprintf(ip, sizeof(ip),
+                         "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq",
+                         hw->cpu_ids[c]);
+                int iv = ut_read_int(ip);
+                if (iv > info_khz)
+                    info_khz = iv;
             }
-            if (bad == 0)
+            if (info_khz > 0 && mhz * 1000 - info_khz > 2000)
+                continue; /* ceiling not open yet: writing would clamp */
+
+            rc = cpufreq_write_all(hw, "scaling_max_freq", val);
+            if (rc != 0)
                 break;
-            usleep(800000);
+            wrote_at_ms = waited_ms;
         }
-        if (bad) {
-            ut_log("cpu max: %d MHz requested, kernel kept %d MHz on %d/%d cpus (driver clamp)",
-                   mhz, back_khz / 1000, bad, hw->cpu_n);
-            if (back_khz > 0)
-                hw->cpu_mhz_limit = back_khz / 1000;
-            return -1;
+        bad = 0;
+        back_khz = 0;
+        for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
+            char rp[96];
+            int id = hw->cpu_ids[c];
+            snprintf(rp, sizeof(rp),
+                     "/sys/devices/system/cpu/cpu%d/cpufreq/scaling_max_freq", id);
+            int rv = ut_read_int(rp);
+            if (rv <= 0 || rv / 1000 - mhz > 2 || mhz - rv / 1000 > 2)
+                bad++;
+            if (rv > back_khz)
+                back_khz = rv;
         }
+        if (bad == 0) {
+            ok_streak++;
+            if (ok_streak >= 2)
+                break; /* stable across consecutive rounds */
+        } else {
+            ok_streak = 0;
+        }
+    }
+
+    if (rc == 0 && bad == 0) {
         hw->cpu_mhz_limit = mhz;
+        if (mhz > hw->cpu_mhz_max)
+            hw->cpu_mhz_max = mhz; /* the write proved a wider ceiling */
         for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++)
             hw->cpu_mhz_core[hw->cpu_ids[c]] = mhz;
-        ut_log("cpu max: %d MHz (verified)", mhz);
+        if (waited_ms > 0)
+            ut_log("cpu max: %d MHz (verified, after a %d.%d s profile-switch window)",
+                   mhz, wrote_at_ms / 1000, (wrote_at_ms % 1000) / 100);
+        else
+            ut_log("cpu max: %d MHz (verified)", mhz);
+    } else if (rc == 0) {
+        /* rule 4: the driver clamped the request without failing */
+        ut_log("cpu max: %d MHz requested, kernel kept %d MHz on %d/%d cpus (driver clamp)",
+               mhz, back_khz / 1000, bad, hw->cpu_n);
+        if (back_khz > 0)
+            hw->cpu_mhz_limit = back_khz / 1000;
+        return -1;
     } else {
         ut_log("cpu max: FAILED (needs root; no passwordless sudo)");
     }
@@ -181,7 +227,10 @@ int ctrl_set_cpu_max_mhz_core(hw_state_t *hw, int cpu, int mhz)
     /* `cpu` is a kernel cpu number; it must be in the present list */
     if (cpu < 0 || cpu >= HW_CPU_MAX || !hw_cpu_present(hw, cpu))
         return -1;
-    mhz = ut_clamp_i(mhz, hw->cpu_mhz_min, hw->cpu_mhz_max);
+    /* no pre-clamp to hw->cpu_mhz_max either — see the all-cores
+     * variant: under Quiet that snapshot is the base clock and would
+     * silently rewrite the request; the read-back verify below is the
+     * honest limit */
 
     char path[96], val[24];
     snprintf(path, sizeof(path),

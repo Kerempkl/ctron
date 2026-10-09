@@ -608,8 +608,11 @@ static void cpu_limits_sweep(hw_state_t *hw)
     }
     if (min_khz > 0)
         hw->cpu_mhz_min = min_khz / 1000;
-    if (max_khz > 0)
-        hw->cpu_mhz_max = max_khz / 1000;
+    if (max_khz > 0 && max_khz / 1000 > hw->cpu_mhz_max)
+        hw->cpu_mhz_max = max_khz / 1000; /* raise-only: quiet pins the
+            cpuinfo ceiling at the base clock, and a snapshot taken
+            there must never clamp later writes (snapshot apply under
+            quiet silently rewrote 5386 as 2401) */
     if (lim_khz > 0)
         hw->cpu_mhz_limit = lim_khz / 1000;
 }

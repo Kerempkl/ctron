@@ -226,6 +226,8 @@ int profile_import(const char *name, hw_state_t *hw, char *err, size_t errn)
     char line[512];
     bool fan_cpu_on = true, fan_gpu_on = true;
     char fc_t[128] = {0}, fc_p[128] = {0}, fg_t[128] = {0}, fg_p[128] = {0};
+    char freq_replay[4][64];
+    int n_freq = 0;
     int failed = 0;
 
     while (fgets(line, sizeof(line), f)) {
@@ -275,8 +277,26 @@ int profile_import(const char *name, hw_state_t *hw, char *err, size_t errn)
             ut_log("profile '%s': step '%s' failed (%s)", name, key, serr);
             failed++;
         }
+        /* collect freq lines for the late re-assert below */
+        if (!strcasecmp(key, "freq") && n_freq < 4)
+            snprintf(freq_replay[n_freq++], sizeof(freq_replay[0]), "%s", val);
     }
     fclose(f);
+
+    /* Quiet re-baselines scaling_max to the base clock and amd-pstate
+     * does not follow cpuinfo back up when the profile switch re-opens
+     * it; intermediate steps (EPP during the transition window) can
+     * also re-pin it AFTER the freq line already verified. The last
+     * word belongs to freq: once every other step has settled, wait
+     * out the transition window and re-assert. */
+    if (n_freq > 0) {
+        usleep(1500000);
+        for (int i = 0; i < n_freq; i++) {
+            char serr[128];
+            if (cmd_run(hw, "freq", freq_replay[i], serr, sizeof(serr)) == 0)
+                ut_log("profile '%s': freq re-asserted (%s)", name, freq_replay[i]);
+        }
+    }
 
     if (fc_t[0] && fc_p[0])
         fan_from_csv(&hw->fan_cpu, fc_t, fc_p);
