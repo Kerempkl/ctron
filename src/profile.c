@@ -248,14 +248,22 @@ int profile_import(const char *name, hw_state_t *hw, char *err, size_t errn)
             fan_gpu_on = (atoi(val) != 0);
             continue;
         }
-        if (!strcasecmp(key, "fan-curve")) {
-            char which[8] = {0}, t[96] = {0}, p[96] = {0};
-            if (sscanf(val, "%7s %95s %95s", which, t, p) != 3)
+        if (!strncasecmp(key, "fan-curve", 9)) {
+            /* export writes "fan-curve cpu = temps pwms": after the
+             * '=' split the fan side lives in the KEY and only the
+             * two csv lists are in val. (The old branch matched the
+             * bare key "fan-curve" — which the '=' split can never
+             * produce — so snapshot curves never applied at all.) */
+            const char *side = key + 9;
+            while (*side == ' ' || *side == '\t')
+                side++;
+            char t[96] = {0}, p[96] = {0};
+            if (sscanf(val, "%95s %95s", t, p) != 2)
                 continue;
-            if (!strcasecmp(which, "cpu")) {
+            if (!strncasecmp(side, "cpu", 3)) {
                 snprintf(fc_t, sizeof(fc_t), "%s", t);
                 snprintf(fc_p, sizeof(fc_p), "%s", p);
-            } else {
+            } else if (!strncasecmp(side, "gpu", 3)) {
                 snprintf(fg_t, sizeof(fg_t), "%s", t);
                 snprintf(fg_p, sizeof(fg_p), "%s", p);
             }

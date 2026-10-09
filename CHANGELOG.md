@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-10-09 — snapshot apply: fan curves never applied (dead parser branch)
+
+- User field report: switching between two snapshots changed nothing —
+  fan curve and CPU clock limit. Root cause #1 (fan): profile_import's
+  fan-curve branch matched the bare key "fan-curve", but the '=' split
+  of the exported line "fan-curve cpu = temps pwms" puts the fan side
+  IN THE KEY ("fan-curve cpu") — the branch was dead code since
+  inception, every fan-curve step fell through to cmd_run as "unknown
+  key", and snapshot curves silently never applied (the curves that
+  reached the EC historically came from settings.ini + Write, not from
+  snapshots). Fixed: the branch now matches the "fan-curve <side>" key
+  and reads the two csv lists from the value. End-to-end proven live:
+  applying the two user snapshots flips the EC table between their
+  exact curves (turbo 40..90:255 / silent 38..105) with rc=0.
+- Root cause #2 (freq): quiet->performance transitions make amd-pstate
+  re-open the ceiling over ~3 s, so the freq write immediately after a
+  profile-switch step could verify against the still-clamped value.
+  ctrl_set_cpu_max_mhz now retries the read-back briefly (3 attempts,
+  0.8 s apart) before declaring a driver clamp. Note: the ACQUIRED
+  full clamp (all cores pinned to nominal 2401 after profile churn,
+  cpuinfo still 5386) is the known kernel re-baseline — writes
+  verify, then the driver re-pins; only a reboot clears it (documented
+  in HANDOFF 10-02; reproduced live in this session).
+- Tests: import roundtrip from a hand-written snapshot (curves + fan
+  flags + fan_staged; harmless keys only so the unit test never
+  touches hardware).
+
 ## 2026-10-09 — SNAPSHOTS: the PROFILES panel renewed (rename, preview, diff, notes, folder-ready)
 
 - The panel is now SNAPSHOTS — "profile" already meant three other

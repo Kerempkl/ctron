@@ -135,18 +135,29 @@ int ctrl_set_cpu_max_mhz(hw_state_t *hw, int mhz)
     if (rc == 0) {
         /* rule 4: the driver may clamp the request without failing
          * (observed on amd-pstate: policy pinned at nominal — writes
-         * above it "succeed" then read back lower). Verify every cpu. */
+         * above it "succeed" then read back lower). Verify every cpu.
+         * A platform-profile switch just before this write makes
+         * amd-pstate re-open the ceiling over ~3 s (Quiet holds the
+         * base clock), so a failed verify is retried briefly before
+         * being declared a driver clamp. */
         int bad = 0, back_khz = 0;
-        for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
-            char rp[96];
-            int id = hw->cpu_ids[c];
-            snprintf(rp, sizeof(rp),
-                     "/sys/devices/system/cpu/cpu%d/cpufreq/scaling_max_freq", id);
-            int rv = ut_read_int(rp);
-            if (rv <= 0 || rv / 1000 - mhz > 2 || mhz - rv / 1000 > 2)
-                bad++;
-            if (rv > back_khz)
-                back_khz = rv;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            bad = 0;
+            back_khz = 0;
+            for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
+                char rp[96];
+                int id = hw->cpu_ids[c];
+                snprintf(rp, sizeof(rp),
+                         "/sys/devices/system/cpu/cpu%d/cpufreq/scaling_max_freq", id);
+                int rv = ut_read_int(rp);
+                if (rv <= 0 || rv / 1000 - mhz > 2 || mhz - rv / 1000 > 2)
+                    bad++;
+                if (rv > back_khz)
+                    back_khz = rv;
+            }
+            if (bad == 0)
+                break;
+            usleep(800000);
         }
         if (bad) {
             ut_log("cpu max: %d MHz requested, kernel kept %d MHz on %d/%d cpus (driver clamp)",

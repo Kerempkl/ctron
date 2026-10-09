@@ -229,6 +229,22 @@ prioritized todo list and the distilled session lessons.
   via `--fan off`, or editing the curve so 255 starts later) were
   handed to the user.
 
+### Session 2026-10-09 — snapshot apply fixed: curves were dead code (GLM / FA608PP)
+
+- User switched between two real snapshots: fan curve + CPU limit did
+  not change. STEPDBG instrumentation (reverted) showed fan-curve steps
+  failing as "unknown key 'fan-curve cpu'" — the import branch matched
+  a key the '=' split can never produce. Fixed + unit-tested with a
+  hand-written snapshot (no hardware writes in tests); live-proven:
+  EC table flips exactly between the two user curves.
+- freq: verify now retries (3 x 0.8 s) to bridge the ~3 s ceiling
+  re-open after a profile switch. The deeper behaviour reproduced
+  live: after quiet->performance churn amd-pstate re-baselines all
+  cores to nominal 2401 (cpuinfo 5386) — the documented 10-02 acquired
+  state; reboot-only. ctron's live row shows it honestly.
+- Machine left on: turbo curve EC + performance profile + clamped
+  ceilings (reboot to clear, or re-apply a snapshot afterwards).
+
 ### Session 2026-10-09 — SNAPSHOTS panel renewal (GLM / FA608PP)
 
 - User decisions: rename to SNAPSHOTS, features 1-4 (save preview,

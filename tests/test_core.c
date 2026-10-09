@@ -137,6 +137,50 @@ static void check_profiles(void)
 
     CHECK(profile_delete("test-round") == 0, "delete");
     CHECK(profile_delete("test-round") != 0, "double delete fails");
+
+    /* import roundtrip from a hand-written file (harmless keys only —
+     * curves + flags are handled specially, cmd_run is never called):
+     * the '=' split leaves the fan side in the KEY, the old parser
+     * never matched it and snapshot curves silently never applied */
+    {
+        char tmp2[] = "/tmp/ctron2-test-XXXXXX";
+        CHECK(mkdtemp(tmp2) != NULL, "roundtrip mkdtemp");
+        setenv("CTRON_CONFIG", tmp2, 1);
+        char pdir[400];
+        snprintf(pdir, sizeof(pdir), "%s/profiles", tmp2);
+        CHECK(ut_mkdir_p(pdir) == 0, "roundtrip mkdir");
+        char pth[460];
+        snprintf(pth, sizeof(pth), "%s/rt.ctr", pdir);
+        FILE *g = fopen(pth, "w");
+        CHECK(g != NULL, "roundtrip open");
+        if (g) {
+            fputs("# ctron snapshot\n"
+                  "[perf]\n"
+                  "[power]\n"
+                  "fan_cpu = 1\n"
+                  "fan_gpu = 1\n"
+                  "fan-curve cpu = 40,70 90,200\n"
+                  "fan-curve gpu = 45,75 60,220\n"
+                  "[light]\n", g);
+            fclose(g);
+        }
+        fan_curve_t keep = hw.fan_cpu;
+        fan_default(&hw.fan_cpu);
+        fan_default(&hw.fan_gpu);
+        hw.fan_cpu_on = hw.fan_gpu_on = false;
+        char err2[128];
+        CHECK(profile_import("rt", &hw, err2, sizeof(err2)) == 0, "import");
+        CHECK(hw.fan_cpu.n == 2 && hw.fan_cpu.temp_c[0] == 40 &&
+                  hw.fan_cpu.pwm[1] == 200, "cpu curve restored from file");
+        CHECK(hw.fan_gpu.n == 2 && hw.fan_gpu.temp_c[1] == 75 &&
+                  hw.fan_gpu.pwm[1] == 220, "gpu curve restored");
+        CHECK(hw.fan_cpu_on && hw.fan_gpu_on, "fan flags restored");
+        CHECK(hw.fan_staged, "import stages curves for the write");
+        hw.fan_cpu = keep;
+        unlink(pth);
+        rmdir(pdir);
+        rmdir(tmp2);
+    }
 }
 
 /* kscreen-doctor output parser, offline. */
