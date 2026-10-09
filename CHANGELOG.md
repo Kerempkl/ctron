@@ -1,5 +1,36 @@
 # Changelog
 
+## 2026-10-09 — applies run on a background worker: live progress, no frozen TUI
+
+- Snapshot/POWER/mode applies could block the UI thread for up to ~9 s
+  (the quiet→performance CPU-ceiling window). ctron now has its first
+  worker thread: the WRITE phase of those applies runs off-thread,
+  the main loop keeps rendering, and the telemetry footer becomes a
+  live status line — spinner + phase text ("CPU ceiling: waiting for
+  the 5386 MHz window (round 4/8)") + percent + elapsed seconds +
+  "reads paused · q waits" honesty notes. The new ut_progress channel
+  is published by the write layer (freq rounds, fan write, the freq
+  re-assert) and is silent on the CLI.
+- Discipline kept: the worker touches hw + the write layer only — no
+  notcurses, no g_ui mutation; hw_refresh_fast is paused while busy
+  (single writer); everything user-facing (completion logs, toasts,
+  pw_sync_from_hw, ctl_capture_mode) runs in the finalize step on the
+  UI thread strictly AFTER apply_busy drops — which also preserves
+  the harness key-ordering. ut_log/ut_log_get are mutex-protected
+  (the worker logs while the footer reads); apply_busy/quit_pending
+  are C11 atomics; q is never a kill: first q asks, the loop exits
+  only after the worker joins. FAN Write stays synchronous by design
+  (short, and its flow timing depends on it).
+- Footer-newest lesson (found the hard way): the footer shows only
+  the newest ring entry, so a worker log immediately followed by a
+  finalize log was buried within one frame — each apply kind now
+  emits exactly ONE completion line ("applied snapshot 'x' · 5.2 s",
+  "power apply: ok · 1.4 s", "mode 'drift' applied · 0.8 s").
+- Tests: ut_progress roundtrip + a 2-thread x200 ut_log hammer
+  (ring intact, entries well-formed); tuitest 10 flows green with
+  async-aware expectations ("reads paused" proves the spawn, the
+  single completion line proves the finish).
+
 ## 2026-10-09 — quiet→performance freq transitions: the 2401 trap, three layers deep
 
 - User report: "quiet'tayken 2401 limiti var, geçiş yapılmıyor" — a

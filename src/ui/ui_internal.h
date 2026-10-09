@@ -9,6 +9,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <pthread.h>
+#include <stdatomic.h>
 
 #include <notcurses/notcurses.h>
 
@@ -43,6 +45,25 @@ typedef struct { char buf[MODE_STEPS_MAX]; size_t len; } tinput_t;
 typedef struct ui_ctx {
     hw_state_t *hw;
     bool running;
+
+    /* background apply worker (the only thread besides the UI one):
+     * heavy applies (snapshot / POWER / mode) run their WRITE phase
+     * off-thread so the TUI keeps rendering; the UI thread skips
+     * hw_refresh while busy (single-writer) and shows a status line.
+     * Everything that touches g_ui or notcurses happens on the UI
+     * thread, before spawn and in the finalize step after busy drops */
+    atomic_bool apply_busy;
+    atomic_bool quit_pending;   /* second q while busy: quit when done */
+    bool apply_spawned;         /* a thread was created and needs join */
+    bool apply_warned;          /* one-shot hints while busy */
+    pthread_t apply_tid;
+    int apply_kind;             /* APPLY_* below */
+    int apply_fails;            /* worker -> finalize result */
+    bool apply_ok;
+    char apply_what[40];
+    char apply_arg[48];         /* snapshot/mode name or index as text */
+    char apply_sum[192];        /* diff summary or error text */
+    long apply_start_ms;        /* CLOCK_MONOTONIC, 0 = none */
 
     focus_t focus;
     ws_view_t ws_view;
@@ -227,6 +248,10 @@ void panel_workspace_act(int id);
  * reads keep the current staged value. Callers: TUI start, mode/profile
  * apply, power Apply/Revert. */
 void pw_sync_from_hw(void);
+/* Worker-side WRITE half of a POWER apply (see ui_spawn_apply): reads
+ * the staged pwv_* values (inputs are gated while busy), performs all
+ * writes, ends with hw_refresh_live; result via *fails_out and sum. */
+void pw_apply_writes(hw_state_t *hw, int *fails_out, char *sum, size_t sumn);
 
 void panel_telemetry_draw(struct ncplane *n, const rect_t *r);
 
@@ -270,5 +295,14 @@ void ws_start_mode_edit(const mode_def_t *m); /* NULL = new mode */
 /* Draw msg on the telemetry log row and render immediately — long-op
  * ("applying...") feedback before a blocking call. No-op outside TUI. */
 void ui_flash(const char *msg);
+
+/* Run one of the heavy applies on the background worker (returns
+ * immediately; refuses with a log line while one is running). kind:
+ * APPLY_SNAPSHOT / APPLY_POWER / APPLY_MODE / APPLY_MODESET. The
+ * worker only touches hw + the write layer; the finalize step (logs,
+ * pw_sync_from_hw, ctl_capture_mode, toasts) runs on the UI thread
+ * AFTER apply_busy drops, which also keeps harness key-ordering. */
+enum { APPLY_SNAPSHOT, APPLY_POWER, APPLY_MODE, APPLY_MODESET };
+void ui_spawn_apply(int kind, const char *what, const char *arg);
 
 #endif /* CTRON_UI_INTERNAL_H */

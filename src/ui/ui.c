@@ -540,12 +540,165 @@ static void handle_mouse(struct ncplane *stdn, const struct ncinput *ni, uint32_
     }
 }
 
+/* ---- background apply worker ------------------------------------------- */
+
+static long mono_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
+}
+
+/* the worker: WRITE phase only — hw + write layer + ut_log/ut_progress.
+ * No notcurses, no g_ui mutation (reads of immutable-during-busy
+ * staging/modes are fine). Results go to the plain fields the UI
+ * thread consumes in finalize_apply() AFTER apply_busy drops. */
+static void *apply_worker(void *arg)
+{
+    (void)arg;
+    hw_state_t *hw = g_ui.hw;
+
+    switch (g_ui.apply_kind) {
+    case APPLY_SNAPSHOT: {
+        char err[192];
+        g_ui.apply_ok = profile_import(g_ui.apply_arg, hw, err, sizeof(err)) == 0;
+        snprintf(g_ui.apply_sum, sizeof(g_ui.apply_sum), "%s", err);
+        ut_progress("snapshot: fan curves");
+        ctrl_fan_write(hw);
+        break;
+    }
+    case APPLY_POWER: {
+        int fails = 0;
+        g_ui.apply_sum[0] = '\0';
+        g_ui.apply_ok = true;
+        pw_apply_writes(hw, &fails, g_ui.apply_sum, sizeof(g_ui.apply_sum));
+        g_ui.apply_fails = fails;
+        break;
+    }
+    case APPLY_MODE: {
+        int idx = mode_find(g_ui.modes, g_ui.mode_n, g_ui.apply_arg);
+        if (idx < 0) {
+            g_ui.apply_ok = false;
+            snprintf(g_ui.apply_sum, sizeof(g_ui.apply_sum), "no such mode");
+            break;
+        }
+        char err[128];
+        g_ui.apply_ok = mode_apply(hw, g_ui.modes[idx].steps, err, sizeof(err)) == 0;
+        snprintf(g_ui.apply_sum, sizeof(g_ui.apply_sum), "%s", err);
+        hw_refresh_live(hw);
+        break;
+    }
+    default:
+        break;
+    }
+
+    /* the UI thread finalizes AFTER observing this drop */
+    atomic_store(&g_ui.apply_busy, false);
+    return NULL;
+}
+
+void ui_spawn_apply(int kind, const char *what, const char *arg)
+{
+    if (atomic_load(&g_ui.apply_busy)) {
+        if (!g_ui.apply_warned) {
+            ut_log("apply already running — keys locked until it finishes");
+            g_ui.apply_warned = true;
+        }
+        return;
+    }
+    g_ui.apply_kind = kind;
+    g_ui.apply_fails = 0;
+    g_ui.apply_warned = false;
+    snprintf(g_ui.apply_what, sizeof(g_ui.apply_what), "%s", what ? what : "");
+    snprintf(g_ui.apply_arg, sizeof(g_ui.apply_arg), "%s", arg ? arg : "");
+    g_ui.apply_sum[0] = '\0';
+    g_ui.apply_start_ms = mono_ms();
+    ut_progress_clear();
+    ut_progress("%s: starting", g_ui.apply_what);
+
+    atomic_store(&g_ui.apply_busy, true); /* release: fields above are set */
+    if (pthread_create(&g_ui.apply_tid, NULL, apply_worker, NULL) == 0) {
+        g_ui.apply_spawned = true;
+    } else {
+        atomic_store(&g_ui.apply_busy, false);
+        ut_log("apply: could not start the worker thread");
+    }
+}
+
+/* UI-thread completion: everything that touches g_ui/toasts/logs the
+ * harness may be waiting on — runs strictly AFTER apply_busy dropped,
+ * and each kind emits exactly ONE completion line (the footer shows
+ * only the newest entry, so split lines would bury each other) */
+static void finalize_apply(void)
+{
+    long took = (mono_ms() - g_ui.apply_start_ms) / 100;
+    switch (g_ui.apply_kind) {
+    case APPLY_SNAPSHOT:
+        if (g_ui.apply_ok)
+            ut_log("applied snapshot '%s' · %ld.%ld s",
+                   g_ui.apply_arg, took / 10, took % 10);
+        else
+            ut_log("apply failed: %.120s · %ld.%ld s",
+                   g_ui.apply_sum[0] ? g_ui.apply_sum : "?",
+                   took / 10, took % 10);
+        pw_sync_from_hw();
+        break;
+    case APPLY_POWER: {
+        pw_sync_from_hw();
+        ut_log("power apply: %s · %ld.%ld s",
+               g_ui.apply_fails ? "some fields FAILED (privilege?)" : "ok",
+               took / 10, took % 10);
+        if (g_ui.apply_sum[0]) {
+            if (g_ui.apply_fails)
+                snprintf(g_ui.pw_msg, sizeof(g_ui.pw_msg),
+                         "⚠ %.140s · %d failed", g_ui.apply_sum,
+                         g_ui.apply_fails);
+            else
+                snprintf(g_ui.pw_msg, sizeof(g_ui.pw_msg), "✓ %.150s",
+                         g_ui.apply_sum);
+            g_ui.pw_msg_fail = g_ui.apply_fails > 0;
+            g_ui.pw_msg_ms = mono_ms();
+        }
+        break;
+    }
+    case APPLY_MODE: {
+        int idx = mode_find(g_ui.modes, g_ui.mode_n, g_ui.apply_arg);
+        if (g_ui.apply_ok && idx >= 0) {
+            ut_log("mode '%s' applied · %ld.%ld s",
+                   g_ui.apply_arg, took / 10, took % 10);
+            ctl_capture_mode(g_ui.apply_arg, g_ui.modes[idx].steps);
+        } else if (!g_ui.apply_ok) {
+            ut_log("mode '%s': %.100s · %ld.%ld s", g_ui.apply_arg,
+                   g_ui.apply_sum[0] ? g_ui.apply_sum : "failed",
+                   took / 10, took % 10);
+        }
+        pw_sync_from_hw();
+        break;
+    }
+    default:
+        break;
+    }
+    ut_progress_clear();
+    g_ui.apply_warned = false;
+}
+
 /* ---- main loop ------------------------------------------------------------ */
 
 /* Quit with a guard: staged POWER edits are dropped silently otherwise,
- * so the first q just warns and the second one quits. */
+ * so the first q just warns and the second one quits. A running apply
+ * is never killed — the second q asks to quit the moment it finishes. */
 static void try_quit(void)
 {
+    if (atomic_load(&g_ui.apply_busy)) {
+        if (!g_ui.quit_pending) {
+            atomic_store(&g_ui.quit_pending, true);
+            ut_log("apply running — quitting when it finishes (q again to "
+                   "quit immediately after)");
+            return;
+        }
+        ut_log("still applying — waiting for it to finish");
+        return;
+    }
     if (g_ui.pw_dirty && !g_ui.pw_quit_warned) {
         g_ui.pw_quit_warned = true;
         ut_log("POWER: staged edits pending — q again to quit");
@@ -556,6 +709,16 @@ static void try_quit(void)
 
 static void dispatch_key(uint32_t key, const struct ncinput *ni)
 {
+    /* a running apply owns the machine's write path: only q gets
+     * through (it just schedules the quit) */
+    if (atomic_load(&g_ui.apply_busy) && key != 'q' && key != 'Q') {
+        if (!g_ui.apply_warned) {
+            ut_log("apply running — keys paused, q to queue quit");
+            g_ui.apply_warned = true;
+        }
+        return;
+    }
+
     /* typing modes swallow printable keys first */
     if (g_ui.prof_input != 0 && g_ui.focus == FOC_PROFILES) {
         panel_profiles_key(key);
@@ -681,6 +844,8 @@ int ui_run(hw_state_t *hw)
     s_stdn = stdn;
 
     memset(&g_ui, 0, sizeof(g_ui));
+    atomic_init(&g_ui.apply_busy, false);
+    atomic_init(&g_ui.quit_pending, false);
     g_ui.hw = hw;
     g_ui.running = true;
     g_ui.focus = FOC_CONTROLS;
@@ -713,7 +878,18 @@ int ui_run(hw_state_t *hw)
 
     ut_log("TUI ready (%d profiles, %d modes)", g_ui.prof_n, g_ui.mode_n);
 
+    bool apply_prev = false;
     while (g_ui.running) {
+        /* worker completion: finalize on the UI thread, strictly after
+         * apply_busy dropped (harness key-ordering depends on the
+         * completion logs landing after the drop) */
+        bool busy = atomic_load(&g_ui.apply_busy);
+        if (apply_prev && !busy)
+            finalize_apply();
+        apply_prev = busy;
+        if (atomic_load(&g_ui.quit_pending) && !busy)
+            g_ui.running = false;
+
         tgt_clear();
 
         unsigned dimy = 0, dimx = 0;
@@ -750,7 +926,8 @@ int ui_run(hw_state_t *hw)
         if (key == (uint32_t)-1)
             continue;
         if (key == 0 || key == NCKEY_RESIZE) {
-            hw_refresh_fast(hw);
+            if (!atomic_load(&g_ui.apply_busy))
+                hw_refresh_fast(hw);
             continue;
         }
         /* lone '[' / ']' are CSI leftovers from focus reporting; a bare
@@ -766,8 +943,14 @@ int ui_run(hw_state_t *hw)
             dispatch_key(key, &ni);
         }
 
-        hw_refresh_fast(hw);
+        if (!atomic_load(&g_ui.apply_busy))
+            hw_refresh_fast(hw);
     }
+
+    /* the worker is never killed: wait it out (bounded by the freq
+     * window rounds, ~9 s worst case) before saving state */
+    if (g_ui.apply_spawned)
+        pthread_join(g_ui.apply_tid, NULL);
 
     settings_save(hw);
     s_nc = NULL;

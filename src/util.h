@@ -77,4 +77,15 @@ void ut_log(const char *fmt, ...);
 const char *ut_log_get(int idx); /* 0 = most recent */
 int ut_log_count(void);
 
+/* ---- worker progress (TUI apply status line; CLI silent) ---------- */
+
+/* Publish what a long write sequence is doing right now; pct -1 =
+ * indeterminate. Thread-safe. */
+void ut_progress(const char *fmt, ...);
+void ut_progress_pct(int pct);
+/* Copy the latest progress out (pct via *pct, may be NULL). Returns
+ * an empty string after ut_progress_clear(). */
+const char *ut_progress_get(char *out, size_t n, int *pct);
+void ut_progress_clear(void);
+
 #endif /* CTRON_UTIL_H */

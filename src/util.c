@@ -5,6 +5,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <pthread.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -288,6 +289,10 @@ void ut_cell_join(char *dst, size_t n, const char *left, int cells,
 static char s_logs[UT_LOG_ENTRIES][UT_LOG_LEN];
 static int s_log_head = 0;
 static int s_log_count = 0;
+/* the apply worker logs while the UI thread reads the ring for the
+ * footer — one lock covers both (get() copies under the lock, so a
+ * slot being rewritten can never tear a displayed line) */
+static pthread_mutex_t s_log_mtx = PTHREAD_MUTEX_INITIALIZER;
 
 void ut_log(const char *fmt, ...)
 {
@@ -303,21 +308,75 @@ void ut_log(const char *fmt, ...)
     vsnprintf(msg, sizeof(msg), fmt, ap);
     va_end(ap);
 
+    pthread_mutex_lock(&s_log_mtx);
     snprintf(s_logs[s_log_head], UT_LOG_LEN, "%s %s", stamp, msg);
     s_log_head = (s_log_head + 1) % UT_LOG_ENTRIES;
     if (s_log_count < UT_LOG_ENTRIES)
         s_log_count++;
+    pthread_mutex_unlock(&s_log_mtx);
 }
 
 const char *ut_log_get(int idx)
 {
-    if (idx < 0 || idx >= s_log_count)
-        return "";
-    int actual = (s_log_head - 1 - idx + UT_LOG_ENTRIES) % UT_LOG_ENTRIES;
-    return s_logs[actual];
+    /* single caller per frame: copy into one static buffer under the
+     * lock and hand the copy back */
+    static char out[UT_LOG_LEN];
+    pthread_mutex_lock(&s_log_mtx);
+    if (idx < 0 || idx >= s_log_count) {
+        out[0] = '\0';
+    } else {
+        int actual = (s_log_head - 1 - idx + UT_LOG_ENTRIES) % UT_LOG_ENTRIES;
+        snprintf(out, UT_LOG_LEN, "%s", s_logs[actual]);
+    }
+    pthread_mutex_unlock(&s_log_mtx);
+    return out;
 }
 
 int ut_log_count(void)
 {
-    return s_log_count;
+    pthread_mutex_lock(&s_log_mtx);
+    int n = s_log_count;
+    pthread_mutex_unlock(&s_log_mtx);
+    return n;
+}
+
+/* ---- worker progress --------------------------------------------------- */
+
+static pthread_mutex_t s_prog_mtx = PTHREAD_MUTEX_INITIALIZER;
+static char s_prog_text[96];
+static int s_prog_pct = -1;
+
+void ut_progress(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    pthread_mutex_lock(&s_prog_mtx);
+    vsnprintf(s_prog_text, sizeof(s_prog_text), fmt, ap);
+    pthread_mutex_unlock(&s_prog_mtx);
+    va_end(ap);
+}
+
+void ut_progress_pct(int pct)
+{
+    pthread_mutex_lock(&s_prog_mtx);
+    s_prog_pct = pct;
+    pthread_mutex_unlock(&s_prog_mtx);
+}
+
+const char *ut_progress_get(char *out, size_t n, int *pct)
+{
+    pthread_mutex_lock(&s_prog_mtx);
+    snprintf(out, n, "%s", s_prog_text);
+    if (pct)
+        *pct = s_prog_pct;
+    pthread_mutex_unlock(&s_prog_mtx);
+    return out;
+}
+
+void ut_progress_clear(void)
+{
+    pthread_mutex_lock(&s_prog_mtx);
+    s_prog_text[0] = '\0';
+    s_prog_pct = -1;
+    pthread_mutex_unlock(&s_prog_mtx);
 }

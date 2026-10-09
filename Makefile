@@ -3,7 +3,7 @@
 # cannot build without are appended after it. pkg-config absence falls
 # back to the plain library names.
 CFLAGS ?= -O2 -Wall -Wextra
-CFLAGS += -std=c11 -Isrc -D_GNU_SOURCE
+CFLAGS += -std=c11 -Isrc -D_GNU_SOURCE -pthread
 CFLAGS += $(shell pkg-config --cflags notcurses 2>/dev/null)
 LDLIBS ?=
 LDLIBS += $(shell pkg-config --libs notcurses 2>/dev/null \

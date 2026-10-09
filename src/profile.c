@@ -290,6 +290,7 @@ int profile_import(const char *name, hw_state_t *hw, char *err, size_t errn)
      * word belongs to freq: once every other step has settled, wait
      * out the transition window and re-assert. */
     if (n_freq > 0) {
+        ut_progress("freq re-assert after the profile-switch window");
         usleep(1500000);
         for (int i = 0; i < n_freq; i++) {
             char serr[128];

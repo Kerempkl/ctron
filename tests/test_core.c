@@ -1,6 +1,7 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -765,6 +766,42 @@ static void check_snapshots(void)
     rmdir(tmp);
 }
 
+static void *log_hammer(void *arg)
+{
+    (void)arg;
+    for (int i = 0; i < 200; i++)
+        ut_log("hammer %d", i);
+    return NULL;
+}
+
+static void check_progress_and_log(void)
+{
+    char t[96];
+    int pct;
+
+    ut_progress_clear();
+    ut_progress_get(t, sizeof(t), &pct);
+    CHECK(t[0] == '\0' && pct == -1, "progress cleared");
+
+    ut_progress("step %d of %d", 3, 8);
+    ut_progress_pct(42);
+    ut_progress_get(t, sizeof(t), &pct);
+    CHECK(!strcmp(t, "step 3 of 8") && pct == 42, "progress roundtrip");
+
+    /* concurrent ring writes must not corrupt or exceed the ring */
+    pthread_t th;
+    CHECK(pthread_create(&th, NULL, log_hammer, NULL) == 0, "hammer spawn");
+    for (int i = 0; i < 200; i++)
+        ut_log("main %d", i);
+    pthread_join(th, NULL);
+    int n = ut_log_count();
+    CHECK(n >= 1 && n <= 24, "log count within the ring");
+    for (int i = 0; i < 3; i++) {
+        const char *l = ut_log_get(i);
+        CHECK(l[0] >= '0' && l[0] <= '9', "log entry has a timestamp");
+    }
+}
+
 int main(void)
 {
     check_fan_csv();
@@ -790,6 +827,7 @@ int main(void)
     check_ppt_ryzen_cmd();
     check_gpu_clock();
     check_snapshots();
+    check_progress_and_log();
 
     if (failures) {
         fprintf(stderr, "%d failure(s)\n", failures);

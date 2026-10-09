@@ -145,14 +145,7 @@ static void apply_selected(void)
 {
     if (g_ui.prof_n == 0 || g_ui.prof_sel >= g_ui.prof_n)
         return;
-    char err[128];
-    ui_flash("applying snapshot...");
-    if (profile_import(g_ui.profs[g_ui.prof_sel], g_ui.hw, err, sizeof(err)) == 0)
-        ut_log("applied snapshot '%s'", g_ui.profs[g_ui.prof_sel]);
-    else
-        ut_log("apply failed: %s", err[0] ? err : "?");
-    ctrl_fan_write(g_ui.hw); /* curves ride along in the snapshot */
-    pw_sync_from_hw();       /* it may have changed power fields */
+    ui_spawn_apply(APPLY_SNAPSHOT, "snapshot", g_ui.profs[g_ui.prof_sel]);
 }
 
 static void save_current(void)

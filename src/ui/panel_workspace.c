@@ -382,11 +382,17 @@ static void pw_diff_summary(char *out, size_t n)
 
 static void pw_apply(void)
 {
-    hw_state_t *hw = g_ui.hw;
+    ui_spawn_apply(APPLY_POWER, "power settings", "");
+}
+
+/* the WRITE half of an apply — runs on the background worker: touches
+ * hw and the write layer only, never g_ui-mutation/notcurses (reads
+ * of the pwv_* staging are safe: inputs are gated while busy) */
+void pw_apply_writes(hw_state_t *hw, int *fails_out, char *sum, size_t sumn)
+{
     int fails = 0;
-    char sum[192];
-    pw_diff_summary(sum, sizeof(sum));
-    ui_flash("applying power settings...");
+    pw_diff_summary(sum, sumn);
+    ut_progress("power: applying");
 
     /* profile first: it can move the EPP too, and an explicitly staged
      * EPP must win over the profile-implied one */
@@ -400,7 +406,7 @@ static void pw_apply(void)
             char note[48];
             snprintf(note, sizeof note,
                      enf >= 0 ? " · asusd will revert (auto on)" : "");
-            strncat(sum, note, sizeof(sum) - strlen(sum) - 1);
+            strncat(sum, note, sumn - strlen(sum) - 1);
         }
     }
     if (g_ui.pwv_epp != (int)hw->epp) {
@@ -463,21 +469,12 @@ static void pw_apply(void)
             fails++;
     }
 
-    ut_log("power apply: %s", fails ? "some fields FAILED (privilege?)" : "ok");
+    /* single-line completion is logged by the UI finalize step (the
+     * footer shows only the newest ring entry, so a second log here
+     * would immediately bury it) */
 
     hw_refresh_live(hw); /* verify the writes by reading back */
-    pw_sync_from_hw();
-
-    /* toast: what just got applied (green) or what failed (red) */
-    if (sum[0]) {
-        if (fails)
-            snprintf(g_ui.pw_msg, sizeof(g_ui.pw_msg), "⚠ %s · %d failed",
-                     sum, fails);
-        else
-            snprintf(g_ui.pw_msg, sizeof(g_ui.pw_msg), "✓ %s", sum);
-        g_ui.pw_msg_fail = fails > 0;
-        g_ui.pw_msg_ms = now_ms();
-    }
+    *fails_out = fails;
 }
 
 /* "live" / "--", with "live → staged ●" while an edit is pending and
@@ -948,6 +945,7 @@ static void draw_help(struct ncplane *n, const rect_t *r)
         "  1..4 / Tab   focus: profiles, controls, workspace, telemetry",
         "  5..8         workspace view: 5 fan · 6 power · 7 light · 8 help",
         "  esc / s      settings overlay · ? this help",
+        "  applies run in the background — keys pause, q waits for them",
         "",
         "CONTROLS / LISTS",
         "  j k          move · h l change value · Enter apply",

@@ -247,7 +247,7 @@ def flow_power_stage_apply():
         time.sleep(0.3)            #   Apply logs but writes nothing
         m = s.mark()
         s.key(b"w")                # apply
-        if s.wait_for(b"power apply", since=m, timeout=5.0):
+        if s.wait_for(b"power apply", since=m, timeout=10.0):
             ok("power", "apply wrote the log line")
         else:
             fail("power", "no 'power apply' log after w")
@@ -488,9 +488,10 @@ def flow_mode_drift():
         m = s.mark()
         s.key(b"2")                # controls focus, Mode row selected
         s.key(b"\r")               # Enter applies the drift mode
-        # the log line arrives diff-fragmented (notcurses), so wait for
-        # the flash first and then for any fragment of the completion log
-        if not s.wait_for(b"applying mode...", since=m, timeout=15.0):
+        # applies run on the background worker now: the busy status
+        # line ("reads paused") proves the spawn, the finalize log
+        # (after busy drops — preserves key ordering) proves completion
+        if not s.wait_for(b"reads paused", since=m, timeout=15.0):
             fail("mode_drift", "Enter did not trigger the mode apply")
             return
         if not s.wait_for(b"drift'", since=m, timeout=15.0):

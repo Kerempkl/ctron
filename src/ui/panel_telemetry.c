@@ -5,6 +5,7 @@
 #include "../util.h"
 
 #include <stdio.h>
+#include <time.h>
 
 /* Always-on live strip: two telemetry lines + last log line. */
 
@@ -47,8 +48,36 @@ void panel_telemetry_draw(struct ncplane *n, const rect_t *r)
     if (w > 4) {
         ui_putln(n, x, r->y + 1, w, l1, pal->text, true);
         ui_putln(n, x, r->y + 2, w, l2, pal->text, false);
-        const char *lg = ut_log_get(0);
-        ui_putln(n, x, r->y + 3, w, lg[0] ? lg : "q quit · 1-4 focus · esc settings · ? help",
-                 pal->muted, false);
+        if (atomic_load(&g_ui.apply_busy)) {
+            /* live apply status replaces the log row: what/phase,
+             * elapsed time, spinner — plus the honesty note that
+             * reads are paused while the worker owns the write path */
+            static const char spin[] = "|/-\\";
+            static int frame;
+            char ptxt[96];
+            int pct;
+            ut_progress_get(ptxt, sizeof(ptxt), &pct);
+            struct timespec ts;
+            clock_gettime(CLOCK_MONOTONIC, &ts);
+            long el = ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
+            el = (el - g_ui.apply_start_ms) / 100; /* tenths of a s */
+            char line[160];
+            if (pct >= 0)
+                snprintf(line, sizeof(line),
+                         "%c %.20s: %.60s · %d%% · %ld.%ld s · reads paused · q waits",
+                         spin[frame++ % 4], g_ui.apply_what,
+                         ptxt[0] ? ptxt : "working", pct, el / 10, el % 10);
+            else
+                snprintf(line, sizeof(line),
+                         "%c %.20s: %.80s · %ld.%ld s · reads paused · q waits",
+                         spin[frame++ % 4], g_ui.apply_what,
+                         ptxt[0] ? ptxt : "working", el / 10, el % 10);
+            ui_putln(n, x, r->y + 3, w, line, pal->accent, true);
+        } else {
+            const char *lg = ut_log_get(0);
+            ui_putln(n, x, r->y + 3, w,
+                     lg[0] ? lg : "q quit · 1-4 focus · esc settings · ? help",
+                     pal->muted, false);
+        }
     }
 }

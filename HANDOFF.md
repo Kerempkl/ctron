@@ -229,6 +229,25 @@ prioritized todo list and the distilled session lessons.
   via `--fan off`, or editing the curve so 255 starts later) were
   handed to the user.
 
+### Session 2026-10-09 — background apply worker (GLM / FA608PP)
+
+- User ask: don't freeze the TUI during applies; show a countdown.
+  Landed as ctron's first thread: write phase off-thread, live status
+  line in the telemetry footer (spinner/phase/%/elapsed + reads-paused
+  + q-waits), single-writer discipline (poll paused while busy),
+  finalize-on-UI-thread after apply_busy drops (atomic), q never kills
+  (first q queues the quit; join before settings_save). ut_log fully
+  mutexed; ut_progress channel added (CLI silent). -pthread in
+  CFLAGS. FAN Write intentionally still synchronous.
+- Debugging gems: (1) footer shows only the NEWEST log — worker +
+  finalize lines buried each other within a frame → one combined
+  completion line per kind; (2) the agent sandbox DOES allow
+  pthread_create (probed via ctypes) — the early flow failures were
+  the burying bug + a stale "applying..." expectation, not threading.
+- make 0 warnings, make test (progress + 2x200 log hammer), make
+  tuitest (10 flows, async-aware), installed. Field test: quiet→
+  turbo snapshot apply while watching the TUI stay alive.
+
 ### Session 2026-10-09 — the 2401 trap (GLM / FA608PP)
 
 - User: switching to turbo from Quiet never lifted the 2401 ceiling.

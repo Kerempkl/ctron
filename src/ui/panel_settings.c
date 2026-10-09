@@ -112,13 +112,7 @@ static void mode_apply_idx(int i)
 {
     if (i < 0 || i >= g_ui.mode_n)
         return;
-    char err[128];
-    if (mode_apply(g_ui.hw, g_ui.modes[i].steps, err, sizeof(err)) == 0) {
-        ut_log("mode '%s' applied", g_ui.modes[i].name);
-        ctl_capture_mode(g_ui.modes[i].name, g_ui.modes[i].steps);
-    } else {
-        ut_log("mode '%s': %s", g_ui.modes[i].name, err[0] ? err : "failed");
-    }
+    ui_spawn_apply(APPLY_MODE, "mode", g_ui.modes[i].name);
 }
 
 /* ---- settings view ------------------------------------------------------ */

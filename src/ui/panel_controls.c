@@ -89,19 +89,10 @@ static void apply_row(int row)
     switch (row) {
     case 0:
         if (g_ui.mode_n > 0) {
-            char err[128];
-            ui_flash("applying mode...");
-            if (mode_apply(hw, g_ui.modes[g_ui.ctl_mode_idx].steps, err, sizeof(err)) == 0)
-                ut_log("mode '%s' applied", g_ui.modes[g_ui.ctl_mode_idx].name);
-            else
-                ut_log("mode '%s': %s", g_ui.modes[g_ui.ctl_mode_idx].name,
-                       err[0] ? err : "failed");
-            hw_refresh_live(hw);
-            pw_sync_from_hw(); /* the bundle may have changed power fields */
-            /* snapshot after the refresh so the drift check compares
-             * against the post-apply live state */
-            ctl_capture_mode(g_ui.modes[g_ui.ctl_mode_idx].name,
-                             g_ui.modes[g_ui.ctl_mode_idx].steps);
+            /* heavy bundle: runs on the apply worker (staged snapshot
+             * semantics live in the finalize step there) */
+            ui_spawn_apply(APPLY_MODE, "mode",
+                           g_ui.modes[g_ui.ctl_mode_idx].name);
         }
         break;
     case 1:

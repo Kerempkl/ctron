@@ -154,6 +154,9 @@ int ctrl_set_cpu_max_mhz(hw_state_t *hw, int mhz)
     int rc = 0;
     for (int round = 0; round < 8; round++) {
         if (round > 0) {
+            ut_progress("CPU ceiling: waiting for the %d MHz window "
+                        "(round %d/8)", mhz, round + 1);
+            ut_progress_pct(round * 100 / 8);
             usleep(900000);
             waited_ms += 900;
         }
@@ -174,6 +177,7 @@ int ctrl_set_cpu_max_mhz(hw_state_t *hw, int mhz)
             rc = cpufreq_write_all(hw, "scaling_max_freq", val);
             if (rc != 0)
                 break;
+            ut_progress("CPU ceiling: wrote %d MHz, verifying", mhz);
             wrote_at_ms = waited_ms;
         }
         bad = 0;
@@ -970,6 +974,7 @@ int ctrl_fan_write(hw_state_t *hw)
     int enable_bad = 0;
     int vok_cpu = -1, vok_gpu = -1; /* -1: no hwmon, not verified */
 
+    ut_progress("fan curves: writing to the EC");
     if (fan_curve_base(hw, base, sizeof(base)) == 0) {
         for (int i = 0; i < FAN_POINTS; i++) {
             char path[300];
