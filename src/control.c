@@ -63,21 +63,45 @@ static bool use_asusctl_first(void)
  * single member each), so a limit must be written to all of them. Writing
  * cpu0 alone left 31 cores clamped at base on the FA608PP.
  *
- * Iterates hw->cpu_ids, the kernel's real present list: numbering is
- * NOT contiguous on every machine (SMT off or offlined cores give
- * lists like "0-15,32-47"), and a scan-and-break-at-first-gap would
- * skip everything after the hole. */
+ * All policies take the SAME value here, so a single `sudo -n tee`
+ * with every path as an argument replaces N sequential sudo
+ * invocations — 32 popens cost ~4 s per write and a snapshot apply
+ * writes several times (epp + freq rounds + the re-assert), which is
+ * where a 20 s apply came from. Paths are built explicitly from
+ * hw->cpu_ids (the real present list — numbering is not contiguous on
+ * every machine), not from a cpu* glob, so every tee argument matches
+ * the path-scoped sudoers rule exactly. */
 static int cpufreq_write_all(const hw_state_t *hw, const char *leaf,
                              const char *val)
 {
-    int rc = -1;
+    if (!hw || hw->cpu_n <= 0)
+        return -1;
+
+    /* "sudo -n tee p1 p2 ... pn" — one invocation, explicit paths */
+    char cmd[4096];
+    size_t off = (size_t)snprintf(cmd, sizeof(cmd),
+                                  "printf '%%s' '%s' | sudo -n tee", val);
     for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
-        char path[96];
-        snprintf(path, sizeof(path),
-                 "/sys/devices/system/cpu/cpu%d/cpufreq/%s",
-                 hw->cpu_ids[c], leaf);
-        if (ut_priv_write(path, val) == 0)
-            rc = 0; /* keep going: one bad node must not stop the rest */
+        size_t w = (size_t)snprintf(cmd + off, sizeof(cmd) - off,
+                                    " /sys/devices/system/cpu/cpu%d/cpufreq/%s",
+                                    hw->cpu_ids[c], leaf);
+        if (w >= sizeof(cmd) - off)
+            return -1; /* absurd cpu counts: refuse rather than truncate */
+        off += w;
+    }
+    int rc = ut_exec(cmd, NULL, 0);
+    if (rc != 0) {
+        /* fallback for the no-sudo path: per-node ut_priv_write (also
+         * covers a sudoers rule that somehow rejects multi-arg tee) */
+        rc = -1;
+        for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
+            char path[96];
+            snprintf(path, sizeof(path),
+                     "/sys/devices/system/cpu/cpu%d/cpufreq/%s",
+                     hw->cpu_ids[c], leaf);
+            if (ut_priv_write(path, val) == 0)
+                rc = 0;
+        }
     }
     return rc;
 }
@@ -151,6 +175,7 @@ int ctrl_set_cpu_max_mhz(hw_state_t *hw, int mhz)
     int wrote_at_ms = 0, waited_ms = 0;
     int bad = 1, back_khz = 0;
     int ok_streak = 0;
+    int writes_done = 0; /* storm cap: full 32-cpu writes are not free */
     int rc = 0;
     for (int round = 0; round < 8; round++) {
         if (round > 0) {
@@ -173,10 +198,13 @@ int ctrl_set_cpu_max_mhz(hw_state_t *hw, int mhz)
             }
             if (info_khz > 0 && mhz * 1000 - info_khz > 2000)
                 continue; /* ceiling not open yet: writing would clamp */
+            if (writes_done >= 3)
+                continue; /* storm cap: verify-only from here on */
 
             rc = cpufreq_write_all(hw, "scaling_max_freq", val);
             if (rc != 0)
                 break;
+            writes_done++;
             ut_progress("CPU ceiling: wrote %d MHz, verifying", mhz);
             wrote_at_ms = waited_ms;
         }
@@ -974,8 +1002,14 @@ int ctrl_fan_write(hw_state_t *hw)
     int enable_bad = 0;
     int vok_cpu = -1, vok_gpu = -1; /* -1: no hwmon, not verified */
 
+    /* session latch: with no sudoers rule for the hwmon path every
+     * point write spawns a doomed sudo (~0.1 s each, ~4 s per apply).
+     * After the first total failure, skip straight to asusctl. */
+    static bool sysfs_dead_logged;
+
     ut_progress("fan curves: writing to the EC");
-    if (fan_curve_base(hw, base, sizeof(base)) == 0) {
+    if (fan_curve_base(hw, base, sizeof(base)) == 0 && !hw->fan_sysfs_dead) {
+        int sysfs_failed = 0;
         for (int i = 0; i < FAN_POINTS; i++) {
             char path[300];
             int tc, pc, tg, pg;
@@ -985,19 +1019,19 @@ int ctrl_fan_write(hw_state_t *hw)
 
             snprintf(path, sizeof(path), "%s/pwm1_auto_point%d_temp", base, i + 1);
             snprintf(val, sizeof(val), "%d", tc);
-            if (ut_priv_write(path, val) != 0) rc = -1;
+            if (ut_priv_write(path, val) != 0) { rc = -1; sysfs_failed++; }
 
             snprintf(path, sizeof(path), "%s/pwm1_auto_point%d_pwm", base, i + 1);
             snprintf(val, sizeof(val), "%d", pc);
-            if (ut_priv_write(path, val) != 0) rc = -1;
+            if (ut_priv_write(path, val) != 0) { rc = -1; sysfs_failed++; }
 
             snprintf(path, sizeof(path), "%s/pwm2_auto_point%d_temp", base, i + 1);
             snprintf(val, sizeof(val), "%d", tg);
-            if (ut_priv_write(path, val) != 0) rc = -1;
+            if (ut_priv_write(path, val) != 0) { rc = -1; sysfs_failed++; }
 
             snprintf(path, sizeof(path), "%s/pwm2_auto_point%d_pwm", base, i + 1);
             snprintf(val, sizeof(val), "%d", pg);
-            if (ut_priv_write(path, val) != 0) rc = -1;
+            if (ut_priv_write(path, val) != 0) { rc = -1; sysfs_failed++; }
         }
         /* Points clear pwmN_enable in the driver. 1 turns the stored
          * curve on; 2 selects factory auto. 0 is rejected. */
@@ -1005,12 +1039,21 @@ int ctrl_fan_write(hw_state_t *hw)
         int en_cpu = 0, en_gpu = 0;
         snprintf(path, sizeof(path), "%s/pwm1_enable", base);
         snprintf(val, sizeof(val), "%d", fan_enable_raw(hw->fan_cpu_on));
-        if (ut_priv_write(path, val) != 0)
-            rc = -1;
+        if (ut_priv_write(path, val) != 0) { rc = -1; sysfs_failed++; }
         snprintf(path, sizeof(path), "%s/pwm2_enable", base);
         snprintf(val, sizeof(val), "%d", fan_enable_raw(hw->fan_gpu_on));
-        if (ut_priv_write(path, val) != 0)
-            rc = -1;
+        if (ut_priv_write(path, val) != 0) { rc = -1; sysfs_failed++; }
+
+        /* total failure on the first try = no sudoers rule for the
+         * hwmon path: stop paying ~34 doomed sudo spawns per write */
+        if (sysfs_failed >= 4 * FAN_POINTS + 2) {
+            hw->fan_sysfs_dead = true;
+            if (!sysfs_dead_logged) {
+                sysfs_dead_logged = true;
+                ut_log("fan sysfs path unwritable this session — asusctl "
+                       "path only from now on");
+            }
+        }
 
         fan_verify(hw, base, &vok_cpu, &vok_gpu);
         en_cpu = fan_enable_ok(base, "pwm1", hw->fan_cpu_on);

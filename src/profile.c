@@ -273,12 +273,17 @@ int profile_import(const char *name, hw_state_t *hw, char *err, size_t errn)
         }
 
         char serr[128];
-        if (cmd_run(hw, key, val, serr, sizeof(serr)) != 0) {
+        int step_rc = cmd_run(hw, key, val, serr, sizeof(serr));
+        if (step_rc != 0) {
             ut_log("profile '%s': step '%s' failed (%s)", name, key, serr);
             failed++;
         }
-        /* collect freq lines for the late re-assert below */
-        if (!strcasecmp(key, "freq") && n_freq < 4)
+        /* collect freq lines for the late re-assert below — but only
+         * ones that SUCCEEDED: a re-assert cannot heal a driver clamp
+         * (the honest-fail rounds already exhausted), it only guards
+         * against the post-verify re-pin, so replaying a failure just
+         * burns another ~8 s of wait rounds */
+        if (!strcasecmp(key, "freq") && step_rc == 0 && n_freq < 4)
             snprintf(freq_replay[n_freq++], sizeof(freq_replay[0]), "%s", val);
     }
     fclose(f);

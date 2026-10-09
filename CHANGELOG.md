@@ -1,5 +1,34 @@
 # Changelog
 
+## 2026-10-09 — apply performance: 20 s → 1 s (mode), 15 s → 7 s (snapshot)
+
+- User report: mode switching took ~20 s. Profile: (1) cpufreq writes
+  spawned one sudo tee per CPU (~32 × 0.12 s = 4 s per write) and a
+  snapshot applies several (epp + freq rounds + re-assert); (2) the
+  fan sysfs path (no sudoers rule for hwmon) burned ~34 doomed sudo
+  spawns per apply; (3) the freq re-assert replayed even when the
+  first write already failed (driver clamp — replay can't heal that).
+- cpufreq_write_all now batches all present-cpu paths into ONE
+  `sudo -n tee` invocation (paths built from hw->cpu_ids, matching
+  the path-scoped sudoers rule exactly; single-valued per call).
+  Fallback to per-node writes only if the batch fails. 4 s → 0.1 s.
+- ctrl_fan_write gains a session latch: after the first total sysfs
+  failure (no hwmon sudoers rule), subsequent writes skip straight
+  to asusctl — ~4 s saved per apply on the FA608PP.
+- profile_import's freq re-assert only replays steps that SUCCEEDED:
+  a clamped first write can't be healed by retrying, it just burned
+  another round of wait sleeps.
+- The freq round loop caps at 3 full writes (storm guard against the
+  async re-pin resetting ok_streak repeatedly).
+- Fixed en route: `--mode <name>` was documented in the help text but
+  never wired (the generic flag path called cmd_run("mode") which is
+  not a key) — it now applies the named mode from modes.ini with a
+  timing report ("mode 'turbo' applied (1.0 s)").
+- Verified live: `--mode turbo` 1.0 s, `--mode quiet` 1.1 s (the
+  remaining cost is kscreen-doctor + asusctl subprocess latency).
+  Turbo snapshot from quiet: 7 s under the active driver clamp
+  (honest-fail rounds; reboot clears); turbo→silent 4.9 s.
+
 ## 2026-10-09 — applies run on a background worker: live progress, no frozen TUI
 
 - Snapshot/POWER/mode applies could block the UI thread for up to ~9 s

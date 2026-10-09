@@ -229,6 +229,18 @@ prioritized todo list and the distilled session lessons.
   via `--fan off`, or editing the curve so 255 starts later) were
   handed to the user.
 
+### Session 2026-10-09 — apply performance round (GLM / FA608PP)
+
+- User: "mod değişimi 20 saniyeye yakın". Root causes: per-CPU sudo
+  tee spawns (4 s per cpufreq_write_all call × several per apply),
+  doomed fan sysfs attempts (34 sudo spawns per apply, no rule), and
+  a useless re-assert replay under clamp. Fixes: batched tee (one
+  invocation, paths from cpu_ids), fan sysfs session latch, replay
+  gated on first-pass success, write storm cap (3). Also wired the
+  never-implemented --mode flag. Live: mode 1.0 s, snapshot 7 s
+  under clamp (vs 15), snapshot turbo→silent 4.9 s. make 0 warnings,
+  tests + tuitest green, installed.
+
 ### Session 2026-10-09 — background apply worker (GLM / FA608PP)
 
 - User ask: don't freeze the TUI during applies; show a countdown.

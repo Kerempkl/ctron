@@ -133,6 +133,9 @@ typedef struct {
     fan_curve_t fan_cpu, fan_gpu;
     fan_curve_t fan_cpu_stock, fan_gpu_stock;
     bool fan_cpu_on, fan_gpu_on;
+    /* session latch: the hwmon sysfs path proved unwritable (no
+     * sudoers rule) — ctrl_fan_write skips its doomed tee attempts */
+    bool fan_sysfs_dead;
     /* true while the in-memory curves hold edits newer than the hwmon
      * table (fan editor, mode/profile steps, ini load): a live refresh
      * must not overwrite them. Cleared by ctrl_fan_write on success. */

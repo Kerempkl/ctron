@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <time.h>
 #include <unistd.h>
 #include <signal.h>
 
@@ -448,6 +449,29 @@ int main(int argc, char *argv[])
     if (!strcmp(argv[1], "--doctor")) {
         hw_refresh_live(&hw);
         return cmd_doctor(&hw);
+    }
+    if (!strcmp(argv[1], "--mode") && argc > 2) {
+        /* documented in the help text but never wired: the generic
+         * flag path would call cmd_run("mode") which is not a key */
+        mode_def_t modes[MODES_MAX];
+        int n = modes_load(modes, MODES_MAX);
+        int i = mode_find(modes, n, argv[2]);
+        if (i < 0) {
+            fprintf(stderr, "ctron: no such mode: %s (ctron mode list)\n", argv[2]);
+            return 1;
+        }
+        char err[128];
+        struct timespec a, b;
+        clock_gettime(CLOCK_MONOTONIC, &a);
+        int rc = mode_apply(&hw, modes[i].steps, err, sizeof(err));
+        clock_gettime(CLOCK_MONOTONIC, &b);
+        double took = (b.tv_sec - a.tv_sec) + (b.tv_nsec - a.tv_nsec) / 1e9;
+        if (rc == 0)
+            printf("mode '%s' applied (%.1f s)\n", argv[2], took);
+        else
+            fprintf(stderr, "ctron: mode '%s' failed: %s\n", argv[2],
+                    err[0] ? err : "?");
+        return rc == 0 ? 0 : 1;
     }
     if (!strcmp(argv[1], "--setup")) {
         char dir[400];
