@@ -1,5 +1,42 @@
 # Changelog
 
+## 2026-10-08 — fan curves: honest asusctl apply path + graph value guides
+
+- Write used to report FAILED ("needs root") whenever the hwmon sysfs
+  nodes were unwritable — while the asusctl persistence calls behind
+  it silently succeeded, storing AND applying the curves through
+  asusd. That is exactly how the user's settings.ini curve reached the
+  EC without them ever pressing a successful Write (the 100 %-fan
+  mystery). ctrl_fan_write now tracks the asusctl results: sysfs
+  verified → as before; sysfs unwritable but asusctl ok → success with
+  an honest log ("applied via asusctl/asusd … no read-back — verify by
+  ear/temps"); both failing → FAILED. Live-verified: `--fan-write`
+  exits 0 on this box (no hwmon sudoers rule needed).
+- FAN editor: `i` toggles dotted value guides on the graph — vertical
+  every 10 °C (labels 40/60/80/100 on the temp axis) and horizontal at
+  ~25/50/75 % PWM (64/128/192 labels on the left), so the °C→PWM
+  mapping is readable off the curve instead of guessed from the chips.
+  HELP documents it; `flow_fan_grid` (tui_smoke, 9th flow) covers
+  toggle on/off.
+
+## 2026-10-08 — tuitest fan Write click no longer touches the real config
+
+- Incident: after a day of heavy `make tuitest` runs, switching to the
+  Performance profile slammed the CPU fan to 100 %. Diagnosis: the
+  EC's custom curve ramps to full PWM at 71 °C, the live profile
+  pushes package temps past that, and the curve active on the EC was
+  byte-identical to the user's settings.ini curve — the harness's
+  "real Write click" flow had been pushing the user's staged ini
+  curves onto the EC and into asusd's per-profile store on every run.
+  The flow's "no-op re-write of the live curves" premise died with
+  fan_staged (2026-10-03): settings.ini curves are staged at load, so
+  the click wrote THEM, not the EC's values.
+- Fix: flow_fan_buttons runs against an isolated CTRON_CONFIG with no
+  settings.ini — the in-memory curves then equal the EC read at init
+  and the Write click re-writes identical values (a true no-op). No
+  ctron code changes; the curve values on the EC are the user's own
+  tuning, untouched.
+
 ## 2026-10-08 — ut_exec SIGPIPE race: printing children failed as fake errors
 
 - Root cause of the first ryzenadj round reporting FAILED while the

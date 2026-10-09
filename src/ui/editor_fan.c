@@ -179,6 +179,40 @@ void editor_fan_draw(struct ncplane *n, const rect_t *r)
         ncplane_putstr_yx(n, s_graph.y + s_graph.h, s_graph.x + s_graph.w - 4, lb);
     }
 
+    /* value guides ('i'): dotted 10 °C verticals + 25 % horizontals
+     * with axis labels, so "what °C maps to what PWM" is readable
+     * off the graph instead of guessed from the point chips */
+    if (g_ui.fe_grid) {
+        static const int G_PWM[] = { 64, 128, 192 }; /* ~25/50/75 % */
+        ncplane_set_channels(n, ch_ax);
+        for (int t = 30; t <= 100; t += 10) {
+            int gx = s_graph.x + (t - FAN_TMIN) * (s_graph.w - 1) /
+                     (FAN_TMAX - FAN_TMIN);
+            for (int yy = 0; yy < s_graph.h; yy++)
+                ncplane_putstr_yx(n, s_graph.y + yy, gx, "·");
+        }
+        for (size_t i = 0; i < sizeof(G_PWM) / sizeof(G_PWM[0]); i++) {
+            int gy = s_graph.y + s_graph.h - 1 -
+                     G_PWM[i] * (s_graph.h - 1) / 255;
+            for (int xx = 0; xx < s_graph.w; xx++)
+                ncplane_putstr_yx(n, gy, s_graph.x + xx, "·");
+        }
+        ncplane_set_channels(n, ch_lb);
+        char lb[8];
+        for (int t = 40; t <= 100; t += 20) {
+            int gx = s_graph.x + (t - FAN_TMIN) * (s_graph.w - 1) /
+                     (FAN_TMAX - FAN_TMIN);
+            snprintf(lb, sizeof(lb), "%d", t);
+            ncplane_putstr_yx(n, s_graph.y + s_graph.h, gx, lb);
+        }
+        for (size_t i = 0; i < sizeof(G_PWM) / sizeof(G_PWM[0]); i++) {
+            int gy = s_graph.y + s_graph.h - 1 -
+                     G_PWM[i] * (s_graph.h - 1) / 255;
+            snprintf(lb, sizeof(lb), "%d", G_PWM[i]);
+            ncplane_putstr_yx(n, gy, s_graph.x - 3, lb);
+        }
+    }
+
     /* live temp marker on the axis */
     if (hw->cpu_temp > 0 && !g_ui.fe_gpu) {
         int lx = s_graph.x + ut_clamp_i(hw->cpu_temp, FAN_TMIN, FAN_TMAX) *
@@ -283,6 +317,10 @@ void editor_fan_key(uint32_t key)
     case 'G':
         g_ui.fe_gpu = 1;
         fill_xy_bufs();
+        break;
+    case 'i':
+    case 'I':
+        g_ui.fe_grid = !g_ui.fe_grid;
         break;
     case '+':
     case 'a':

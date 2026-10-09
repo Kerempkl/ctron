@@ -196,6 +196,39 @@ prioritized todo list and the distilled session lessons.
   Documented in HARDWARE.md EN/TR. No code changes; sampler scripts
   live in ~ (freq-watch*.sh/out).
 
+### Same-day follow-up — fan Write honesty + graph guides (user reports)
+
+- User: Write said FAILED (no hwmon sudoers rule), and the graph is
+  hard to read. First finding closed the 100 %-fan loop: the asusctl
+  persistence calls after the failed sysfs write SUCCEEDED — asusd
+  stored AND applied the curves, so a "FAILED" Write did land. That is
+  how the settings.ini curve reached the EC without a successful Write
+  (user: "fan eğrisini ben uygulatmamıştım" — correct, they never had
+  a successful one).
+- Landed: ctrl_fan_write tracks asusctl results — sysfs verified as
+  before; sysfs unwritable + asusctl ok → rc=0 with an honest
+  "applied via asusctl/asusd (no read-back)" log; both dead → FAILED.
+  Live: `--fan-write` rc=0 here. FAN editor gained the `i` value-guide
+  toggle (10 °C verticals + 25 % horizontals at 64/128/192 PWM with
+  axis labels); HELP updated; flow_fan_grid (9th flow) green.
+  make 0 warnings, test + tuitest (9 flows), installed.
+
+### Same-day incident — tuitest fan Write touched the real config (fixed)
+
+- User report after the day's heavy tuitest runs: switching to
+  Performance slams the CPU fan to 100 %. Diagnosis: EC custom curve
+  ramps to 255 at 71 °C; Performance pushes temps past it; the EC
+  curve was byte-identical to the user's settings.ini curve —
+  flow_fan_buttons' "real Write click" had been writing the user's
+  staged ini curves (fan_staged since 10-03 broke the "no-op"
+  premise) to the EC + asusd's per-profile store on every run.
+- Fix: the flow now runs with an isolated CTRON_CONFIG (no
+  settings.ini → curves = EC read at init → Write re-applies
+  identical values). tuitest 8 flows green. The EC curve values are
+  the user's own tuning — untouched; relief options (factory curves
+  via `--fan off`, or editing the curve so 255 starts later) were
+  handed to the user.
+
 ### Session 2026-10-08 — PPT via ryzenadj + ut_exec SIGPIPE root-cause (GLM / FA608PP)
 
 - User OCCT field test: `--ppt 30/40/50` did nothing (package hit

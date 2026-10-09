@@ -303,9 +303,23 @@ def flow_corefreq_overlay():
 
 
 def flow_fan_buttons():
-    """Regression for the ACT id collision (Write click opened Help)."""
-    s = Session("fan_buttons")
+    """Regression for the ACT id collision (Write click opened Help).
+
+    Runs against an ISOLATED CTRON_CONFIG with no settings.ini: the
+    in-memory curves then equal the live EC read at init, so the Write
+    click re-writes identical values (true no-op). Since fan_staged
+    (2026-10-03) the old assumption "Write is a no-op re-write of the
+    live curves" broke against the REAL config: settings.ini curves
+    get staged at load and the click pushed them onto the EC and into
+    asusd's per-profile store — observed live as the user's aggressive
+    curve ramping the CPU fan to 100% under the Performance profile
+    (2026-10-08)."""
+    tmpcfg = tempfile.mkdtemp(prefix="ctron-tui-")
+    oldcfg = os.environ.get("CTRON_CONFIG")
+    os.environ["CTRON_CONFIG"] = tmpcfg
+    s = None
     try:
+        s = Session("fan_buttons")
         s.wait_render()
         g = fan_row_geometry()
         for name in ("cpu", "gpu", "add", "del"):
@@ -327,7 +341,13 @@ def flow_fan_buttons():
         if rc != 0:
             fail("fan_buttons", f"q exit {rc!r}")
     finally:
-        s.close()
+        if s is not None:
+            s.close()
+        if oldcfg is None:
+            os.environ.pop("CTRON_CONFIG", None)
+        else:
+            os.environ["CTRON_CONFIG"] = oldcfg
+        shutil.rmtree(tmpcfg, ignore_errors=True)
 
 
 def last_chip(buf):
@@ -513,6 +533,37 @@ def flow_mode_drift():
             print("  (could not parse the original profile — not restored)")
 
 
+def flow_fan_grid():
+    """'i' toggles the fan-graph value guides (dotted 10 °C / 25 %
+    lines + axis labels). Grid dots ('·') must appear on toggle-on and
+    be gone on toggle-off."""
+    s = Session("fan_grid")
+    try:
+        s.wait_render()
+        s.key(b"5")                # FAN view from the default focus
+        time.sleep(0.4)
+        m = s.mark()
+        s.key(b"i")
+        time.sleep(0.5)
+        if b"\xc2\xb7" in s.bytes_since(m):
+            ok("fan_grid", "guides drawn on 'i'")
+        else:
+            fail("fan_grid", "no guide dots after 'i'")
+            return
+        m = s.mark()
+        s.key(b"i")
+        time.sleep(0.5)
+        if b"\xc2\xb7" in s.bytes_since(m):
+            fail("fan_grid", "dots remained after the second 'i'")
+        else:
+            ok("fan_grid", "guides cleared on the second 'i'")
+        rc = s.quit_expect0()
+        if rc != 0:
+            fail("fan_grid", f"q exit {rc!r}")
+    finally:
+        s.close()
+
+
 def main():
     if not os.access(BIN, os.X_OK):
         print(f"no executable at {BIN} (run make first)")
@@ -521,7 +572,7 @@ def main():
     flows = [flow_open_quit, flow_settings_overlay,
              flow_power_stage_apply, flow_corefreq_overlay,
              flow_fan_buttons, flow_fan_staging, flow_view_hotkeys,
-             flow_mode_drift]
+             flow_mode_drift, flow_fan_grid]
     for f in flows:
         f()
     if failures:

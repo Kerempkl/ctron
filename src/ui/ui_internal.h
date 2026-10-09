@@ -78,6 +78,7 @@ typedef struct ui_ctx {
 
     /* fan editor */
     int fe_gpu, fe_sel, fe_input; /* fe_input: 0 none, 1 temp, 2 pwm */
+    bool fe_grid;                 /* 'i': value guides on the graph */
     tinput_t fe_x, fe_y;
     rect_t fe_graph;
 

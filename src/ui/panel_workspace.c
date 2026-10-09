@@ -970,6 +970,7 @@ static void draw_help(struct ncplane *n, const rect_t *r)
         "",
         "FAN EDITOR",
         "  c g          switch cpu/gpu curve",
+        "  i            toggle value guides (10 °C / 25 % + labels)",
         "  + -          add/remove point · w write to EC",
         "  h l j k      nudge selected point (temp / pwm)",
         "  t p          type exact temp/pwm, Enter sets",

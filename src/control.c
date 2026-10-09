@@ -958,26 +958,32 @@ int ctrl_fan_write(hw_state_t *hw)
         }
     }
 
-    /* asusctl persistence: survive asusd restarts */
+    /* asusctl persistence: survive asusd restarts. This is also the
+     * effective APPLY path when the sysfs nodes are unwritable (no
+     * sudoers rule for the hwmon path): asusd writes the EC itself
+     * over D-Bus, passwordless. Capture the results honestly. */
+    int a_ok = -1; /* -1: not attempted */
     if (hw->has_asusctl) {
         const char *prof = hw_profile_name(hw->profile);
         char data[256], cmd[512];
+        int r1, r2, r3, r4;
         fan_curve_data_str(&hw->fan_cpu, data, sizeof(data));
         snprintf(cmd, sizeof(cmd),
                  "asusctl fan-curve --mod-profile %s --fan cpu --data '%s'", prof, data);
-        ut_exec(cmd, NULL, 0);
+        r1 = ut_exec(cmd, NULL, 0);
         snprintf(cmd, sizeof(cmd),
                  "asusctl fan-curve --mod-profile %s --enable-fan-curve %s --fan cpu",
                  prof, hw->fan_cpu_on ? "true" : "false");
-        ut_exec(cmd, NULL, 0);
+        r2 = ut_exec(cmd, NULL, 0);
         fan_curve_data_str(&hw->fan_gpu, data, sizeof(data));
         snprintf(cmd, sizeof(cmd),
                  "asusctl fan-curve --mod-profile %s --fan gpu --data '%s'", prof, data);
-        ut_exec(cmd, NULL, 0);
+        r3 = ut_exec(cmd, NULL, 0);
         snprintf(cmd, sizeof(cmd),
                  "asusctl fan-curve --mod-profile %s --enable-fan-curve %s --fan gpu",
                  prof, hw->fan_gpu_on ? "true" : "false");
-        ut_exec(cmd, NULL, 0);
+        r4 = ut_exec(cmd, NULL, 0);
+        a_ok = (r1 == 0 && r2 == 0 && r3 == 0 && r4 == 0) ? 1 : 0;
     }
 
     if (rc == 0) {
@@ -997,7 +1003,19 @@ int ctrl_fan_write(hw_state_t *hw)
                    hw->fan_cpu_on ? "on" : "off", hw->fan_gpu_on ? "on" : "off");
             hw->fan_staged = false; /* no hwmon: nothing would clobber */
         }
-    } else if (!enable_bad) {
+    } else if (a_ok == 1) {
+        /* sysfs unwritable, but asusd applied and stored the curves —
+         * the user's intent DID land; claiming failure here lied while
+         * asusd silently changed the EC (observed 2026-10-08) */
+        hw->fan_staged = false;
+        ut_log("fan curves applied via asusctl/asusd (sysfs unwritable; "
+               "no read-back — verify by ear/temps)");
+        rc = 0;
+    } else if (enable_bad) {
+        /* the enable read-back already logged its failure above */
+    } else if (a_ok == 0) {
+        ut_log("fan curves: FAILED (sysfs unwritable AND asusctl errored)");
+    } else {
         ut_log("fan curves: sysfs write FAILED (needs root; no passwordless sudo)");
     }
     return rc;
