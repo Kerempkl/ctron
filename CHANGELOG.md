@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-10-09 — fan graph live-temp marker sat ~20 °C right
+
+- The live `▲` marker on the fan graph's temperature axis plotted the
+  ABSOLUTE temperature into the 20-105 axis instead of subtracting
+  FAN_TMIN like every other element (points, grid lines, labels): at
+  73 °C it rendered at ~86 % of the width (the 90 °C area — user
+  field report), and at ≥ 90 °C it fell off the graph entirely. The
+  bug predates the value guides; it only became readable once the
+  grid labels existed. One-line fix; positions now agree with the
+  labels.
+
 ## 2026-10-08 — fan curves: honest asusctl apply path + graph value guides
 
 - Write used to report FAILED ("needs root") whenever the hwmon sysfs

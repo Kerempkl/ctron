@@ -215,7 +215,8 @@ void editor_fan_draw(struct ncplane *n, const rect_t *r)
 
     /* live temp marker on the axis */
     if (hw->cpu_temp > 0 && !g_ui.fe_gpu) {
-        int lx = s_graph.x + ut_clamp_i(hw->cpu_temp, FAN_TMIN, FAN_TMAX) *
+        int lx = s_graph.x +
+                 (ut_clamp_i(hw->cpu_temp, FAN_TMIN, FAN_TMAX) - FAN_TMIN) *
                  (s_graph.w - 1) / (FAN_TMAX - FAN_TMIN);
         ncplane_set_channels(n, ch_pt);
         ncplane_putstr_yx(n, s_graph.y + s_graph.h, lx, "▲");

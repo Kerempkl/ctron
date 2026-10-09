@@ -229,6 +229,16 @@ prioritized todo list and the distilled session lessons.
   via `--fan off`, or editing the curve so 255 starts later) were
   handed to the user.
 
+### Session 2026-10-09 — fan graph live-temp marker fix (GLM / FA608PP)
+
+- User field report: CPU at 73 °C but the `▲` marker sat in the 90s.
+  Root cause: the marker plotted the absolute temperature into the
+  20-105 axis (missing `- FAN_TMIN`), unlike points/grid/labels — so
+  73 °C landed at ~86 % of the width and ≥ 90 °C fell off the graph.
+  One-line fix in editor_fan.c; make 0 warnings, test + tuitest
+  green, installed. Committed by the agent under the new commit
+  protocol.
+
 ### Session 2026-10-08 — PPT via ryzenadj + ut_exec SIGPIPE root-cause (GLM / FA608PP)
 
 - User OCCT field test: `--ppt 30/40/50` did nothing (package hit
