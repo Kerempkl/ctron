@@ -995,6 +995,22 @@ static void fan_verify(const hw_state_t *hw, const char *base,
     }
 }
 
+fan_write_verdict_t fan_write_verdict(int rc, int vok_cpu, int vok_gpu, int a_ok)
+{
+    if (rc == 0) {
+        if (vok_cpu == FAN_POINTS && vok_gpu == FAN_POINTS)
+            return FAN_W_VERIFIED;
+        if (vok_cpu >= 0)
+            return FAN_W_VERIFY_FAIL;
+        /* no fan hwmon: the sysfs block never ran — the asusctl
+         * outcome is the ONLY thing that happened */
+        return a_ok == 1 ? FAN_W_ASUSCTL : FAN_W_FAILED;
+    }
+    if (a_ok == 1)
+        return FAN_W_ASUSCTL;
+    return FAN_W_FAILED;
+}
+
 int ctrl_fan_write(hw_state_t *hw)
 {
     char base[256];
@@ -1094,37 +1110,47 @@ int ctrl_fan_write(hw_state_t *hw)
         a_ok = (r1 == 0 && r2 == 0 && r3 == 0 && r4 == 0) ? 1 : 0;
     }
 
-    if (rc == 0) {
-        if (vok_cpu == FAN_POINTS && vok_gpu == FAN_POINTS) {
-            ut_log("fan curves written (cpu %s, gpu %s) · verified %d/%d + %d/%d pts, enable ok",
-                   hw->fan_cpu_on ? "on" : "off", hw->fan_gpu_on ? "on" : "off",
-                   vok_cpu, FAN_POINTS, vok_gpu, FAN_POINTS);
-            hw->fan_staged = false; /* written and verified: not staged */
-        } else if (vok_cpu >= 0) {
-            /* read-back mismatch: keep the staging so a retry 'w' does
-             * not get clobbered by the hwmon table in between */
-            ut_log("fan curves written (cpu %s, gpu %s) · VERIFY FAILED: cpu %d/%d, gpu %d/%d pts",
-                   hw->fan_cpu_on ? "on" : "off", hw->fan_gpu_on ? "on" : "off",
-                   vok_cpu, FAN_POINTS, vok_gpu, FAN_POINTS);
-        } else {
-            ut_log("fan curves written (cpu %s, gpu %s)",
-                   hw->fan_cpu_on ? "on" : "off", hw->fan_gpu_on ? "on" : "off");
-            hw->fan_staged = false; /* no hwmon: nothing would clobber */
-        }
-    } else if (a_ok == 1) {
-        /* sysfs unwritable, but asusd applied and stored the curves —
-         * the user's intent DID land; claiming failure here lied while
-         * asusd silently changed the EC (observed 2026-10-08) */
+    switch (fan_write_verdict(rc, vok_cpu, vok_gpu, a_ok)) {
+    case FAN_W_VERIFIED:
+        ut_log("fan curves written (cpu %s, gpu %s) · verified %d/%d + %d/%d pts, enable ok",
+               hw->fan_cpu_on ? "on" : "off", hw->fan_gpu_on ? "on" : "off",
+               vok_cpu, FAN_POINTS, vok_gpu, FAN_POINTS);
+        hw->fan_staged = false; /* written and verified: not staged */
+        break;
+    case FAN_W_VERIFY_FAIL:
+        /* read-back mismatch: keep the staging so a retry 'w' does
+         * not get clobbered by the hwmon table in between */
+        ut_log("fan curves written (cpu %s, gpu %s) · VERIFY FAILED: cpu %d/%d, gpu %d/%d pts",
+               hw->fan_cpu_on ? "on" : "off", hw->fan_gpu_on ? "on" : "off",
+               vok_cpu, FAN_POINTS, vok_gpu, FAN_POINTS);
+        break;
+    case FAN_W_ASUSCTL:
+        /* asusd applied and stored the curves — the user's intent DID
+         * land; claiming failure here lied while asusd silently
+         * changed the EC (observed 2026-10-08) */
         hw->fan_staged = false;
-        ut_log("fan curves applied via asusctl/asusd (sysfs unwritable; "
-               "no read-back — verify by ear/temps)");
+        ut_log("fan curves applied via asusctl/asusd (%s; "
+               "no read-back — verify by ear/temps)",
+               vok_cpu >= 0 ? "sysfs unwritable" : "no fan hwmon");
         rc = 0;
-    } else if (enable_bad) {
-        /* the enable read-back already logged its failure above */
-    } else if (a_ok == 0) {
-        ut_log("fan curves: FAILED (sysfs unwritable AND asusctl errored)");
-    } else {
-        ut_log("fan curves: sysfs write FAILED (needs root; no passwordless sudo)");
+        break;
+    case FAN_W_FAILED:
+    default:
+        if (vok_cpu >= 0) { /* hwmon present: the sysfs side failed */
+            if (enable_bad) {
+                /* the enable read-back already logged its failure */
+            } else if (a_ok == 0) {
+                ut_log("fan curves: FAILED (sysfs unwritable AND asusctl errored)");
+            } else {
+                ut_log("fan curves: sysfs write FAILED (needs root; no passwordless sudo)");
+            }
+        } else if (a_ok == 0) {
+            ut_log("fan curves: FAILED (no fan hwmon AND asusctl errored)");
+        } else {
+            ut_log("fan curves: no write path (no fan hwmon, no asusctl) — curve kept staged");
+        }
+        rc = -1;
+        break;
     }
     return rc;
 }

@@ -81,6 +81,19 @@ int ctrl_aura_effect_idx(const char *name);
 
 /* ---- fans --------------------------------------------------------------- */
 
+/* Pure outcome classification for ctrl_fan_write, unit-tested:
+ *   rc     sysfs-side result (-1 = write or enable read-back failed)
+ *   vok_*  verified point counts, -1 = no fan hwmon
+ *   a_ok   asusctl outcome: -1 not attempted, 1 ok, 0 errored */
+typedef enum {
+    FAN_W_VERIFIED,    /* written + verified: clear staging, success */
+    FAN_W_VERIFY_FAIL, /* written, read-back mismatch: keep staging */
+    FAN_W_ASUSCTL,     /* applied via asusd only (no read-back) */
+    FAN_W_FAILED,      /* nothing landed anywhere: keep staging, fail */
+} fan_write_verdict_t;
+
+fan_write_verdict_t fan_write_verdict(int rc, int vok_cpu, int vok_gpu, int a_ok);
+
 /* Write in-memory curves to the EC (sysfs) and to asusctl (persistence). */
 int ctrl_fan_write(hw_state_t *hw);
 int ctrl_fan_set_enabled(hw_state_t *hw, bool cpu_on, bool gpu_on);

@@ -529,6 +529,25 @@ static void check_fan_enable(void)
     CHECK(fan_raw_is_on(3) == 0, "read 3 is not on");
 }
 
+static void check_fan_write_verdict(void)
+{
+    /* hwmon present, everything verified (asusctl attempted or not) */
+    CHECK(fan_write_verdict(0, 8, 8, -1) == FAN_W_VERIFIED, "verdict verified");
+    CHECK(fan_write_verdict(0, 8, 8, 1) == FAN_W_VERIFIED, "verdict verified+asusctl");
+    /* read-back mismatch keeps staging */
+    CHECK(fan_write_verdict(0, 6, 8, 1) == FAN_W_VERIFY_FAIL, "verdict mismatch");
+    CHECK(fan_write_verdict(0, 6, 8, -1) == FAN_W_VERIFY_FAIL, "verdict mismatch no-asusctl");
+    /* no fan hwmon: the asusctl outcome is everything (the old code
+     * claimed plain success here for all three) */
+    CHECK(fan_write_verdict(0, -1, -1, 1) == FAN_W_ASUSCTL, "verdict no-hwmon asusctl ok");
+    CHECK(fan_write_verdict(0, -1, -1, 0) == FAN_W_FAILED, "verdict no-hwmon asusctl errored");
+    CHECK(fan_write_verdict(0, -1, -1, -1) == FAN_W_FAILED, "verdict no-hwmon no-asusctl");
+    /* sysfs failed: asusctl rescues or not */
+    CHECK(fan_write_verdict(-1, -1, -1, 1) == FAN_W_ASUSCTL, "verdict sysfs-dead asusctl ok");
+    CHECK(fan_write_verdict(-1, 6, 8, 0) == FAN_W_FAILED, "verdict sysfs-dead asusctl errored");
+    CHECK(fan_write_verdict(-1, 6, 8, -1) == FAN_W_FAILED, "verdict sysfs-dead no-asusctl");
+}
+
 static void check_gpu_temp_gate(void)
 {
     CHECK(hw_gpu_temp_allowed(0, "active") == 0, "gpu pref off");
@@ -819,6 +838,7 @@ int main(void)
     check_util_write();
     check_mode_split();
     check_fan_enable();
+    check_fan_write_verdict();
     check_gpu_temp_gate();
     check_cell_join();
     check_mode_touch_mask();

@@ -1,6 +1,9 @@
 # Ctron Handoff
 
-Latest session — **2026-10-08** **Grok / FA507NVR**: audit follow-up,
+Latest session — **2026-10-10** **GLM / FA608PP** (fan write verdict —
+the last open P4 item, see below). Before that **2026-10-09**
+**Kerempkl + GLM / FA608PP** (apply worker + perf round, 6306ce3 +
+ffabd19) and **2026-10-08** **Grok / FA507NVR**: audit follow-up,
 rebased onto `07d19c2` (PPT/ryzenadj). Fan enable is `1` on / `2` auto;
 `--status` shows both curves `(off)` while `pwmN_enable` is 2. CLI
 matches the TUI command set (`--freq ccd`, `--fan cpu|gpu on|off`,
@@ -26,6 +29,38 @@ clock-window refresh), the **2026-09-24** POWER round, and
 **2026-09-23** in parallel: **Grok / FA507NVR / NixOS** (daeboard
 editor, signed below). **Read `NEXT.md` first** — it carries the
 prioritized todo list and the distilled session lessons.
+
+## Session 2026-10-10 — fan write verdict (GLM / FA608PP)
+
+- Planned via plan mode after an Explore pass revealed the repo had
+  moved (HEAD `ffabd19`): most of NEXT.md's P4 list was already fixed
+  by the 10-08 line (`11aae58` — daeboard 2 s recv cap, both parser
+  quirks with regression tests, pwm-enable checks). The one genuinely
+  open item: `ctrl_fan_write`'s no-hwmon branch (`vok == -1`) ignored
+  `a_ok` entirely — asusctl absent/errored still logged "fan curves
+  written", cleared staging, returned success (CLI exit 0). The
+  `fan_sysfs_dead` latch makes that branch the steady state on
+  sudoers-less machines, so it mattered more than it looked.
+- Landed: pure `fan_write_verdict()` in control.c/h (enum verdict;
+  the plan's `enable_bad` parameter was dropped at implementation —
+  verdict-irrelevant, only suppresses a duplicate log at the call
+  site). Decision tree rewired onto the switch; the no-hwmon branch
+  splits into ASUSCTL (honest wording, staging cleared, rc 0) and two
+  FAILED forms (staging kept for retry, rc -1). Intended side effect:
+  fan CLI paths exit non-zero when nothing landed.
+- `check_fan_write_verdict` (11-case matrix) in test_core — note the
+  file had moved too (parallel sessions): edits were re-read and
+  merged, not replaced.
+- Verification: `make` 0 warnings, `make test`, `make tuitest` (all
+  flows — the real fan write path is unchanged), `make install`, live
+  no-op `--fan-write` rc 0. The new branches are live-unreachable on
+  FA608PP (hwmon + asusctl both present) — unit tests carry them;
+  FA507NVR sees the new ASUSCTL wording whenever its sysfs path is
+  unwritable (field note).
+- Docs: NEXT.md P4 list reconciled with the code (items 2/3/5 marked
+  done, item 4 mostly done — only the LIGHT swatch `x+40` overflow
+  remains, cosmetic). CHANGELOG entry added.
+- Commit written by the agent per the 10-09 protocol (path-scoped).
 
 ## Session 2026-10-03 — full code audit + P1–P3 fixes (GLM, FA608PP)
 

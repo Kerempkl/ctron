@@ -1,5 +1,34 @@
 # Changelog
 
+## 2026-10-10 — fan write verdict: the no-hwmon branch stops lying
+
+- The last open P4 audit item. `ctrl_fan_write`'s decision tree had a
+  blind spot: when the machine has no `asus_custom_fan_curve` hwmon
+  (`vok == -1`, the sysfs block never ran), the branch logged plain
+  "fan curves written", cleared `fan_staged` and returned success —
+  regardless of the asusctl outcome. With asusctl absent or errored,
+  NOTHING was written anywhere, yet the log claimed success and the
+  CLI exited 0. Worse, the `fan_sysfs_dead` session latch makes this
+  branch the steady state on machines whose sudoers do not cover the
+  hwmon path, so the 10-08 honesty fix (which only covered the
+  first-write `rc != 0` path) stopped applying after the latch
+  tripped.
+- New pure helper `fan_write_verdict(rc, vok_cpu, vok_gpu, a_ok)` →
+  `{VERIFIED, VERIFY_FAIL, ASUSCTL, FAILED}` (exported in control.h,
+  unit-tested as `check_fan_write_verdict`, 11-case matrix). The
+  no-hwmon branch now splits three ways: asusctl ok → the honest
+  "applied via asusctl/asusd (no fan hwmon; no read-back)" wording
+  (staging cleared, success); asusctl errored → FAILED (staging kept
+  so a retry survives, rc -1); no asusctl at all → "no write path"
+  (staging kept, rc -1). Side effect (intended): fan CLI paths now
+  exit non-zero when nothing landed. All other branches are
+  behaviour-identical to before.
+- The P4 list in NEXT.md is reconciled with reality: the daeboard
+  recv timeout + both parser quirks, the pwm-enable check, `ui_row`'s
+  byte-padding and `__pycache__` were already fixed by the 10-08
+  line (11aae58 etc.); what genuinely remains is the LIGHT swatch
+  x+40 overflow (cosmetic, narrow terminals).
+
 ## 2026-10-09 — apply performance: 20 s → 1 s (mode), 15 s → 7 s (snapshot)
 
 - User report: mode switching took ~20 s. Profile: (1) cpufreq writes

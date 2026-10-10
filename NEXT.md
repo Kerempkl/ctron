@@ -111,19 +111,23 @@
    her koşulda çağrılıyor) ve `ut_priv_write` sudo fallback'i exec'ten
    ÖNCE değer/yoldaki `'`'ı temiz -1 ile reddediyor. /dev/full +
    /proc/self/fd sayımıyla mutasyon-kanıt test (`check_util_write`).
-2. **daeboard**: `exchange()` recv timeout'suz — bağlayıp cevap
-   vermeyen daemon `db_up()`'ta TUI'yi sonsuz bloklar (SO_RCVTIMEO ~2 sn).
-   `db_action_in`: `strncmp(s,"ctron",5)` "ctronx=" öneklerini de
-   eşler; eşleşen section'daki '='-siz satır tüm aramayı iptal eder.
-3. **control dürüstlük**: `ctrl_fan_write` pwm1/2_enable yazımının
-   dönüş değerini kontrol etmiyor; hwmon yokken bile "fan curves
-   written" loglanıyor (aslında EC'ye yazılmadı — "asusctl only" ayrımı).
-4. **ui kozmetik**: `ui_row`'un `%-*s` byte-padding'i '▸' (3 byte/1
-   hücre) yüzünden seçili satırda value kolonunu 2 hücre sola kaydırıyor.
-   Dar terminalde topbar çipleri ~53 kolon altında negatif x'ten
-   başlıyor; draw_light swatch sabiti x+40 çerçeveyi ezebiliyor.
-5. **repo**: `scripts/__pycache__/` track ediliyor ve .gitignore'da
-   yok — `__pycache__/` ekle + `git rm -r --cached scripts/__pycache__`.
+2. **[BİTTİ 10-08, 11aae58]** daeboard: `exchange()` artık 2 sn
+   SO_RCVTIMEO + CLOCK_MONOTONIC tavanlı (fire satırları da bütçeyi
+   paylaşıyor); `db_action_in` kelime-sınırlı eşleşiyor (`ctronx=`
+   eşleşmez) ve '='-siz satır aramayı iptal etmez (`goto next_line`).
+   test_daeboard'da regresyon testli. Kalıntı (park): connect/send
+   zamanlamasız — tam-backlog bloğu egzotik, yalnızca recv kapped.
+3. **[BİTTİ 10-10]** control dürüstlüğü: pwm1/2_enable dönüşü 11aae58'de
+   kontrol+geri-okunur hâle geldi; hwmon yokken "fan curves written"
+   yalanı BUGÜN kapandı — saf `fan_write_verdict` (control.h) kararı
+   ASUSCTL/FAILED'a ayırıyor, asusctl yoksa/hata verdiyse staging
+   korunur ve rc -1 döner (CLI nonzero çıkar). Birim testli
+   (`check_fan_write_verdict`, 11 durum).
+4. **ui kozmetik — büyük ölçüde bitti:** `ui_row` byte-padding'i
+   `ut_cell_join` ile hücre-duyarlı (birim testli, `check_cell_join`);
+   topbar çipleri 10-02'de gerçek genişlikten sağa-hizalı. KALAN:
+   draw_light swatch sabiti `x+40` dar terminalde çerçeveyi ezebilir.
+5. **[BİTTİ]** repo: `__pycache__/` .gitignore'da, track edilen kalmadı.
 6. **display (parked)**: kde/hypr mod listesi yalnızca ilk monitörü
    görüyor (HDMI-A-1 kalemi — zaten açık).
 
