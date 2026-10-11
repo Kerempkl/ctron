@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 
 #include "cmds.h"
 #include "control.h"
@@ -574,6 +575,55 @@ static void check_cell_join(void)
           "selected marker does not shift the value");
 }
 
+static void check_singleton(void)
+{
+    char tmp[] = "/tmp/ctron2-test-XXXXXX";
+    CHECK(mkdtemp(tmp) != NULL, "single mkdtemp");
+    const char *old = getenv("XDG_RUNTIME_DIR");
+    setenv("XDG_RUNTIME_DIR", tmp, 1);
+
+    /* decision helper: every unreadable shape is stale */
+    CHECK(ut_singleton_stale("", getpid(), "test_core"), "stale empty");
+    CHECK(ut_singleton_stale("garbage", getpid(), "test_core"), "stale garbage");
+    CHECK(ut_singleton_stale("12x4", getpid(), "test_core"), "stale partial");
+    char self[24];
+    snprintf(self, sizeof self, "%ld", (long)getpid());
+    CHECK(ut_singleton_stale(self, getpid(), "test_core"), "stale self");
+    CHECK(ut_singleton_stale("999999999", getpid(), "test_core"), "stale dead");
+    CHECK(ut_singleton_stale("1\n", getpid(), "test_core"), "stale init");
+
+    /* live other: a forked child shares our comm */
+    pid_t ch = fork();
+    CHECK(ch >= 0, "single fork");
+    if (ch == 0) {
+        pause();
+        _exit(0);
+    }
+    char chp[24];
+    snprintf(chp, sizeof chp, "%ld", (long)ch);
+    CHECK(!ut_singleton_stale(chp, getpid(), "test_core"), "live child");
+    char path[300];
+    snprintf(path, sizeof(path), "%s/ctron-tui.pid", tmp);
+    CHECK(ut_write_file(path, chp) == 0, "single write child pid");
+    CHECK(ut_singleton_enter("test_core") == (int)ch, "enter defers to child");
+    kill(ch, SIGTERM);
+    waitpid(ch, NULL, 0);
+
+    /* stale after the child dies: claim, verify the file, leave */
+    CHECK(ut_singleton_enter("test_core") == 0, "enter claims after death");
+    char buf[64];
+    CHECK(ut_read_file(path, buf, sizeof(buf)) == 0 &&
+              atol(buf) == (long)getpid(), "pidfile holds us");
+    ut_singleton_leave();
+    CHECK(!ut_path_exists(path), "leave removes");
+
+    if (old)
+        setenv("XDG_RUNTIME_DIR", old, 1);
+    else
+        unsetenv("XDG_RUNTIME_DIR");
+    rmdir(tmp);
+}
+
 static void check_mode_touch_mask(void)
 {
     unsigned m = mode_touch_mask(
@@ -839,6 +889,7 @@ int main(void)
     check_mode_split();
     check_fan_enable();
     check_fan_write_verdict();
+    check_singleton();
     check_gpu_temp_gate();
     check_cell_join();
     check_mode_touch_mask();

@@ -421,10 +421,23 @@ int main(int argc, char *argv[])
     if (argc == 1) {
         /* no args: fullscreen TUI when interactive, help otherwise */
         if (isatty(0) && isatty(1)) {
+            /* one fullscreen TUI at a time: a second instance (e.g. a
+             * stale key binding that spawns `konsole -e ctron` on
+             * every press) bows out instead of stacking windows */
+            int other = ut_singleton_enter("ctron");
+            if (other > 0) {
+                fprintf(stderr,
+                        "ctron: TUI already running (pid %d) — "
+                        "closing this window\n",
+                        other);
+                sleep(2); /* keep the note readable in the flash window */
+                return 0;
+            }
             hw_state_t hw;
             hw_init(&hw);
             settings_load(&hw);
             int rc = ui_run(&hw);
+            ut_singleton_leave();
             return rc == 0 ? 0 : 1;
         }
         print_version();

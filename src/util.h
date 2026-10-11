@@ -44,6 +44,19 @@ int ut_exec_raw(const char *cmd, char *out, size_t n);
 /* True when `name` resolves to an executable on PATH. */
 bool ut_have_cmd(const char *name);
 
+/* ---- single-instance guard (fullscreen TUI) ----------------------------- */
+
+/* Claim the single TUI slot for processes whose /proc comm equals
+ * `comm` (the binary name). Returns:
+ *    0  slot claimed for us (pidfile written, call ut_singleton_leave)
+ *   >0  another live instance holds it (its pid — bow out)
+ *   -1  no runtime dir / undecidable — fail open, run anyway.
+ * A stale pidfile (dead pid, comm mismatch, garbage) is overwritten.
+ * Pure decision part (ut_singleton_stale) is unit-tested. */
+int ut_singleton_enter(const char *comm);
+void ut_singleton_leave(void); /* removes the pidfile if it is ours */
+bool ut_singleton_stale(const char *pidstr, long self, const char *comm);
+
 /* ---- filesystem ------------------------------------------------------ */
 
 int ut_mkdir_p(const char *path);

@@ -53,7 +53,12 @@ closed (the `konsole -e` window ends with it), none running means one
 opens. Without it every key press would spawn another window — a
 desktop shortcut only spawns, it has no toggle sense. The script
 honours `$TERMINAL` and falls back to `konsole`; point a `.desktop`
-`Exec` at it just the same. Then click the shortcut column,
+`Exec` at it just the same. **A service shortcut launches the command
+kglobalaccel cached at session start — changing the `.desktop` `Exec`
+takes effect only after the next re-login.** Independently of the
+launcher, the fullscreen TUI is single-instance: a second ctron bows
+out with "already running" instead of stacking windows. Then click
+the shortcut column,
 **Assign** and press M4. If the capture dialog refuses the key, read
 its real code with `sudo evtest /dev/input/event11` ("Asus WMI
 hotkeys"; XKB keycodes are the Linux input code + 8). The binding

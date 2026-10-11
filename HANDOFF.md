@@ -32,6 +32,33 @@ clock-window refresh), the **2026-09-24** POWER round, and
 editor, signed below). **Read `NEXT.md` first** — it carries the
 prioritized todo list and the distilled session lessons.
 
+- Same-day follow-up 2 (user hit it AGAIN): the guard changed
+  nothing — every M4 press still stacked a window. Root cause found
+  by instrumenting the toggle with an invocation log + `gio launch`:
+  the desktop→Exec→toggle chain is live and correct (toggle ran,
+  single ctron, close verified on a real window), so kglobalaccel's
+  service shortcut must be launching the command cached at SESSION
+  START (component activation), bypassing the .desktop entirely.
+  **Lesson: a service-shortcut Exec change only takes effect after
+  re-login — the user was pressing the pre-toggle `konsole -e
+  ctron` all along.**
+- Landed the launcher-independent root fix: fullscreen-TUI
+  single-instance guard (`ut_singleton_enter/leave` + pure
+  `ut_singleton_stale`, unit-tested incl. forked live child; wired
+  before hw_init in main.c). Second TUI bows out with a readable
+  message; SIGTERM-killed instances leave a self-healing stale
+  pidfile. Integration-proven with two harness Sessions (A claims /
+  B bows out / A quits clean).
+- Sandbox forensics that cost time, recorded: bare `pty.fork`
+  children get STOPPED at birth in this environment (empty fd list,
+  sys=-1) — use the harness Session (Popen+pty slave+setsid), it
+  works; `script -qec` dies on stdin EOF unless fed by a pipe.
+- User-facing status: stacking is dead from THIS boot on (guard in
+  the cached-command path too); true M4 open/close arrives at the
+  next re-login when the binding picks up the toggle Exec.
+  Toggle keeps a one-line-per-press log in $XDG_RUNTIME_DIR for
+  exactly this class of question.
+
 ## Session 2026-10-11 — M4 key toggle (GLM / Kerempkl / FA608PP)
 
 - User field-tested the M4 binding after re-login: **works** (the

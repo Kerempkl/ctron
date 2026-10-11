@@ -178,6 +178,66 @@ int ut_exec_raw(const char *cmd, char *out, size_t n)
     return exec_run(cmd, out, n, true);
 }
 
+/* ---- single-instance guard ------------------------------------------- */
+
+static char s_pidfile[256];
+static long s_pidfile_pid;
+
+/* Parse the pidfile content: stale when it does not name a live
+ * process with our comm. self and comm describe the would-be holder
+ * (used to verify liveness via /proc). */
+bool ut_singleton_stale(const char *pidstr, long self, const char *comm)
+{
+    if (!pidstr || !*pidstr)
+        return true;
+    char *end = NULL;
+    long pid = strtol(pidstr, &end, 10);
+    if (end == pidstr || (end && *end != '\0' && *end != '\n'))
+        return true;
+    if (pid <= 1 || pid == self)
+        return true;
+    char p[96], got[64];
+    snprintf(p, sizeof p, "/proc/%ld/comm", pid);
+    if (ut_read_file(p, got, sizeof got) != 0)
+        return true; /* dead */
+    return strcmp(got, comm) != 0;
+}
+
+int ut_singleton_enter(const char *comm)
+{
+    const char *dir = getenv("XDG_RUNTIME_DIR");
+    if (!dir || !*dir)
+        dir = getenv("TMPDIR");
+    if (!dir || !*dir)
+        dir = "/tmp";
+    if (snprintf(s_pidfile, sizeof s_pidfile, "%s/ctron-tui.pid", dir)
+        >= (int)sizeof s_pidfile)
+        return -1;
+
+    char buf[32];
+    s_pidfile_pid = (long)getpid();
+    if (ut_read_file(s_pidfile, buf, sizeof buf) == 0 &&
+        !ut_singleton_stale(buf, s_pidfile_pid, comm))
+        return atoi(buf); /* live instance holds the slot */
+
+    char pidstr[24];
+    snprintf(pidstr, sizeof pidstr, "%ld", s_pidfile_pid);
+    if (ut_write_file(s_pidfile, pidstr) != 0)
+        return -1; /* cannot claim — fail open */
+    return 0;
+}
+
+void ut_singleton_leave(void)
+{
+    if (!s_pidfile[0])
+        return;
+    char buf[32];
+    if (ut_read_file(s_pidfile, buf, sizeof buf) == 0 &&
+        atol(buf) == s_pidfile_pid)
+        unlink(s_pidfile);
+    s_pidfile[0] = '\0';
+}
+
 /* ---- filesystem ------------------------------------------------------ */
 
 int ut_mkdir_p(const char *path)

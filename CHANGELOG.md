@@ -1,5 +1,38 @@
 # Changelog
 
+## 2026-10-11 — TUI single-instance guard (M4 stacking, root fix)
+
+- User report: the double-press guard did not help — every extra M4
+  press still opened another ctron. Diagnosis: the M4 service
+  shortcut launches the command kglobalaccel CACHED at session
+  start (component activation), not the current .desktop Exec —
+  `gio launch` proved the desktop→toggle chain is live and correct
+  (toggle ran, one ctron, close branch verified on a real window),
+  so the key was still spawning the old `konsole -e ctron` directly,
+  bypassing the toggle entirely. Service-shortcut Exec changes only
+  take effect after the next re-login.
+- Root fix, launcher-independent: the fullscreen TUI now claims a
+  single-instance slot (`ut_singleton_enter` in util.c — pidfile in
+  `$XDG_RUNTIME_DIR`, liveness verified via /proc/<pid>/comm so a
+  stale file self-heals, fail-open when no runtime dir exists). A
+  second TUI prints "ctron: TUI already running (pid N)", waits 2 s
+  so the flash window stays readable, and exits 0; the running
+  instance is untouched. `ut_singleton_leave()` removes the file on
+  a clean quit (a SIGTERM-killed instance leaves a stale file that
+  the next start overwrites). Headless CLI calls are unaffected.
+- Verified: unit tests (decision helper + fork/live-child/claim/
+  leave via `check_singleton`) and a two-Session harness run (A
+  claims, B bows out with the message while A survives, A quits
+  cleanly and the pidfile is gone). Residual, documented: the
+  cached-command path can still race a very fast double-press
+  inside konsole's spawn latency (~0.5 s) until the binding picks
+  up the toggle Exec at the next re-login; the toggle's own stamp
+  guard closes that window from the press itself.
+- ctron-toggle also logs each invocation to
+  `$XDG_RUNTIME_DIR/ctron-toggle.log` (branch taken, ctron count) —
+  that is how "the key does not run the toggle" became a one-look
+  diagnosis.
+
 ## 2026-10-11 — M4 toggle: double-press no longer stacks windows
 
 - Follow-up to this morning's toggle: the user pressed M4 twice in

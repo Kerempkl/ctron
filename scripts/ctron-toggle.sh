@@ -16,8 +16,13 @@
 # (ctron --status etc.) are gone before anyone can press a key twice.
 
 STAMP="${XDG_RUNTIME_DIR:-/tmp}/ctron-toggle.launching"
+LOG="${XDG_RUNTIME_DIR:-/tmp}/ctron-toggle.log"
+log() { printf '%s %s\n' "$(date +%H:%M:%S)" "$*" >> "$LOG"; }
+
+log "invoked pid=$$ ctron=$(pgrep -x ctron | wc -l) stamp=$(cat "$STAMP" 2>/dev/null || echo none)"
 
 if pgrep -x ctron >/dev/null 2>&1; then
+    log "branch: close"
     pkill -x ctron
     exit 0
 fi
@@ -27,11 +32,13 @@ if ! (set -C; printf '%s\n' "$now" > "$STAMP") 2>/dev/null; then
     old=$(cat "$STAMP" 2>/dev/null)
     case "$old" in ''|*[!0-9]*) old=0 ;; esac
     if [ $((now - old)) -lt 12 ]; then
+        log "branch: in-flight swallow"
         exit 0 # launch already in flight
     fi
     rm -f "$STAMP"
     (set -C; printf '%s\n' "$now" > "$STAMP") 2>/dev/null || exit 0
 fi
+log "branch: open (term follows)"
 
 if [ -n "$TERMINAL" ] && command -v "$TERMINAL" >/dev/null 2>&1; then
     term=$TERMINAL
