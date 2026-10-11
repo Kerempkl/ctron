@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-10-11 — M4 key toggles ctron instead of stacking windows
+
+- Field report (user, after re-login — the binding activates at
+  session start as predicted): the M4/Armoury "Launch (3)" shortcut
+  works, but every extra key press opened ANOTHER konsole/ctron
+  window. Root cause: a desktop shortcut only spawns; it has no
+  toggle sense.
+- New `scripts/ctron-toggle.sh`, installed by `make install` to
+  `~/.local/bin/ctron-toggle`: if a ctron process is running it is
+  killed (the `konsole -e` window ends with its child), otherwise a
+  terminal opens the TUI (`$TERMINAL` honoured, konsole fallback,
+  clean error if neither exists). Short-lived headless CLI calls are
+  gone before anyone can press the key twice, so `pgrep -x ctron`
+  effectively targets the TUI.
+- FA608PP wiring done live: `ctron.desktop` `Exec` now points at the
+  toggle (absolute path), sycoca refreshed — the kglobalshortcutsrc
+  binding is untouched (same desktop id, no re-login needed). Both
+  branches verified: close branch with a dummy `ctron`-named process
+  (killed, nothing opened), open branch accidentally proven when the
+  first sandboxed test reaped its dummy between tool calls and the
+  toggle opened a real konsole+ctron.
+- README's M4 section and HARDWARE.md (EN + TR) now recommend
+  `ctron-toggle` as the command and document why.
+
 ## 2026-10-10 — fan write verdict: the no-hwmon branch stops lying
 
 - The last open P4 audit item. `ctrl_fan_write`'s decision tree had a

@@ -51,6 +51,10 @@ Notes:
   hotkeys"); note that XKB keycodes are the Linux input code **+ 8**
   (`KEY_PROG3` = 202 → `<I210>`). Bound keys are consumed by kwin —
   `kitty +kitten show_key` and friends never see them, which is normal.
+  Verified live 2026-10-11 after re-login. Use `ctron-toggle`
+  (`make install` puts it in `~/.local/bin`) as the command: a desktop
+  shortcut only spawns, so a bare `konsole -e ctron` opened a new
+  window per key press; the toggle closes the running ctron instead.
 - **CPU PPT watt limits (FA608PP, 2026-10-08)**: the legacy nb-wmi
   `ppt_*` nodes accept writes (readback echoes them) but the SMU
   ignores them under load — an OCCT test with 30/40/50 W set pinned
@@ -147,7 +151,11 @@ Notlar:
   ("Asus WMI hotkeys") ile oku; XKB tuş kodu Linux input kodunun
   **8 fazlasıdır** (`KEY_PROG3` = 202 → `<I210>`) — bu tuzağa dikkat.
   Bağlanan tuşları kwin yakar; `kitty +kitten show_key` gibi araçlar
-  göremez — bu normaldir.
+  göremez — bu normaldir. 2026-10-11'da re-login sonrası canlı
+  doğrulandı. Komut olarak `ctron-toggle` kullan (`make install`
+  `~/.local/bin`'e koyar): masaüstü kısayolu yalnızca süreç başlatır,
+  çıplak `konsole -e ctron` her basışta yeni pencere açıyordu; toggle
+  ayaktaki ctron'u kapatır.
 - **CPU PPT watt limitleri (FA608PP, 2026-10-08)**: eski nb-wmi `ppt_*`
   düğümleri yazımı kabul ediyor (geri okuma değeri yansıtıyor) ama SMU
   yük altında yok sayıyor — 30/40/50 W ayarlanan OCCT testinde paket

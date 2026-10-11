@@ -54,7 +54,8 @@ $(TEST_BIN): $(TEST_SRC) $(TEST_LIBOBJ)
 install: $(TARGET)
 	mkdir -p $(HOME)/.local/bin
 	install -m 755 $(TARGET) $(HOME)/.local/bin/ctron
-	@echo "installed to $(HOME)/.local/bin/ctron"
+	install -m 755 scripts/ctron-toggle.sh $(HOME)/.local/bin/ctron-toggle
+	@echo "installed to $(HOME)/.local/bin/ctron (+ctron-toggle)"
 	@case ":$$PATH:" in *":$(HOME)/.local/bin:"*) ;; *) \
 		echo "note: $(HOME)/.local/bin is not in your PATH";; esac
 

@@ -1,6 +1,8 @@
 # Ctron Handoff
 
-Latest session — **2026-10-10** **GLM / FA608PP** (fan write verdict —
+Latest session — **2026-10-11** **GLM / Kerempkl / FA608PP** (M4 key
+toggle — see below). Before that **2026-10-10** **GLM / FA608PP** (fan
+write verdict —
 the last open P4 item, see below). Before that **2026-10-09**
 **Kerempkl + GLM / FA608PP** (apply worker + perf round, 6306ce3 +
 ffabd19) and **2026-10-08** **Grok / FA507NVR**: audit follow-up,
@@ -29,6 +31,28 @@ clock-window refresh), the **2026-09-24** POWER round, and
 **2026-09-23** in parallel: **Grok / FA507NVR / NixOS** (daeboard
 editor, signed below). **Read `NEXT.md` first** — it carries the
 prioritized todo list and the distilled session lessons.
+
+## Session 2026-10-11 — M4 key toggle (GLM / Kerempkl / FA608PP)
+
+- User field-tested the M4 binding after re-login: **works** (the
+  app-component activation at session start is confirmed — that
+  open item closes), but each extra press opened another
+  konsole/ctron window. Fix: `scripts/ctron-toggle.sh` (pgrep/pkill
+  toggle, `$TERMINAL`→konsole fallback), installed by `make install`
+  to `~/.local/bin/ctron-toggle`; `ctron.desktop` `Exec` repointed to
+  it + kbuildsycoca6 refresh — the kglobalshortcutsrc binding was
+  never touched (same desktop id ⇒ no re-login).
+- Verified: close branch with a dummy process whose comm is `ctron`
+  (symlink trick — `exec -a` changes argv, NOT comm; first attempt
+  missed this). Open branch got accidental live proof: the sandbox
+  reaps background processes BETWEEN tool calls, the first test's
+  dummy died, the toggle opened a real konsole+ctron (stray windows
+  cleaned up). Sandbox lessons: keep a multi-step process test inside
+  ONE tool call; guard the open branch with `TERMINAL=true` when
+  testing.
+- README M4 section + HARDWARE.md EN/TR now recommend the toggle.
+  make/test untouched (no C change). Commit by the agent
+  (path-scoped).
 
 ## Session 2026-10-10 — fan write verdict (GLM / FA608PP)
 

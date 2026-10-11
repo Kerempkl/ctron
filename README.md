@@ -45,14 +45,20 @@ picker shows it as **"Launch (3)"**. Bind ctron to it under
 
 ```
 Name:    ctron
-Command: konsole -e ctron      # or your terminal of choice
+Command: ctron-toggle           # installed by `make install`
 ```
 
-then click the shortcut column, **Assign** and press M4. If the capture
-dialog refuses the key, read its real code with
-`sudo evtest /dev/input/event11` ("Asus WMI hotkeys"; XKB keycodes are
-the Linux input code + 8). The binding lives entirely in KDE — ctron
-itself never listens for the key (it is a TUI/CLI, not a daemon).
+`ctron-toggle` gives the key open/close behaviour: a running ctron is
+closed (the `konsole -e` window ends with it), none running means one
+opens. Without it every key press would spawn another window — a
+desktop shortcut only spawns, it has no toggle sense. The script
+honours `$TERMINAL` and falls back to `konsole`; point a `.desktop`
+`Exec` at it just the same. Then click the shortcut column,
+**Assign** and press M4. If the capture dialog refuses the key, read
+its real code with `sudo evtest /dev/input/event11` ("Asus WMI
+hotkeys"; XKB keycodes are the Linux input code + 8). The binding
+lives entirely in KDE — ctron itself never listens for the key (it is
+a TUI/CLI, not a daemon).
 
 ## Quick start (Türkçe)
 
