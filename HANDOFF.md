@@ -59,6 +59,17 @@ prioritized todo list and the distilled session lessons.
   Toggle keeps a one-line-per-press log in $XDG_RUNTIME_DIR for
   exactly this class of question.
 
+- Same-day follow-up 3 (user report): closing via the launcher icon
+  "crashed" the app and left the terminal open — the toggle's pkill
+  SIGTERM'd ctron with no teardown, so konsole -e held the window
+  with a crash notice. Fix: SIGTERM/SIGINT now set a sig_atomic_t
+  flag (file-scope handler — nested functions are a GCC extension,
+  not C11) checked at the top of the TUI loop; the signal takes the
+  normal exit path (worker join, settings save, notcurses stop,
+  pidfile removal, exit 0). Harness-proven: rc=0 + pidfile gone.
+  User-facing: icon-close and M4-toggle-close now look like regular
+  quits.
+
 ## Session 2026-10-11 — M4 key toggle (GLM / Kerempkl / FA608PP)
 
 - User field-tested the M4 binding after re-login: **works** (the

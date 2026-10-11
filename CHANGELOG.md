@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-10-11 — SIGTERM/SIGINT close the TUI cleanly (icon-close crash look)
+
+- Field report after the single-instance guard: closing via the
+  launcher icon (the toggle's `pkill` path) made the TUI "crash" —
+  konsole held the window open with a termination notice. Cause:
+  ctron died by signal with no teardown, so `konsole -e` treated it
+  as a crash.
+- The TUI now traps SIGTERM and SIGINT: the handler only raises a
+  `sig_atomic_t` flag (async-signal-safe) and the main loop takes
+  the NORMAL exit path on its next tick — worker joined, settings
+  saved, notcurses stopped, singleton pidfile removed, exit 0. A
+  signal is deliberately the force path: the staged-edits q-warning
+  is bypassed, but preferences still save. The M4-toggle close now
+  looks like a regular quit and konsole closes its window.
+- Verified with a harness probe: SIGTERM → exit code 0 with the
+  pidfile removed (was: signal death, stale pidfile), clean restart
+  afterwards, normal `q` unaffected; tuitest green.
+
 ## 2026-10-11 — TUI single-instance guard (M4 stacking, root fix)
 
 - User report: the double-press guard did not help — every extra M4

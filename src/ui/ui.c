@@ -7,6 +7,7 @@
 #include "../util.h"
 
 #include <locale.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -820,6 +821,17 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
     }
 }
 
+/* SIGTERM/SIGINT: set by the handlers below, checked at the top of the
+ * TUI loop so the signal takes the normal exit path (worker join,
+ * settings save, notcurses stop, singleton pidfile removal). */
+static volatile sig_atomic_t s_term_flag;
+
+static void ui_on_term(int sig)
+{
+    (void)sig;
+    s_term_flag = 1;
+}
+
 int ui_run(hw_state_t *hw)
 {
     setlocale(LC_ALL, "");
@@ -879,7 +891,17 @@ int ui_run(hw_state_t *hw)
     ut_log("TUI ready (%d profiles, %d modes)", g_ui.prof_n, g_ui.mode_n);
 
     bool apply_prev = false;
+    /* SIGTERM/SIGINT take the clean exit path (worker joined, settings
+     * saved, pidfile removed): ctron-toggle closes the TUI with pkill,
+     * and a signal-killed ctron made `konsole -e` hold the window open
+     * with a crash notice. The staged-edits q-warning is bypassed —
+     * a signal IS the force path; settings still save. */
+    s_term_flag = 0;
+    signal(SIGTERM, ui_on_term);
+    signal(SIGINT, ui_on_term);
     while (g_ui.running) {
+        if (s_term_flag)
+            g_ui.running = false;
         /* worker completion: finalize on the UI thread, strictly after
          * apply_busy dropped (harness key-ordering depends on the
          * completion logs landing after the drop) */
