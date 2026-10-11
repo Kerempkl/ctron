@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-10-11 — M4 toggle: double-press no longer stacks windows
+
+- Follow-up to this morning's toggle: the user pressed M4 twice in
+  quick succession and got TWO ctrons. The close branch was fine —
+  the race is in the OPEN branch: the terminal needs up to ~1 s to
+  produce the ctron process, and a second press inside that window
+  found nothing in `pgrep` and opened another instance.
+- Fix: the launch is now claimed atomically (noclobber stamp in
+  `$XDG_RUNTIME_DIR`, falls back to /tmp). A second press while the
+  claim is fresh (12 s) is a no-op; the launching toggle itself
+  watches for the TUI to appear (up to 8 s) and clears the claim, so
+  the guard is self-maintaining; a stale claim older than 12 s is
+  stolen, so a killed toggle can never wedge the key permanently.
+  The terminal is now started in the background instead of exec'd —
+  the toggle briefly outlives it to manage the claim.
+- Testing note (harness lesson repeated): the first scenario "passed"
+  against a STALE installed copy — `make install` had not been re-run
+  after the script rewrite, and the old exec-based binary duplicated
+  right through the test without the assertions noticing (the close
+  pkill kills duplicates too). Re-verified properly with an
+  observable spawn log: double-press → exactly 1 spawn (old: 2),
+  fresh claim → no spawn, stale claim (20 s) → stolen and proceeds,
+  claim self-clears.
+
 ## 2026-10-11 — M4 key toggles ctron instead of stacking windows
 
 - Field report (user, after re-login — the binding activates at

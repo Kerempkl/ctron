@@ -50,6 +50,19 @@ prioritized todo list and the distilled session lessons.
   cleaned up). Sandbox lessons: keep a multi-step process test inside
   ONE tool call; guard the open branch with `TERMINAL=true` when
   testing.
+- Same-day follow-up (user hit the race): double-pressing M4 opened
+  TWO ctrons — the open branch races the terminal's ~1 s startup
+  before the ctron process exists. Fix: atomic noclobber claim
+  (`$XDG_RUNTIME_DIR/ctron-toggle.launching`); a fresh claim (<12 s)
+  swallows extra presses, the launcher watches for the TUI (≤8 s) and
+  clears the claim itself, claims older than 12 s are stolen (a
+  killed toggle can never wedge the key). Terminal now backgrounded,
+  not exec'd. **Harness lesson (again, sharper): the retest after the
+  rewrite "passed" against the STALE installed copy — always
+  `make install` before verifying an installed-path script; assert
+  on an observable spawn log, not on exit codes, when duplicates are
+  the bug.** Re-verified: double-press → 1 spawn (old script: 2),
+  fresh claim → no spawn, stale claim → stolen.
 - README M4 section + HARDWARE.md EN/TR now recommend the toggle.
   make/test untouched (no C change). Commit by the agent
   (path-scoped).
