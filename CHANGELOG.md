@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-10-12 — LIGHT swatch dynamic placement + SECURITY.md
+
+- LIGHT view swatch frame overflow fix: `draw_light` in `panel_workspace.c`
+  used a fixed `x + 40` position for the custom hex swatch (`██████`),
+  which stomped over the workspace panel's right border on narrow
+  terminals (`w < 48`). The swatch now guards on row visibility
+  (`LT_HEX < rows`), shifts dynamically to `x + w - 8` when narrow, and
+  gracefully hides if horizontal space would overlap the hex value
+  text (`sw_x < min_x`). Closes the final P4 audit item in NEXT.md.
+- Added `SECURITY.md`: documents ctron's privilege model (`ut_priv_write`,
+  `ryzenadj`, `nvidia-smi`), threat analysis, sudoers least-privilege
+  recommendations, and a 3-phase hardening roadmap.
+- Verified: `make` 0 warnings, `make test` green, `make tuitest` 10 flows
+  green (including LIGHT view activation), `--doctor` and `--status` clean.
+
 ## 2026-10-11 — SIGTERM/SIGINT close the TUI cleanly (icon-close crash look)
 
 - Field report after the single-instance guard: closing via the

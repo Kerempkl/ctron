@@ -123,10 +123,11 @@
    ASUSCTL/FAILED'a ayırıyor, asusctl yoksa/hata verdiyse staging
    korunur ve rc -1 döner (CLI nonzero çıkar). Birim testli
    (`check_fan_write_verdict`, 11 durum).
-4. **ui kozmetik — büyük ölçüde bitti:** `ui_row` byte-padding'i
-   `ut_cell_join` ile hücre-duyarlı (birim testli, `check_cell_join`);
-   topbar çipleri 10-02'de gerçek genişlikten sağa-hizalı. KALAN:
-   draw_light swatch sabiti `x+40` dar terminalde çerçeveyi ezebilir.
+4. **[BİTTİ 10-12]** ui kozmetik: `ui_row` byte-padding'i
+   `ut_cell_join` ile hücre-duyarlı; topbar çipleri gerçek genişlikten
+   sağa-hizalı. `draw_light` swatch'ı dar terminallerde (`w < 48`)
+   çerçeveyi ezmeyecek şekilde dinamik kaydırılır / sığmadığında
+   temizce gizlenir; dikey olarak `LT_HEX < rows` ile korunur.
 5. **[BİTTİ]** repo: `__pycache__/` .gitignore'da, track edilen kalmadı.
 6. **display (parked)**: kde/hypr mod listesi yalnızca ilk monitörü
    görüyor (HDMI-A-1 kalemi — zaten açık).

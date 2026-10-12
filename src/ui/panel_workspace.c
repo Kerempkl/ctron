@@ -923,14 +923,25 @@ static void draw_light(struct ncplane *n, const rect_t *r)
         tgt_register(x, y, w, 1, TGT(TGT_PANEL_WORKSPACE, ACT_WS_LT_BASE + i));
     }
 
-    /* swatch */
-    uint64_t ch = 0;
-    unsigned int hr = 0, hg = 0, hb = 0;
-    if (strlen(g_ui.lt_hex.buf) == 6)
-        sscanf(g_ui.lt_hex.buf, "%02x%02x%02x", &hr, &hg, &hb);
-    ncchannels_set_fg_rgb(&ch, (hr << 16) | (hg << 8) | hb);
-    ncplane_set_channels(n, ch);
-    ncplane_putstr_yx(n, r->y + 2 + LT_HEX, x + 40, "██████");
+    /* swatch: draw only when the row is visible and fits inside the frame */
+    if (LT_HEX < rows) {
+        int lw = w / 2 - 2;
+        if (lw > 28)
+            lw = 28;
+        int min_x = x + lw + (int)strlen(hexline) + 1;
+        int sw_x = x + 40;
+        if (sw_x + 6 > x + w - 2)
+            sw_x = x + w - 8;
+        if (sw_x >= min_x) {
+            uint64_t ch = 0;
+            unsigned int hr = 0, hg = 0, hb = 0;
+            if (strlen(g_ui.lt_hex.buf) == 6)
+                sscanf(g_ui.lt_hex.buf, "%02x%02x%02x", &hr, &hg, &hb);
+            ncchannels_set_fg_rgb(&ch, (hr << 16) | (hg << 8) | hb);
+            ncplane_set_channels(n, ch);
+            ncplane_putstr_yx(n, r->y + 2 + LT_HEX, sw_x, "██████");
+        }
+    }
 }
 
 /* ---- HELP view --------------------------------------------------------- */

@@ -1,8 +1,9 @@
 # Ctron Handoff
 
-Latest session — **2026-10-11** **GLM / Kerempkl / FA608PP** (M4 key
-toggle — see below). Before that **2026-10-10** **GLM / FA608PP** (fan
-write verdict —
+Latest session — **2026-10-12** **Antigravity / Kerempkl / FA608PP** (LIGHT
+swatch overflow fix + SECURITY.md — see below). Before that **2026-10-11**
+**GLM / Kerempkl / FA608PP** (M4 key toggle — see below). Before that
+**2026-10-10** **GLM / FA608PP** (fan write verdict —
 the last open P4 item, see below). Before that **2026-10-09**
 **Kerempkl + GLM / FA608PP** (apply worker + perf round, 6306ce3 +
 ffabd19) and **2026-10-08** **Grok / FA507NVR**: audit follow-up,
@@ -69,6 +70,21 @@ prioritized todo list and the distilled session lessons.
   pidfile removal, exit 0). Harness-proven: rc=0 + pidfile gone.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
+
+## Session 2026-10-12 — LIGHT swatch dynamic placement + SECURITY.md (Antigravity / Kerempkl / FA608PP)
+
+- P4 item 4 closed: `draw_light` in `panel_workspace.c` had a hardcoded
+  `x + 40` swatch offset (`██████`) that stomped on the workspace
+  box's right border on narrow windows (`w < 48`). Fixed: row visibility
+  guard (`LT_HEX < rows`), dynamic positioning to `x + w - 8` when narrow,
+  and clean omission if horizontal space would overlap the hex value
+  text (`sw_x < min_x`).
+- Added `SECURITY.md`: detailed breakdown of ctron's privilege and
+  execution model, attack surface analysis (sudoers, subshells, IPC,
+  arguments), and a 3-phase hardening roadmap.
+- Verification: `make` warning-free (0 warnings), `make test` green,
+  `make tuitest` 10 flows green (including LIGHT view activation),
+  `./build/ctron --doctor` and live `./build/ctron --status` green.
 
 ## Session 2026-10-11 — M4 key toggle (GLM / Kerempkl / FA608PP)
 
