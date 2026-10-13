@@ -22,7 +22,107 @@ log() { printf '%s %s\n' "$(date +%H:%M:%S)" "$*" >> "$LOG"; }
 log "invoked pid=$$ ctron=$(pgrep -x ctron | wc -l) stamp=$(cat "$STAMP" 2>/dev/null || echo none)"
 
 if pgrep -x ctron >/dev/null 2>&1; then
-    log "branch: close"
+    # Collect ctron PID and its ancestor PIDs (terminal emulator, subshells)
+    ancestors=""
+    for cpid in $(pgrep -x ctron); do
+        cur=$cpid
+        while [ -n "$cur" ] && [ "$cur" -gt 1 ] 2>/dev/null; do
+            ancestors="${ancestors}${ancestors:+, }$cur"
+            parent=$(ps -o ppid= -p "$cur" 2>/dev/null | tr -d ' ')
+            [ -z "$parent" ] && break
+            [ "$parent" -le 1 ] 2>/dev/null && break
+            cur=$parent
+        done
+    done
+
+    # 1. KDE Plasma (KWin via DBus scripting)
+    QDBUS=""
+    if command -v qdbus6 >/dev/null 2>&1; then
+        QDBUS="qdbus6"
+    elif command -v qdbus >/dev/null 2>&1; then
+        QDBUS="qdbus"
+    fi
+
+    if [ -n "$QDBUS" ] && "$QDBUS" org.kde.KWin /KWin >/dev/null 2>&1; then
+        tag="ctron_toggle_$$"
+        js="${XDG_RUNTIME_DIR:-/tmp}/ctron_kwin_$$.js"
+        cat << EOF > "$js"
+var pids = [${ancestors}];
+var wins = workspace.windowList();
+var found = null;
+for (var i = 0; i < wins.length; i++) {
+    var w = wins[i];
+    for (var j = 0; j < pids.length; j++) {
+        if (w.pid === pids[j]) {
+            found = w;
+            break;
+        }
+    }
+    if (found) break;
+}
+if (found) {
+    if (found === workspace.activeWindow && !found.minimized) {
+        console.log("$tag ACTIVE");
+    } else {
+        workspace.activeWindow = found;
+        console.log("$tag RAISED");
+    }
+} else {
+    console.log("$tag NOT_FOUND");
+}
+EOF
+        id=$("$QDBUS" org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "$js" "$tag" 2>/dev/null)
+        if [ -n "$id" ]; then
+            "$QDBUS" org.kde.KWin "/Scripting/Script$id" org.kde.kwin.Script.run >/dev/null 2>&1
+            "$QDBUS" org.kde.KWin "/Scripting/Script$id" org.kde.kwin.Script.stop >/dev/null 2>&1
+            "$QDBUS" org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript "$tag" >/dev/null 2>&1
+            rm -f "$js"
+
+            res=$(journalctl --user -n 3 -o cat -g "$tag" 2>/dev/null | tail -n 1 | awk '{print $2}')
+            case "$res" in
+                RAISED)
+                    log "branch: raise (KWin window brought to front)"
+                    exit 0
+                    ;;
+                ACTIVE)
+                    log "branch: close (KWin window was active)"
+                    pkill -x ctron
+                    exit 0
+                    ;;
+                *)
+                    ;;
+            esac
+        else
+            rm -f "$js"
+        fi
+    fi
+
+    # 2. Hyprland
+    if [ -n "$HYPRLAND_INSTANCE_SIGNATURE" ] && command -v hyprctl >/dev/null 2>&1; then
+        active_pid=$(hyprctl activewindow -j 2>/dev/null | grep -o '"pid": *[0-9]*' | head -n 1 | grep -o '[0-9]*')
+        is_active=0
+        for p in $(echo "$ancestors" | tr -d ','); do
+            if [ "$p" = "$active_pid" ]; then
+                is_active=1
+                break
+            fi
+        done
+        if [ "$is_active" -eq 1 ]; then
+            log "branch: close (Hyprland window active)"
+            pkill -x ctron
+            exit 0
+        else
+            log "branch: raise (Hyprland focusing window)"
+            for p in $(echo "$ancestors" | tr -d ','); do
+                if hyprctl dispatch focuswindow "pid:$p" >/dev/null 2>&1; then
+                    exit 0
+                fi
+            done
+        fi
+    fi
+
+    # 3. Fallback: window already active or untracked -> close
+    log "branch: close (fallback)"
     pkill -x ctron
     exit 0
 fi

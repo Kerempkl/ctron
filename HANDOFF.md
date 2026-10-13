@@ -1,8 +1,10 @@
 # Ctron Handoff
 
-Latest session — **2026-10-12** **Antigravity / Kerempkl / FA608PP** (LIGHT
-swatch overflow fix + SECURITY.md — see below). Before that **2026-10-11**
-**GLM / Kerempkl / FA608PP** (M4 key toggle — see below). Before that
+Latest session — **2026-10-13** **Antigravity / Kerempkl / FA608PP** (M4
+toggle background raise vs foreground close — see below). Before that
+**2026-10-12** **Antigravity / Kerempkl / FA608PP** (LIGHT swatch overflow
+fix + SECURITY.md — see below). Before that **2026-10-11** **GLM /
+Kerempkl / FA608PP** (M4 key toggle — see below). Before that
 **2026-10-10** **GLM / FA608PP** (fan write verdict —
 the last open P4 item, see below). Before that **2026-10-09**
 **Kerempkl + GLM / FA608PP** (apply worker + perf round, 6306ce3 +
@@ -70,6 +72,25 @@ prioritized todo list and the distilled session lessons.
   pidfile removal, exit 0). Harness-proven: rc=0 + pidfile gone.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
+
+## Session 2026-10-13 — M4 toggle: background raise vs foreground close (Antigravity / Kerempkl / FA608PP)
+
+- User request: pressing M4 when ctron is running in the background now
+  brings it to the front instead of closing it; pressing M4 when already
+  in the foreground / active closes it.
+- Implemented in `scripts/ctron-toggle.sh`:
+  - Gathers ctron PID and ancestor PIDs (terminal, subshell).
+  - KDE Plasma (KWin): loads a temporary KWin script via DBus to query
+    `workspace.windowList()` and `workspace.activeWindow`. If found and
+    active, exits to `pkill -x ctron`. If found in background or
+    minimized, restores/activates via `workspace.activeWindow = found`.
+  - Hyprland: checks `hyprctl activewindow -j` PID; if active closes,
+    else focuses via `hyprctl dispatch focuswindow pid:<pid>`.
+  - Fallback: closes if window is untracked.
+- Verified live with live test harness on KDE Plasma 6 Wayland:
+  defocused konsole -> `branch: raise` (window raised to front, ctron
+  kept alive), subsequent press -> `branch: close` (clean quit).
+- Installed to `~/.local/bin/ctron-toggle` via `make install`.
 
 ## Session 2026-10-12 — LIGHT swatch dynamic placement + SECURITY.md (Antigravity / Kerempkl / FA608PP)
 

@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-10-13 — M4 toggle: raise if in background, close only if active
+
+- User feature request: pressing M4 when ctron is running in the background
+  now brings it to the front instead of closing it; pressing M4 when it is
+  already in the foreground / active closes it.
+- Implemented in `scripts/ctron-toggle.sh`:
+  - Collects ctron PID and ancestor PIDs (terminal, subshell).
+  - KDE Plasma (KWin): loads a temporary KWin script via DBus to query
+    `workspace.windowList()` and `workspace.activeWindow`. If found and active
+    (not minimized), closes via `pkill -x ctron`. If found in background or
+    minimized, activates it (`workspace.activeWindow = found`) and exits.
+  - Hyprland: checks `hyprctl activewindow -j` pid; if active closes, else
+    dispatches `hyprctl dispatch focuswindow pid:<pid>`.
+  - Fallback: closes if window is untracked.
+- Verified live with harness script on KDE Plasma 6 Wayland: background
+  defocus -> `branch: raise` (window raised to front, ctron kept alive),
+  subsequent press -> `branch: close` (clean quit).
+
 ## 2026-10-12 — LIGHT swatch dynamic placement + SECURITY.md
 
 - LIGHT view swatch frame overflow fix: `draw_light` in `panel_workspace.c`
