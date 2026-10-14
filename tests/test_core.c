@@ -871,12 +871,124 @@ static void check_progress_and_log(void)
     }
 }
 
+static void check_fan_presets(void)
+{
+    CHECK(!strcmp(fan_preset_name(FAN_PRESET_QUIET), "Quiet"), "preset quiet name");
+    CHECK(!strcmp(fan_preset_name(FAN_PRESET_BALANCED), "Balanced"), "preset bal name");
+    CHECK(!strcmp(fan_preset_name(FAN_PRESET_PERF), "Performance"), "preset perf name");
+    CHECK(!strcmp(fan_preset_name(FAN_PRESET_ACTIVE), "Active (Live)"), "preset active name");
+
+    /* RON parse test with sample RON text */
+    static const char *SAMPLE_RON =
+        "(\n"
+        "    profiles: (\n"
+        "        balanced: [\n"
+        "            (\n"
+        "                fan: CPU,\n"
+        "                pwm: (20, 40, 60, 80, 100, 120, 140, 160),\n"
+        "                temp: (30, 40, 50, 60, 70, 80, 90, 100),\n"
+        "                enabled: true,\n"
+        "            ),\n"
+        "            (\n"
+        "                fan: GPU,\n"
+        "                pwm: (15, 30, 45, 60, 75, 90, 105, 120),\n"
+        "                temp: (35, 45, 55, 65, 75, 85, 95, 105),\n"
+        "                enabled: true,\n"
+        "            ),\n"
+        "        ],\n"
+        "        quiet: [\n"
+        "            (\n"
+        "                fan: CPU,\n"
+        "                pwm: (10, 20, 30, 40, 50, 60, 70, 80),\n"
+        "                temp: (35, 45, 55, 65, 75, 85, 95, 105),\n"
+        "            ),\n"
+        "            (\n"
+        "                fan: GPU,\n"
+        "                pwm: (12, 22, 32, 42, 52, 62, 72, 82),\n"
+        "                temp: (36, 46, 56, 66, 76, 86, 96, 105),\n"
+        "            ),\n"
+        "        ],\n"
+        "    ),\n"
+        ")\n";
+
+    fan_curve_t cpu = {0}, gpu = {0};
+    CHECK(fan_ron_parse(SAMPLE_RON, FAN_PRESET_BALANCED, &cpu, &gpu) == 0, "ron parse balanced");
+    CHECK(cpu.n == 8 && cpu.temp_c[0] == 30 && cpu.pwm[0] == 20, "ron bal cpu pt 0");
+    CHECK(cpu.temp_c[7] == 100 && cpu.pwm[7] == 160, "ron bal cpu pt 7");
+    CHECK(gpu.n == 8 && gpu.temp_c[0] == 35 && gpu.pwm[0] == 15, "ron bal gpu pt 0");
+    CHECK(gpu.temp_c[7] == 105 && gpu.pwm[7] == 120, "ron bal gpu pt 7");
+
+    memset(&cpu, 0, sizeof(cpu));
+    memset(&gpu, 0, sizeof(gpu));
+    CHECK(fan_ron_parse(SAMPLE_RON, FAN_PRESET_QUIET, &cpu, &gpu) == 0, "ron parse quiet");
+    CHECK(cpu.n == 8 && cpu.pwm[0] == 10, "ron quiet cpu");
+    CHECK(gpu.n == 8 && gpu.pwm[0] == 12, "ron quiet gpu");
+
+    /* perf not in sample text -> returns -1 */
+    CHECK(fan_ron_parse(SAMPLE_RON, FAN_PRESET_PERF, &cpu, &gpu) == -1, "ron parse missing perf");
+
+    /* fan_preset_get for Quiet, Balanced, Performance */
+    fan_curve_t p_cpu = {0}, p_gpu = {0};
+    CHECK(fan_preset_get(NULL, FAN_PRESET_QUIET, &p_cpu, &p_gpu) == 0, "preset get quiet");
+    CHECK(p_cpu.n == 8 && p_gpu.n == 8, "quiet 8 points");
+    CHECK(p_cpu.temp_c[0] < p_cpu.temp_c[7], "quiet cpu sorted");
+    CHECK(p_gpu.temp_c[0] < p_gpu.temp_c[7], "quiet gpu sorted");
+
+    CHECK(fan_preset_get(NULL, FAN_PRESET_BALANCED, &p_cpu, &p_gpu) == 0, "preset get balanced");
+    CHECK(p_cpu.n == 8 && p_gpu.n == 8, "balanced 8 points");
+
+    CHECK(fan_preset_get(NULL, FAN_PRESET_PERF, &p_cpu, &p_gpu) == 0, "preset get perf");
+    CHECK(p_cpu.n == 8 && p_gpu.n == 8, "perf 8 points");
+
+    /* Active preset with hw */
+    hw_state_t hw;
+    memset(&hw, 0, sizeof(hw));
+    fan_from_csv(&hw.fan_cpu_stock, "30,50,70", "40,80,120");
+    fan_from_csv(&hw.fan_gpu_stock, "35,55,75", "50,90,130");
+    CHECK(fan_preset_get(&hw, FAN_PRESET_ACTIVE, &p_cpu, &p_gpu) == 0, "preset get active");
+    CHECK(p_cpu.n >= 3 && p_cpu.temp_c[0] >= FAN_TMIN && p_cpu.temp_c[p_cpu.n - 1] <= FAN_TMAX,
+          "active cpu returns valid curve points");
+    CHECK(p_gpu.n >= 3 && p_gpu.temp_c[0] >= FAN_TMIN && p_gpu.temp_c[p_gpu.n - 1] <= FAN_TMAX,
+          "active gpu returns valid curve points");
+
+    /* Active preset with hw == NULL falls back to default curve */
+    fan_curve_t d_cpu = {0}, d_gpu = {0};
+    CHECK(fan_preset_get(NULL, FAN_PRESET_ACTIVE, &d_cpu, &d_gpu) == 0, "active NULL hw");
+    CHECK(d_cpu.n == 8 && d_cpu.temp_c[0] == 30, "active NULL falls back to default");
+
+
+    /* Verify startup honesty: settings_load does not overwrite live hwmon curves or set fan_staged */
+    char tmp[] = "/tmp/ctron-test-staged-XXXXXX";
+    CHECK(mkdtemp(tmp) != NULL, "mkdtemp staged");
+    setenv("CTRON_CONFIG", tmp, 1);
+
+    memset(&hw, 0, sizeof(hw));
+    fan_from_csv(&hw.fan_cpu, "40,60,80", "80,140,220");
+    fan_from_csv(&hw.fan_gpu, "45,75", "60,200");
+    CHECK(settings_save(&hw) == 0, "settings save staged test");
+
+    /* Simulate hw_init with live hwmon curves present */
+    hw_state_t live_hw;
+    memset(&live_hw, 0, sizeof(live_hw));
+    live_hw.has_fan_curve = true;
+    fan_from_csv(&live_hw.fan_cpu, "35,65", "50,150");
+    fan_from_csv(&live_hw.fan_gpu, "40,70", "60,160");
+    live_hw.fan_staged = false;
+
+    CHECK(settings_load(&live_hw) == 0, "settings load on live hw");
+    CHECK(!live_hw.fan_staged, "live hw startup does not set fan_staged");
+    CHECK(live_hw.fan_cpu.n == 2 && live_hw.fan_cpu.temp_c[0] == 35, "live cpu curve preserved");
+    CHECK(live_hw.fan_gpu.n == 2 && live_hw.fan_gpu.temp_c[0] == 40, "live gpu curve preserved");
+}
+
 int main(void)
 {
     check_fan_csv();
     check_fan_edit();
+    check_fan_presets();
     check_settings_roundtrip();
     check_modes();
+
     check_profiles();
     check_kde_parser();
     check_power_fmt();

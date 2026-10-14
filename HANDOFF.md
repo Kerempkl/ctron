@@ -1,9 +1,12 @@
 # Ctron Handoff
 
-Latest session — **2026-10-13** **Antigravity / Kerempkl / FA608PP** (M4
-toggle background raise vs foreground close — see below). Before that
-**2026-10-12** **Antigravity / Kerempkl / FA608PP** (LIGHT swatch overflow
+Latest session — **2026-10-14** **Antigravity / Kerempkl / FA608PP** (Fan
+curve startup honesty & FAN PRESETS modal overlay — see below). Before that
+**2026-10-13** **Antigravity / Kerempkl / FA608PP** (M4 toggle background
+raise vs foreground close — see below). Before that **2026-10-12**
+**Antigravity / Kerempkl / FA608PP** (LIGHT swatch overflow
 fix + SECURITY.md — see below). Before that **2026-10-11** **GLM /
+
 Kerempkl / FA608PP** (M4 key toggle — see below). Before that
 **2026-10-10** **GLM / FA608PP** (fan write verdict —
 the last open P4 item, see below). Before that **2026-10-09**
@@ -73,7 +76,41 @@ prioritized todo list and the distilled session lessons.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
 
+## Session 2026-10-14 — Fan curve startup honesty & FAN PRESETS modal overlay (Antigravity / Kerempkl / FA608PP)
+
+- User feature request:
+  1. The FAN view in the TUI must initially display the active/live hardware
+     curve directly from the EC hwmon instead of showing stale curves from
+     `settings.ini`.
+  2. Pressing `m` (or clicking a button) in the FAN editor opens a floating
+     modal overlay titled `FAN PRESETS`.
+  3. Four presets offered: `1: Quiet`, `2: Balanced`, `3: Performance`,
+     `4: Active (Live)`.
+  4. User can selectively apply to CPU, GPU, or both using independent toggle
+     buttons: `Apply to: [✓ CPU] [✓ GPU]` (`c` / `g` hotkeys or mouse clicks).
+  5. Selecting a preset previews it without auto-applying; pressing `Enter`
+     loads it into the editor; `w` writes to hardware as usual.
+- Diagnosed & Fixed Stale Startup Curves:
+  - `settings_load()` previously set `hw->fan_staged = true`, locking the TUI
+    into the curve saved in `settings.ini` and blocking `fan_hwmon_read()`.
+  - Fix: `settings_load()` no longer marks `fan_staged = true`, and preserves
+    live hwmon curves read at `hw_init()`. Persistence across sessions is handled
+    cleanly via SNAPSHOTS (`.ctr` profiles).
+- Implemented FAN PRESETS Modal Overlay:
+  - `editor_fan_presets_open/draw/key/act` in `src/ui/editor_fan.c`.
+  - Pure RON parser `fan_ron_parse()` extracts factory curves from
+    `/etc/asusd/fan_curves.ron`, falling back to built-in factory tables.
+  - `hw_fan_hwmon_read_live()` reads active `pwm1`/`pwm2` sysfs nodes on demand.
+  - Bottom row in FAN view replaced legacy `Stk/Sil/Col/Ful` with `[ Presets (m) ]`.
+- Verification:
+  - Warning-free build (`make`, `-Wall -Wextra`).
+  - Unit tests in `tests/test_core.c` (`check_fan_presets`).
+  - TUI smoke test in `scripts/tui_smoke.py` (`flow_fan_presets`).
+  - Live `./build/ctron --status` verifies real active EC curves read cleanly.
+  - Installed to `~/.local/bin/ctron` via `make install`.
+
 ## Session 2026-10-13 — M4 toggle: background raise vs foreground close (Antigravity / Kerempkl / FA608PP)
+
 
 - User request: pressing M4 when ctron is running in the background now
   brings it to the front instead of closing it; pressing M4 when already

@@ -374,7 +374,20 @@ static void ui_layout(unsigned dimy, unsigned dimx)
         if (oh < 8)
             oh = H - top;
         g_ui.rc_overlay = (rect_t){ (W - ow) / 2, top, ow, oh };
+    } else if (g_ui.fe_presets_overlay) {
+        int ow = 66;
+        int oh = 15;
+        if (ow > W - 4)
+            ow = W - 4;
+        if (ow < 20)
+            ow = W;
+        if (oh > H - top - 2)
+            oh = H - top - 2;
+        if (oh < 8)
+            oh = H - top;
+        g_ui.rc_overlay = (rect_t){ (W - ow) / 2, top + (H - top - oh) / 2, ow, oh };
     } else {
+
         int ow = W - 6;
         if (ow > 96)
             ow = 96;
@@ -489,7 +502,19 @@ static void handle_mouse(struct ncplane *stdn, const struct ncinput *ni, uint32_
             editor_corefreq_act(t & TGT_ID_MASK);
         return;
     }
+    if (g_ui.fe_presets_overlay) {
+        const rect_t *w = &g_ui.rc_overlay;
+        if (mx < w->x || mx >= w->x + w->w || my < w->y || my >= w->y + w->h) {
+            g_ui.fe_presets_overlay = false;
+            return;
+        }
+        int t = tgt_find(mx, my);
+        if (((t >> 24) & 0x7f) == TGT_PANEL_FAN_PRESETS)
+            editor_fan_presets_act(t & TGT_ID_MASK);
+        return;
+    }
     if (g_ui.settings_overlay) {
+
         const rect_t *w = &g_ui.rc_overlay;
         if (mx < w->x || mx >= w->x + w->w || my < w->y || my >= w->y + w->h) {
             g_ui.settings_overlay = false;
@@ -750,7 +775,12 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
         editor_corefreq_key(key);
         return;
     }
+    if (g_ui.fe_presets_overlay) {
+        editor_fan_presets_key(key);
+        return;
+    }
     if (g_ui.settings_overlay) {
+
         if (key == NCKEY_ESC || key == 's' || key == 'S') {
             g_ui.settings_overlay = false;
             return;
@@ -929,8 +959,11 @@ int ui_run(hw_state_t *hw)
             editor_daeboard_draw(stdn, &g_ui.rc_overlay);
         else if (g_ui.cf_overlay)
             editor_corefreq_draw(stdn, &g_ui.rc_overlay);
+        else if (g_ui.fe_presets_overlay)
+            editor_fan_presets_draw(stdn, &g_ui.rc_overlay);
         else if (g_ui.settings_overlay)
             panel_settings_draw(stdn, &g_ui.rc_overlay);
+
 
         notcurses_render(nc);
 

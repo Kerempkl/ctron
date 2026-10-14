@@ -63,7 +63,7 @@ int hw_kbd_from_name(const char *s);
 
 #define HZ_MAX_MODES 16
 
-typedef struct {
+typedef struct hw_state {
     /* identity */
     char model[64];
     char cpu[128];
@@ -180,6 +180,10 @@ void hw_asusd_ron_parse(const char *buf, int *ac, int *bat);
 /* fan-curve hwmon base through the path cache (the write layer uses
  * it so reads and writes can never disagree) */
 int hw_path_fan_curve(hw_state_t *hw, char *out, size_t n);
+
+/* Unconditional live read of the fan curve hwmon into cpu/gpu (either may be NULL).
+ * Returns 0 on success, -1 if no fan curve hwmon path exists. */
+int hw_fan_hwmon_read_live(hw_state_t *hw, fan_curve_t *cpu, fan_curve_t *gpu);
 
 /* true when `id` is a present cpu (kernel numbering, hw->cpu_ids) */
 bool hw_cpu_present(const hw_state_t *hw, int id);

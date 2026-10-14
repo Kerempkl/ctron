@@ -1,6 +1,38 @@
 # Changelog
 
+## 2026-10-14 — Fan Curve Startup Honesty & FAN PRESETS Modal Overlay
+
+- User feature request: FAN editor in the TUI must initially display the
+  active/live hardware curve directly from the EC hwmon instead of showing
+  stale curves from `settings.ini`.
+- Staging fix: `settings_load()` in `src/settings.c` no longer marks
+  `hw->fan_staged = true` at startup, nor does it clobber live hardware
+  curves when `hw->has_fan_curve` is true. Staged edits remain user-initiated
+  intent during the active session. Custom curve persistence across reboots is
+  honestly handled via SNAPSHOTS (`.ctr` profiles).
+- New FAN PRESETS Modal Overlay (`m`):
+  - Accessible via `m`/`M` hotkey or clicking `[ Presets (m) ]` in the FAN editor.
+  - Floating modal window (`ui_window`) titled `FAN PRESETS`.
+  - Independent target toggles: `Apply to: [✓ CPU] [✓ GPU]` (`c` / `g` hotkeys or clicks).
+  - Four choices with curve previews:
+    - `1: Quiet` (factory quiet curve)
+    - `2: Balanced` (factory balanced curve)
+    - `3: Performance` (factory performance curve)
+    - `4: Active (Live)` (re-reads active curve from EC hardware)
+  - Pressing `1..4` or `j`/`k` navigates and previews; `Enter` applies to
+    targeted fan(s); `Esc`/`q` closes without changes.
+  - Replaced legacy `Stk/Sil/Col/Ful` buttons in FAN view with `[ Presets (m) ]`.
+- Live & parser implementation:
+  - Pure RON parser `fan_ron_parse()` extracts factory curves from
+    `/etc/asusd/fan_curves.ron`, falling back to built-in factory tables.
+  - `hw_fan_hwmon_read_live()` reads active `pwm1`/`pwm2` sysfs nodes on demand.
+  - Unit tests added in `tests/test_core.c` (`check_fan_presets`).
+  - Integration flow added in `scripts/tui_smoke.py` (`flow_fan_presets`).
+- Verified: warning-free `make` (-Wall -Wextra), `make test` green, `make install`
+  installed to `~/.local/bin/ctron`.
+
 ## 2026-10-13 — M4 toggle: raise if in background, close only if active
+
 
 - User feature request: pressing M4 when ctron is running in the background
   now brings it to the front instead of closing it; pressing M4 when it is

@@ -631,6 +631,49 @@ def flow_snapshots():
         shutil.rmtree(tmpcfg, ignore_errors=True)
 
 
+def flow_fan_presets():
+    """FAN PRESETS modal overlay ('m'): opens floating window, selects Quiet preset,
+    applies with Enter, and checks staged points and log."""
+    tmpcfg = tempfile.mkdtemp(prefix="ctron-tui-")
+    oldcfg = os.environ.get("CTRON_CONFIG")
+    os.environ["CTRON_CONFIG"] = tmpcfg
+    s = None
+    try:
+        s = Session("fan_presets")
+        s.wait_render()
+        s.key(b"5")                # switch to FAN view
+        time.sleep(0.4)
+        m = s.mark()
+        s.key(b"m")                # open presets overlay
+        if not s.wait_for(b"FAN PRESETS", since=m, timeout=6.0):
+            fail("fan_presets", "'m' did not open the FAN PRESETS modal")
+            return
+        ok("fan_presets", "modal overlay opened on 'm'")
+        m2 = s.mark()
+        s.key(b"1")                # select Quiet
+        time.sleep(0.2)
+        s.key(b"\r")               # Enter applies preset
+        time.sleep(0.5)
+        diff = s.bytes_since(m2)
+        if b"Quiet" in diff and (b"loaded" in diff or b"editor" in diff):
+            ok("fan_presets", "Quiet preset applied and logged")
+        else:
+            fail("fan_presets", f"Quiet preset apply log missing: {diff!r}")
+            return
+        rc = s.quit_expect0()
+        if rc != 0:
+            fail("fan_presets", f"q exit {rc!r}")
+    finally:
+        if s is not None:
+            s.close()
+        if oldcfg is None:
+            os.environ.pop("CTRON_CONFIG", None)
+        else:
+            os.environ["CTRON_CONFIG"] = oldcfg
+        shutil.rmtree(tmpcfg, ignore_errors=True)
+
+
+
 def main():
     if not os.access(BIN, os.X_OK):
         print(f"no executable at {BIN} (run make first)")
@@ -638,8 +681,10 @@ def main():
     print(f"tui_smoke: {BIN} on {ROWS}x{COLS} pty")
     flows = [flow_open_quit, flow_settings_overlay,
              flow_power_stage_apply, flow_corefreq_overlay,
-             flow_fan_buttons, flow_fan_staging, flow_view_hotkeys,
-             flow_mode_drift, flow_fan_grid, flow_snapshots]
+             flow_fan_buttons, flow_fan_staging, flow_fan_presets,
+             flow_view_hotkeys, flow_mode_drift, flow_fan_grid,
+             flow_snapshots]
+
     for f in flows:
         f()
     if failures:

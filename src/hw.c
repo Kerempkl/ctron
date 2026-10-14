@@ -272,6 +272,18 @@ static void fan_read_one(const char *base, const char *pwm, fan_curve_t *fc)
         fan_default(fc); /* empty table (never written): editor seed */
 }
 
+int hw_fan_hwmon_read_live(hw_state_t *hw, fan_curve_t *cpu, fan_curve_t *gpu)
+{
+    char base[256];
+    if (hw_path_fan_curve(hw, base, sizeof(base)) != 0)
+        return -1;
+    if (cpu)
+        fan_read_one(base, "pwm1", cpu);
+    if (gpu)
+        fan_read_one(base, "pwm2", gpu);
+    return 0;
+}
+
 static void fan_hwmon_read(hw_state_t *hw)
 {
     char base[256];
@@ -288,8 +300,7 @@ static void fan_hwmon_read(hw_state_t *hw)
      * clobber them with the hwmon table; the enable switches still
      * track the hardware */
     if (!hw->fan_staged) {
-        fan_read_one(base, "pwm1", &hw->fan_cpu);
-        fan_read_one(base, "pwm2", &hw->fan_gpu);
+        hw_fan_hwmon_read_live(hw, &hw->fan_cpu, &hw->fan_gpu);
     }
     char p[300];
     snprintf(p, sizeof(p), "%s/pwm1_enable", base);
@@ -297,6 +308,7 @@ static void fan_hwmon_read(hw_state_t *hw)
     snprintf(p, sizeof(p), "%s/pwm2_enable", base);
     hw->fan_gpu_on = fan_raw_is_on(ut_read_int(p));
 }
+
 
 /* ---- GPU temperature (cached) ---------------------------------------- */
 

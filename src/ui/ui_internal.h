@@ -106,6 +106,11 @@ typedef struct ui_ctx {
     bool fe_grid;                 /* 'i': value guides on the graph */
     tinput_t fe_x, fe_y;
     rect_t fe_graph;
+    bool fe_presets_overlay;      /* 'm': FAN PRESETS floating modal */
+    int fe_pr_sel;                /* 0..3: Quiet, Balanced, Performance, Active */
+    bool fe_pr_target_cpu;        /* apply preset to CPU */
+    bool fe_pr_target_gpu;        /* apply preset to GPU */
+
 
     /* power view */
     int pw_sel;
@@ -213,7 +218,9 @@ enum {
     TGT_PANEL_SETTINGS,
     TGT_PANEL_DAEBOARD,
     TGT_PANEL_COREFREQ,
+    TGT_PANEL_FAN_PRESETS,
 };
+
 
 void tgt_clear(void);
 void tgt_register(int x, int y, int w, int h, int encoded);
@@ -279,7 +286,12 @@ void editor_daeboard_act(int id);
 void editor_fan_draw(struct ncplane *n, const rect_t *r);
 void editor_fan_key(uint32_t key);
 void editor_fan_act(int id, int mx, int my);
+void editor_fan_presets_open(void);
+void editor_fan_presets_draw(struct ncplane *n, const rect_t *r);
+void editor_fan_presets_key(uint32_t key);
+void editor_fan_presets_act(int id);
 /* Fan-editor click targets: ACT_FE_* ids live in [ACT_FE_BASE,
+
  * ACT_FE_END) and are forwarded from panel_workspace_act (they are
  * registered under TGT_PANEL_WORKSPACE but must not collide with the
  * workspace's own ACT_WS_* ids). */

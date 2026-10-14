@@ -124,9 +124,11 @@ int settings_load(hw_state_t *hw)
             if (v >= 100)
                 hw->cpu_mhz_limit = v;
         } else if (!strcmp(key, "fan_cpu_on")) {
-            hw->fan_cpu_on = (atoi(val) != 0);
+            if (!hw->has_fan_curve)
+                hw->fan_cpu_on = (atoi(val) != 0);
         } else if (!strcmp(key, "fan_gpu_on")) {
-            hw->fan_gpu_on = (atoi(val) != 0);
+            if (!hw->has_fan_curve)
+                hw->fan_gpu_on = (atoi(val) != 0);
         } else if (!strcmp(key, "fan_cpu_t")) {
             snprintf(ct, sizeof(ct), "%s", val);
         } else if (!strcmp(key, "fan_cpu_p")) {
@@ -139,12 +141,15 @@ int settings_load(hw_state_t *hw)
     }
     fclose(f);
 
-    if (ct[0] && cp[0])
-        fan_from_csv(&hw->fan_cpu, ct, cp);
-    if (gt[0] && gp[0])
-        fan_from_csv(&hw->fan_gpu, gt, gp);
-    if ((ct[0] && cp[0]) || (gt[0] && gp[0]))
-        hw->fan_staged = true; /* ini curves are the session's starting state */
+    /* hwmon fan curves read during hw_init are authoritative at startup.
+     * Only populate from settings.ini when no hwmon curve device exists
+     * (e.g. unit tests or non-ASUS hardware). Never mark fan_staged at init. */
+    if (!hw->has_fan_curve) {
+        if (ct[0] && cp[0])
+            fan_from_csv(&hw->fan_cpu, ct, cp);
+        if (gt[0] && gp[0])
+            fan_from_csv(&hw->fan_gpu, gt, gp);
+    }
     return 0;
 }
 

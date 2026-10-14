@@ -42,4 +42,27 @@ void fan_scale(fan_curve_t *dst, const fan_curve_t *src, int num, int den);
 int fan_enable_raw(int on);
 int fan_raw_is_on(int raw);
 
+/* Preset fan curves (ASUS factory quiet/balanced/performance + live EC active). */
+typedef enum {
+    FAN_PRESET_QUIET = 0,
+    FAN_PRESET_BALANCED,
+    FAN_PRESET_PERF,
+    FAN_PRESET_ACTIVE,
+    FAN_PRESET_COUNT
+} fan_preset_t;
+
+const char *fan_preset_name(fan_preset_t p);
+
+struct hw_state;
+
+/* Retrieve preset curves. For QUIET/BALANCED/PERF, tries /etc/asusd/fan_curves.ron
+ * first, falling back to built-in factory tables. For ACTIVE, re-reads live sysfs
+ * hwmon curves. Either cpu or gpu may be NULL if caller only wants one.
+ * Returns 0 on success, -1 on failure. */
+int fan_preset_get(struct hw_state *hw, fan_preset_t preset, fan_curve_t *cpu, fan_curve_t *gpu);
+
+/* Pure RON parser for /etc/asusd/fan_curves.ron content. */
+int fan_ron_parse(const char *text, fan_preset_t preset, fan_curve_t *cpu, fan_curve_t *gpu);
+
 #endif /* CTRON_FAN_H */
+

@@ -24,9 +24,20 @@ enum {
     ACT_FE_T_FIELD,
     ACT_FE_P_FIELD,
     ACT_FE_SET,
-    ACT_FE_PRESET_BASE = ACT_FE_BASE + 10, /* stock/silent/cool/full */
+    ACT_FE_PRESETS_BTN,                    /* opens FAN PRESETS modal */
+    ACT_FE_PRESET_BASE = ACT_FE_BASE + 10, /* legacy stock/silent/cool/full */
     ACT_FE_NODE_BASE = ACT_FE_BASE + 30,   /* + point index */
 };
+
+/* Actions for TGT_PANEL_FAN_PRESETS modal */
+enum {
+    ACT_FPR_ITEM = 1,       /* 1..4: preset selection (ACT_FPR_ITEM + 0..3) */
+    ACT_FPR_TARGET_CPU = 10,
+    ACT_FPR_TARGET_GPU = 11,
+    ACT_FPR_APPLY = 12,
+    ACT_FPR_CANCEL = 13,
+};
+
 
 static rect_t s_graph;
 
@@ -254,13 +265,11 @@ void editor_fan_draw(struct ncplane *n, const rect_t *r)
         { tb,    g_ui.fe_input == 1, TGT(TGT_PANEL_WORKSPACE, ACT_FE_T_FIELD) },
         { pb,    g_ui.fe_input == 2, TGT(TGT_PANEL_WORKSPACE, ACT_FE_P_FIELD) },
         { "Set", false,              TGT(TGT_PANEL_WORKSPACE, ACT_FE_SET) },
-        { "Stk",  false,             TGT(TGT_PANEL_WORKSPACE, ACT_FE_PRESET_BASE + 0) },
-        { "Sil",  false,             TGT(TGT_PANEL_WORKSPACE, ACT_FE_PRESET_BASE + 1) },
-        { "Col",  false,             TGT(TGT_PANEL_WORKSPACE, ACT_FE_PRESET_BASE + 2) },
-        { "Ful",  false,             TGT(TGT_PANEL_WORKSPACE, ACT_FE_PRESET_BASE + 3) },
+        { " Presets (m) ", g_ui.fe_presets_overlay, TGT(TGT_PANEL_WORKSPACE, ACT_FE_PRESETS_BTN) },
     };
-    ui_btn_row(n, iy, x, w, xy, 7);
+    ui_btn_row(n, iy, x, w, xy, 4);
 }
+
 
 /* ---- input -------------------------------------------------------------- */
 
@@ -323,6 +332,11 @@ void editor_fan_key(uint32_t key)
     case 'I':
         g_ui.fe_grid = !g_ui.fe_grid;
         break;
+    case 'm':
+    case 'M':
+        editor_fan_presets_open();
+        break;
+
     case '+':
     case 'a':
     case 'A': {
@@ -467,6 +481,9 @@ void editor_fan_act(int id, int mx, int my)
         case ACT_FE_SET:
             apply_xy();
             return;
+        case ACT_FE_PRESETS_BTN:
+            editor_fan_presets_open();
+            return;
         default:
             if (id >= ACT_FE_PRESET_BASE && id < ACT_FE_PRESET_BASE + 4) {
                 ui_flash("applying fan preset...");
@@ -517,3 +534,199 @@ void editor_fan_act(int id, int mx, int my)
     }
     fill_xy_bufs();
 }
+
+/* ---- fan presets overlay ('m') ------------------------------------------ */
+
+static const char *const s_preset_labels[4] = {
+    "1: Quiet        (ASUS factory quiet curve)",
+    "2: Balanced     (ASUS factory balanced curve)",
+    "3: Performance  (ASUS factory performance curve)",
+    "4: Active (Live) (Reload active curve from EC)",
+};
+
+void editor_fan_presets_open(void)
+{
+    g_ui.fe_presets_overlay = true;
+    if (g_ui.fe_pr_sel < 0 || g_ui.fe_pr_sel >= 4)
+        g_ui.fe_pr_sel = 0;
+    if (!g_ui.fe_pr_target_cpu && !g_ui.fe_pr_target_gpu) {
+        g_ui.fe_pr_target_cpu = true;
+        g_ui.fe_pr_target_gpu = true;
+    }
+}
+
+static void apply_selected_preset(void)
+{
+    if (!g_ui.fe_pr_target_cpu && !g_ui.fe_pr_target_gpu)
+        return;
+
+    fan_curve_t c_cpu = {0}, c_gpu = {0};
+    fan_preset_get(g_ui.hw, (fan_preset_t)g_ui.fe_pr_sel,
+                   g_ui.fe_pr_target_cpu ? &c_cpu : NULL,
+                   g_ui.fe_pr_target_gpu ? &c_gpu : NULL);
+
+    if (g_ui.fe_pr_target_cpu && c_cpu.n > 0)
+        g_ui.hw->fan_cpu = c_cpu;
+    if (g_ui.fe_pr_target_gpu && c_gpu.n > 0)
+        g_ui.hw->fan_gpu = c_gpu;
+
+    fan_touch();
+    fill_xy_bufs();
+    g_ui.fe_presets_overlay = false;
+    ut_log("fan preset '%s' loaded into editor", fan_preset_name((fan_preset_t)g_ui.fe_pr_sel));
+}
+
+static void fmt_curve_summary(const fan_curve_t *fc, char *out, size_t n)
+{
+    if (!fc || fc->n <= 0) {
+        snprintf(out, n, "--");
+        return;
+    }
+    size_t pos = 0;
+    out[0] = '\0';
+    for (int i = 0; i < fc->n && i < FAN_POINTS; i++) {
+        int w = snprintf(out + pos, n - pos, "%s%d°:%d",
+                         i ? " " : "", fc->temp_c[i], fc->pwm[i]);
+        if (w <= 0 || pos + (size_t)w >= n)
+            break;
+        pos += (size_t)w;
+    }
+}
+
+void editor_fan_presets_draw(struct ncplane *n, const rect_t *r)
+{
+    const palette_t *pal = ui_palette(g_prefs.theme);
+    ui_window(n, r, "FAN PRESETS");
+
+    int x = r->x + 2;
+    int w = r->w - 4;
+
+    /* Line 1: help / shortcuts */
+    ui_putln(n, x, r->y + 1, w,
+             "1..4 select · Enter apply · c toggle CPU · g toggle GPU · Esc close",
+             pal->muted, false);
+
+    /* Line 2: target selection */
+    ui_putln(n, x, r->y + 2, 11, "Apply to:  ", pal->text, true);
+    ui_btn(n, x + 11, r->y + 2,
+           g_ui.fe_pr_target_cpu ? "[✓ CPU]" : "[  CPU]",
+           g_ui.fe_pr_target_cpu, false,
+           TGT(TGT_PANEL_FAN_PRESETS, ACT_FPR_TARGET_CPU));
+    ui_btn(n, x + 21, r->y + 2,
+           g_ui.fe_pr_target_gpu ? "[✓ GPU]" : "[  GPU]",
+           g_ui.fe_pr_target_gpu, false,
+           TGT(TGT_PANEL_FAN_PRESETS, ACT_FPR_TARGET_GPU));
+
+    /* Rows 4..7: preset options */
+    for (int i = 0; i < 4; i++) {
+        int py = r->y + 4 + i;
+        bool sel = (i == g_ui.fe_pr_sel);
+        char line[96];
+        snprintf(line, sizeof(line), "%s %s", sel ? "▸" : " ", s_preset_labels[i]);
+        ui_putln(n, x, py, w, line, sel ? pal->accent : pal->text, sel);
+        tgt_register(x, py, w, 1, TGT(TGT_PANEL_FAN_PRESETS, ACT_FPR_ITEM + i));
+    }
+
+    /* Preview section */
+    fan_curve_t prev_cpu = {0}, prev_gpu = {0};
+    fan_preset_get(g_ui.hw, (fan_preset_t)g_ui.fe_pr_sel, &prev_cpu, &prev_gpu);
+
+    char c_sum[128], g_sum[128];
+    fmt_curve_summary(&prev_cpu, c_sum, sizeof(c_sum));
+    fmt_curve_summary(&prev_gpu, g_sum, sizeof(g_sum));
+
+    ui_putln(n, x, r->y + 9, w, "Curve preview:", pal->muted, true);
+
+    char c_line[160], g_line[160];
+    if (g_ui.fe_pr_target_cpu)
+        snprintf(c_line, sizeof(c_line), "CPU: %s", c_sum);
+    else
+        snprintf(c_line, sizeof(c_line), "CPU: (not targeted)");
+    ui_putln(n, x, r->y + 10, w, c_line,
+             g_ui.fe_pr_target_cpu ? pal->text : pal->muted, false);
+
+    if (g_ui.fe_pr_target_gpu)
+        snprintf(g_line, sizeof(g_line), "GPU: %s", g_sum);
+    else
+        snprintf(g_line, sizeof(g_line), "GPU: (not targeted)");
+    ui_putln(n, x, r->y + 11, w, g_line,
+             g_ui.fe_pr_target_gpu ? pal->text : pal->muted, false);
+
+    /* Bottom buttons */
+    int by = r->y + r->h - 2;
+    bool can_apply = g_ui.fe_pr_target_cpu || g_ui.fe_pr_target_gpu;
+    ui_btn(n, x, by, " Apply Preset (Enter) ", can_apply, false,
+           TGT(TGT_PANEL_FAN_PRESETS, ACT_FPR_APPLY));
+    ui_btn(n, x + 25, by, " Cancel (Esc) ", false, false,
+           TGT(TGT_PANEL_FAN_PRESETS, ACT_FPR_CANCEL));
+}
+
+void editor_fan_presets_key(uint32_t key)
+{
+    switch (key) {
+    case NCKEY_ESC:
+    case 'q':
+    case 'Q':
+    case 'm':
+    case 'M':
+        g_ui.fe_presets_overlay = false;
+        return;
+    case '1': g_ui.fe_pr_sel = 0; return;
+    case '2': g_ui.fe_pr_sel = 1; return;
+    case '3': g_ui.fe_pr_sel = 2; return;
+    case '4': g_ui.fe_pr_sel = 3; return;
+    case 'j':
+    case NCKEY_DOWN:
+        g_ui.fe_pr_sel = (g_ui.fe_pr_sel + 1) % 4;
+        return;
+    case 'k':
+    case NCKEY_UP:
+        g_ui.fe_pr_sel = (g_ui.fe_pr_sel + 3) % 4;
+        return;
+    case 'c':
+    case 'C':
+        g_ui.fe_pr_target_cpu = !g_ui.fe_pr_target_cpu;
+        return;
+    case 'g':
+    case 'G':
+        g_ui.fe_pr_target_gpu = !g_ui.fe_pr_target_gpu;
+        return;
+    case NCKEY_ENTER:
+    case '\r':
+    case '\n':
+    case ' ':
+        apply_selected_preset();
+        return;
+    default:
+        return;
+    }
+}
+
+void editor_fan_presets_act(int id)
+{
+    switch (id) {
+    case ACT_FPR_TARGET_CPU:
+        g_ui.fe_pr_target_cpu = !g_ui.fe_pr_target_cpu;
+        return;
+    case ACT_FPR_TARGET_GPU:
+        g_ui.fe_pr_target_gpu = !g_ui.fe_pr_target_gpu;
+        return;
+    case ACT_FPR_APPLY:
+        apply_selected_preset();
+        return;
+    case ACT_FPR_CANCEL:
+        g_ui.fe_presets_overlay = false;
+        return;
+    default:
+        if (id >= ACT_FPR_ITEM && id < ACT_FPR_ITEM + 4) {
+            int sel = id - ACT_FPR_ITEM;
+            if (g_ui.fe_pr_sel == sel)
+                apply_selected_preset();
+            else
+                g_ui.fe_pr_sel = sel;
+            return;
+        }
+        break;
+    }
+}
+
