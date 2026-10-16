@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-10-16 — test environment: the guard no longer fights the harness
+
+- Full-review pass found the pty harness red (9–10 flows) and 4 unit
+  failures at HEAD — while the SAME commits had passed when landed.
+  Two intertwined causes, both around the 654a80f single-instance
+  guard:
+  1. While a REAL ctron TUI runs on the desktop, every harness
+     instance bowed out ("already running") and its flows starved.
+     Fix: the guard fails open when `CTRON_TEST` is set (the harness
+     Session now sets it for every spawn), and when `CTRON_CONFIG` is
+     set (an isolated config dir is a deliberately parallel instance —
+     different configs may legitimately run side by side).
+  2. The 4 unit failures were check_singleton's deferred/claim paths:
+     older tests set `CTRON_CONFIG` and never restore it — the value
+     leaks into the process env and tripped the new bypass. Latent
+     for weeks (nothing read it afterwards); the bypass surfaced it.
+     check_singleton now saves/clears/restores both variables around
+     itself. The ambient leak itself is left as-is (pre-existing test
+     order dependencies, parallel-session territory) but documented.
+- Verified: make 0 warnings, unit + all tuitest flows green —
+  including a run with the user's real TUI open, which is the exact
+  condition that used to starve the harness.
+- Debugging lesson (cost an hour): bare `make` builds only
+  `build/ctron` — the test binary is `make build/test_core`/`make
+  test`; three "no effect" iterations ran a 2.5 h-old binary. Assert
+  on timestamps when output refuses to change.
+
 ## 2026-10-14 — Fan Curve Startup Honesty & FAN PRESETS Modal Overlay
 
 - User feature request: FAN editor in the TUI must initially display the

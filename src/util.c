@@ -205,6 +205,12 @@ bool ut_singleton_stale(const char *pidstr, long self, const char *comm)
 
 int ut_singleton_enter(const char *comm)
 {
+    /* An explicitly isolated config (--config-dir) is a deliberately
+     * parallel instance, and CTRON_TEST marks the pty harness — a real
+     * TUI running on the desktop must never make its flows bow out. */
+    if (getenv("CTRON_CONFIG") || getenv("CTRON_TEST"))
+        return -1;
+
     const char *dir = getenv("XDG_RUNTIME_DIR");
     if (!dir || !*dir)
         dir = getenv("TMPDIR");

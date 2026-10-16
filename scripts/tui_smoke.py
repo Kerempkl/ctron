@@ -57,6 +57,8 @@ class Session:
                     struct.pack("HHHH", ROWS, COLS, 0, 0))
         env = dict(os.environ)
         env["TERM"] = "xterm-256color"
+        # never fight the user's real TUI for the single-instance slot
+        env["CTRON_TEST"] = "1"
         env.pop("LINES", None)
         env.pop("COLUMNS", None)
         self.proc = subprocess.Popen(

@@ -581,6 +581,12 @@ static void check_singleton(void)
     CHECK(mkdtemp(tmp) != NULL, "single mkdtemp");
     const char *old = getenv("XDG_RUNTIME_DIR");
     setenv("XDG_RUNTIME_DIR", tmp, 1);
+    /* earlier tests leak CTRON_CONFIG into the process env (they set
+     * it and never restore); the guard's bypass must not fire here */
+    const char *old_cfg = getenv("CTRON_CONFIG");
+    const char *old_test = getenv("CTRON_TEST");
+    unsetenv("CTRON_CONFIG");
+    unsetenv("CTRON_TEST");
 
     /* decision helper: every unreadable shape is stale */
     CHECK(ut_singleton_stale("", getpid(), "test_core"), "stale empty");
@@ -621,6 +627,14 @@ static void check_singleton(void)
         setenv("XDG_RUNTIME_DIR", old, 1);
     else
         unsetenv("XDG_RUNTIME_DIR");
+    if (old_cfg)
+        setenv("CTRON_CONFIG", old_cfg, 1);
+    else
+        unsetenv("CTRON_CONFIG");
+    if (old_test)
+        setenv("CTRON_TEST", old_test, 1);
+    else
+        unsetenv("CTRON_TEST");
     rmdir(tmp);
 }
 

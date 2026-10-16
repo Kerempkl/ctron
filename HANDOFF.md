@@ -1,6 +1,8 @@
 # Ctron Handoff
 
-Latest session — **2026-10-14** **Antigravity / Kerempkl / FA608PP** (Fan
+Latest session — **2026-10-16** **GLM / FA608PP** (review of the
+10-12..14 parallel line + test-environment guard fixes — see below).
+Before that **2026-10-14** **Antigravity / Kerempkl / FA608PP** (Fan
 curve startup honesty & FAN PRESETS modal overlay — see below). Before that
 **2026-10-13** **Antigravity / Kerempkl / FA608PP** (M4 toggle background
 raise vs foreground close — see below). Before that **2026-10-12**
@@ -75,6 +77,35 @@ prioritized todo list and the distilled session lessons.
   pidfile removal, exit 0). Harness-proven: rc=0 + pidfile gone.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
+
+## Session 2026-10-16 — parallel-line review + test-environment guard fixes (GLM / FA608PP)
+
+- Reviewed the three landed parallel commits (9137b37, 9488f32,
+  d6aae0c): swatch clamp correct (visibility guard + min_x check),
+  toggle v3 structurally sound — the stamp guard survives on the
+  open path, KWin raise via D-Bus scripting with journalctl result
+  read, Hyprland branch, fallback close degrades to v2 behaviour;
+  FAN PRESETS modal follows the overlay pattern and does not touch
+  the SIGTERM handler region. Notes, not bugs: hyprctl dispatch rc
+  is trusted (Hyprland's known "exit 0 anyway" pattern), journalctl
+  result read is racy-but-bounded.
+- Found the harness red at HEAD (9–10 flows) and 4 unit failures —
+  reproduced even at c98fef4 in a worktree, so environment, not the
+  new code. Root causes: (1) the 654a80f singleton guard bowed every
+  harness instance out while a real TUI ran on the desktop — guard
+  now fails open on CTRON_TEST (harness Session sets it) or
+  CTRON_CONFIG (isolated config = deliberately parallel); (2) older
+  unit tests leak CTRON_CONFIG into the process env (set, never
+  restored — latent for weeks) and the bypass tripped on it;
+  check_singleton now saves/clears/restores the variables. The
+  ambient leak is documented, not fixed (cross-session test-order
+  dependencies).
+- Harness lesson: bare `make` does not rebuild build/test_core —
+  three debug iterations ran a stale binary until timestamps were
+  checked. Sandbox note: pty.fork children arrive STOPPED here; the
+  harness Session (Popen+pty+setsid) remains the reliable driver.
+- Verified: 0 warnings, unit + all tui flows green, including with
+  the user's real TUI open. Installed.
 
 ## Session 2026-10-14 — Fan curve startup honesty & FAN PRESETS modal overlay (Antigravity / Kerempkl / FA608PP)
 
