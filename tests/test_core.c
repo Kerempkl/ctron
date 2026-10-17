@@ -926,49 +926,111 @@ static void check_fan_presets(void)
         ")\n";
 
     fan_curve_t cpu = {0}, gpu = {0};
-    CHECK(fan_ron_parse(SAMPLE_RON, FAN_PRESET_BALANCED, &cpu, &gpu) == 0, "ron parse balanced");
+    bool c_en = true, g_en = true;
+    CHECK(fan_ron_parse(SAMPLE_RON, FAN_PRESET_BALANCED, &cpu, &gpu, &c_en, &g_en) == 0,
+          "ron parse balanced");
     CHECK(cpu.n == 8 && cpu.temp_c[0] == 30 && cpu.pwm[0] == 20, "ron bal cpu pt 0");
     CHECK(cpu.temp_c[7] == 100 && cpu.pwm[7] == 160, "ron bal cpu pt 7");
     CHECK(gpu.n == 8 && gpu.temp_c[0] == 35 && gpu.pwm[0] == 15, "ron bal gpu pt 0");
     CHECK(gpu.temp_c[7] == 105 && gpu.pwm[7] == 120, "ron bal gpu pt 7");
+    CHECK(c_en && g_en, "ron bal both enabled");
 
     memset(&cpu, 0, sizeof(cpu));
     memset(&gpu, 0, sizeof(gpu));
-    CHECK(fan_ron_parse(SAMPLE_RON, FAN_PRESET_QUIET, &cpu, &gpu) == 0, "ron parse quiet");
+    CHECK(fan_ron_parse(SAMPLE_RON, FAN_PRESET_QUIET, &cpu, &gpu, &c_en, &g_en) == 0,
+          "ron parse quiet");
     CHECK(cpu.n == 8 && cpu.pwm[0] == 10, "ron quiet cpu");
     CHECK(gpu.n == 8 && gpu.pwm[0] == 12, "ron quiet gpu");
+    CHECK(c_en && g_en, "ron quiet enabled defaults true (field absent)");
 
     /* perf not in sample text -> returns -1 */
-    CHECK(fan_ron_parse(SAMPLE_RON, FAN_PRESET_PERF, &cpu, &gpu) == -1, "ron parse missing perf");
+    CHECK(fan_ron_parse(SAMPLE_RON, FAN_PRESET_PERF, &cpu, &gpu, NULL, NULL) == -1,
+          "ron parse missing perf");
 
-    /* fan_preset_get for Quiet, Balanced, Performance */
+    /* enabled:false parsing + per-fan attribution (GPU off, CPU on) */
+    static const char *DISABLED_RON =
+        "(\n"
+        "    profiles: (\n"
+        "        performance: [\n"
+        "            (\n"
+        "                fan: CPU,\n"
+        "                pwm: (10, 20, 30, 40, 50, 60, 70, 80),\n"
+        "                temp: (40, 50, 60, 70, 80, 90, 100, 105),\n"
+        "                enabled: true,\n"
+        "            ),\n"
+        "            (\n"
+        "                fan: GPU,\n"
+        "                pwm: (12, 22, 32, 42, 52, 62, 72, 82),\n"
+        "                temp: (45, 55, 65, 75, 85, 95, 100, 105),\n"
+        "                enabled: false,\n"
+        "            ),\n"
+        "        ],\n"
+        "    ),\n"
+        ")\n";
+    c_en = g_en = true;
+    CHECK(fan_ron_parse(DISABLED_RON, FAN_PRESET_PERF, &cpu, &gpu, &c_en, &g_en) == 0,
+          "ron parse disabled perf");
+    CHECK(c_en && !g_en, "ron disabled gpu only");
+
+    /* built-in snapshot: Balanced was synced to the live ron on
+     * 2026-10-17 (the old GPU table was a different machine's step
+     * curve) — pin every point so drift is caught */
+    fan_curve_t b_cpu = {0}, b_gpu = {0};
+    CHECK(fan_preset_builtin(FAN_PRESET_BALANCED, &b_cpu, &b_gpu) == 0, "builtin balanced");
+    static const int bal_ct[8] = { 40, 54, 61, 67, 71, 75, 80, 90 };
+    static const int bal_cp[8] = { 22, 75, 80, 98, 125, 160, 190, 210 };
+    static const int bal_gt[8] = { 51, 53, 59, 64, 66, 70, 74, 83 };
+    static const int bal_gp[8] = { 33, 53, 73, 93, 140, 180, 215, 245 };
+    bool bal_ok = b_cpu.n == 8 && b_gpu.n == 8;
+    for (int i = 0; i < 8 && bal_ok; i++)
+        bal_ok = b_cpu.temp_c[i] == bal_ct[i] && b_cpu.pwm[i] == bal_cp[i] &&
+                 b_gpu.temp_c[i] == bal_gt[i] && b_gpu.pwm[i] == bal_gp[i];
+    CHECK(bal_ok, "builtin balanced pinned (synced 2026-10-17)");
+    fan_curve_t q_cpu = {0}, pfc = {0};
+    CHECK(fan_preset_builtin(FAN_PRESET_QUIET, &q_cpu, NULL) == 0 &&
+              q_cpu.n == 8 && q_cpu.temp_c[0] == 38 && q_cpu.pwm[7] == 100,
+          "builtin quiet spot pins");
+    CHECK(fan_preset_builtin(FAN_PRESET_PERF, NULL, &pfc) == 0 &&
+              pfc.n == 8 && pfc.temp_c[7] == 105 && pfc.pwm[0] == 78,
+          "builtin perf spot pins");
+    CHECK(fan_preset_builtin(FAN_PRESET_ACTIVE, &q_cpu, &pfc) == -1,
+          "builtin rejects active");
+
+    /* fan_preset_get for Quiet, Balanced, Performance (source is the
+     * real /etc/asusd file when present, else the pinned snapshot) */
     fan_curve_t p_cpu = {0}, p_gpu = {0};
-    CHECK(fan_preset_get(NULL, FAN_PRESET_QUIET, &p_cpu, &p_gpu) == 0, "preset get quiet");
+    fan_preset_info_t info = {0};
+    CHECK(fan_preset_get(NULL, FAN_PRESET_QUIET, &p_cpu, &p_gpu, &info) == 0, "preset get quiet");
     CHECK(p_cpu.n == 8 && p_gpu.n == 8, "quiet 8 points");
     CHECK(p_cpu.temp_c[0] < p_cpu.temp_c[7], "quiet cpu sorted");
     CHECK(p_gpu.temp_c[0] < p_gpu.temp_c[7], "quiet gpu sorted");
+    CHECK(info.src == FAN_PSRC_RON || info.src == FAN_PSRC_BUILTIN, "quiet src ron|builtin");
 
-    CHECK(fan_preset_get(NULL, FAN_PRESET_BALANCED, &p_cpu, &p_gpu) == 0, "preset get balanced");
+    CHECK(fan_preset_get(NULL, FAN_PRESET_BALANCED, &p_cpu, &p_gpu, &info) == 0, "preset get balanced");
     CHECK(p_cpu.n == 8 && p_gpu.n == 8, "balanced 8 points");
+    CHECK(info.src == FAN_PSRC_RON || info.src == FAN_PSRC_BUILTIN, "balanced src ron|builtin");
 
-    CHECK(fan_preset_get(NULL, FAN_PRESET_PERF, &p_cpu, &p_gpu) == 0, "preset get perf");
+    CHECK(fan_preset_get(NULL, FAN_PRESET_PERF, &p_cpu, &p_gpu, NULL) == 0, "preset get perf");
     CHECK(p_cpu.n == 8 && p_gpu.n == 8, "perf 8 points");
 
-    /* Active preset with hw */
+    /* Active preset with hw: live hwmon when the machine has it, else
+     * the seeded init snapshot (machine-dependent, both valid) */
     hw_state_t hw;
     memset(&hw, 0, sizeof(hw));
     fan_from_csv(&hw.fan_cpu_stock, "30,50,70", "40,80,120");
     fan_from_csv(&hw.fan_gpu_stock, "35,55,75", "50,90,130");
-    CHECK(fan_preset_get(&hw, FAN_PRESET_ACTIVE, &p_cpu, &p_gpu) == 0, "preset get active");
+    CHECK(fan_preset_get(&hw, FAN_PRESET_ACTIVE, &p_cpu, &p_gpu, &info) == 0, "preset get active");
     CHECK(p_cpu.n >= 3 && p_cpu.temp_c[0] >= FAN_TMIN && p_cpu.temp_c[p_cpu.n - 1] <= FAN_TMAX,
           "active cpu returns valid curve points");
     CHECK(p_gpu.n >= 3 && p_gpu.temp_c[0] >= FAN_TMIN && p_gpu.temp_c[p_gpu.n - 1] <= FAN_TMAX,
           "active gpu returns valid curve points");
+    CHECK(info.src == FAN_PSRC_HWMON || info.src == FAN_PSRC_STOCK, "active src hwmon|stock");
 
     /* Active preset with hw == NULL falls back to default curve */
     fan_curve_t d_cpu = {0}, d_gpu = {0};
-    CHECK(fan_preset_get(NULL, FAN_PRESET_ACTIVE, &d_cpu, &d_gpu) == 0, "active NULL hw");
+    CHECK(fan_preset_get(NULL, FAN_PRESET_ACTIVE, &d_cpu, &d_gpu, &info) == 0, "active NULL hw");
     CHECK(d_cpu.n == 8 && d_cpu.temp_c[0] == 30, "active NULL falls back to default");
+    CHECK(info.src == FAN_PSRC_DEFAULT, "active NULL src default");
 
 
     /* Verify startup honesty: settings_load does not overwrite live hwmon curves or set fan_staged */

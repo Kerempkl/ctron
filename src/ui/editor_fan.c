@@ -538,10 +538,10 @@ void editor_fan_act(int id, int mx, int my)
 /* ---- fan presets overlay ('m') ------------------------------------------ */
 
 static const char *const s_preset_labels[4] = {
-    "1: Quiet        (ASUS factory quiet curve)",
-    "2: Balanced     (ASUS factory balanced curve)",
-    "3: Performance  (ASUS factory performance curve)",
-    "4: Active (Live) (Reload active curve from EC)",
+    "1: Quiet",
+    "2: Balanced",
+    "3: Performance",
+    "4: Active (Live)",
 };
 
 void editor_fan_presets_open(void)
@@ -563,7 +563,7 @@ static void apply_selected_preset(void)
     fan_curve_t c_cpu = {0}, c_gpu = {0};
     fan_preset_get(g_ui.hw, (fan_preset_t)g_ui.fe_pr_sel,
                    g_ui.fe_pr_target_cpu ? &c_cpu : NULL,
-                   g_ui.fe_pr_target_gpu ? &c_gpu : NULL);
+                   g_ui.fe_pr_target_gpu ? &c_gpu : NULL, NULL);
 
     if (g_ui.fe_pr_target_cpu && c_cpu.n > 0)
         g_ui.hw->fan_cpu = c_cpu;
@@ -593,6 +593,17 @@ static void fmt_curve_summary(const fan_curve_t *fc, char *out, size_t n)
     }
 }
 
+static const char *preset_src_str(fan_preset_src_t s)
+{
+    switch (s) {
+    case FAN_PSRC_RON:     return "asusd ron";
+    case FAN_PSRC_BUILTIN: return "built-in snapshot 2026-10-17";
+    case FAN_PSRC_HWMON:   return "live EC curve";
+    case FAN_PSRC_STOCK:   return "init snapshot (hwmon unreadable)";
+    default:               return "generic default (no data)";
+    }
+}
+
 void editor_fan_presets_draw(struct ncplane *n, const rect_t *r)
 {
     const palette_t *pal = ui_palette(g_prefs.theme);
@@ -600,10 +611,11 @@ void editor_fan_presets_draw(struct ncplane *n, const rect_t *r)
 
     int x = r->x + 2;
     int w = r->w - 4;
+    int last = r->y + r->h - 2; /* last usable content row (frame -1) */
 
     /* Line 1: help / shortcuts */
     ui_putln(n, x, r->y + 1, w,
-             "1..4 select · Enter apply · c toggle CPU · g toggle GPU · Esc close",
+             "1..4 select · Enter load · c CPU · g GPU · Esc close",
              pal->muted, false);
 
     /* Line 2: target selection */
@@ -617,9 +629,11 @@ void editor_fan_presets_draw(struct ncplane *n, const rect_t *r)
            g_ui.fe_pr_target_gpu, false,
            TGT(TGT_PANEL_FAN_PRESETS, ACT_FPR_TARGET_GPU));
 
-    /* Rows 4..7: preset options */
+    /* Rows 4..7: preset options (clipped on tiny frames) */
     for (int i = 0; i < 4; i++) {
         int py = r->y + 4 + i;
+        if (py > last)
+            break;
         bool sel = (i == g_ui.fe_pr_sel);
         char line[96];
         snprintf(line, sizeof(line), "%s %s", sel ? "▸" : " ", s_preset_labels[i]);
@@ -627,37 +641,59 @@ void editor_fan_presets_draw(struct ncplane *n, const rect_t *r)
         tgt_register(x, py, w, 1, TGT(TGT_PANEL_FAN_PRESETS, ACT_FPR_ITEM + i));
     }
 
-    /* Preview section */
+    /* Preview + source (rows 9..11, clipped on tiny frames) */
     fan_curve_t prev_cpu = {0}, prev_gpu = {0};
-    fan_preset_get(g_ui.hw, (fan_preset_t)g_ui.fe_pr_sel, &prev_cpu, &prev_gpu);
+    fan_preset_info_t info = {0};
+    fan_preset_get(g_ui.hw, (fan_preset_t)g_ui.fe_pr_sel, &prev_cpu, &prev_gpu, &info);
+
+    if (r->y + 9 <= last) {
+        char src[96];
+        if (info.src == FAN_PSRC_RON) {
+            /* the enabled flags only exist in the ron; a disabled fan
+             * means asusd runs the factory curve for it in this
+             * profile — loading the points would mislead */
+            const char *off = !info.cpu_en && !info.gpu_en ? "CPU+GPU"
+                             : !info.cpu_en ? "CPU"
+                             : !info.gpu_en ? "GPU" : NULL;
+            if (off)
+                snprintf(src, sizeof(src), "Source: %s · %s off (factory runs)",
+                         preset_src_str(info.src), off);
+            else
+                snprintf(src, sizeof(src), "Source: %s · CPU ✓ GPU ✓",
+                         preset_src_str(info.src));
+        } else {
+            snprintf(src, sizeof(src), "Source: %s", preset_src_str(info.src));
+        }
+        ui_putln(n, x, r->y + 9, w, src, pal->muted, true);
+    }
 
     char c_sum[128], g_sum[128];
     fmt_curve_summary(&prev_cpu, c_sum, sizeof(c_sum));
     fmt_curve_summary(&prev_gpu, g_sum, sizeof(g_sum));
-
-    ui_putln(n, x, r->y + 9, w, "Curve preview:", pal->muted, true);
 
     char c_line[160], g_line[160];
     if (g_ui.fe_pr_target_cpu)
         snprintf(c_line, sizeof(c_line), "CPU: %s", c_sum);
     else
         snprintf(c_line, sizeof(c_line), "CPU: (not targeted)");
-    ui_putln(n, x, r->y + 10, w, c_line,
-             g_ui.fe_pr_target_cpu ? pal->text : pal->muted, false);
+    if (r->y + 10 <= last)
+        ui_putln(n, x, r->y + 10, w, c_line,
+                 g_ui.fe_pr_target_cpu ? pal->text : pal->muted, false);
 
     if (g_ui.fe_pr_target_gpu)
         snprintf(g_line, sizeof(g_line), "GPU: %s", g_sum);
     else
         snprintf(g_line, sizeof(g_line), "GPU: (not targeted)");
-    ui_putln(n, x, r->y + 11, w, g_line,
-             g_ui.fe_pr_target_gpu ? pal->text : pal->muted, false);
+    if (r->y + 11 <= last)
+        ui_putln(n, x, r->y + 11, w, g_line,
+                 g_ui.fe_pr_target_gpu ? pal->text : pal->muted, false);
 
-    /* Bottom buttons */
+    /* Bottom buttons — loading is editor-only; 'w' writes to the EC */
     int by = r->y + r->h - 2;
     bool can_apply = g_ui.fe_pr_target_cpu || g_ui.fe_pr_target_gpu;
-    ui_btn(n, x, by, " Apply Preset (Enter) ", can_apply, false,
+    ui_btn(n, x, by, " Load into editor (Enter) ", can_apply, false,
            TGT(TGT_PANEL_FAN_PRESETS, ACT_FPR_APPLY));
-    ui_btn(n, x + 25, by, " Cancel (Esc) ", false, false,
+    ui_btn(n, x + 27, by, " Cancel (Esc) ", false, false,
            TGT(TGT_PANEL_FAN_PRESETS, ACT_FPR_CANCEL));
 }
 

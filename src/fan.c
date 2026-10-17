@@ -231,21 +231,27 @@ int fan_raw_is_on(int raw)
     return raw == 1;
 }
 
-/* Built-in factory tables (ASUS TUF defaults from /etc/asusd/fan_curves.ron) */
-static const int S_FACTORY_QUIET_CPU_T[FAN_POINTS] = { 38, 63, 66, 69, 71, 76, 79, 105 };
-static const int S_FACTORY_QUIET_CPU_P[FAN_POINTS] = { 22, 25, 35, 43, 50, 60, 85, 100 };
-static const int S_FACTORY_QUIET_GPU_T[FAN_POINTS] = { 60, 62, 63, 64, 65, 68, 70, 105 };
-static const int S_FACTORY_QUIET_GPU_P[FAN_POINTS] = { 53, 53, 53, 53, 75, 75, 105, 105 };
+/* Compiled-in snapshot of THIS machine's asusd state (FA608PP,
+ * /etc/asusd/fan_curves.ron as of 2026-10-17). NOT verified factory
+ * data: asusd rewrites the file on every curve change and ctron's own
+ * fan writes persist here too, so user edits may be baked in. Used
+ * only when asusd is absent. The Balanced tables were synced to the
+ * live ron on 2026-10-17 — the previous values came from some other
+ * machine (the GPU curve was a completely different step curve). */
+static const int S_SNAPSHOT_QUIET_CPU_T[FAN_POINTS] = { 38, 63, 66, 69, 71, 76, 79, 105 };
+static const int S_SNAPSHOT_QUIET_CPU_P[FAN_POINTS] = { 22, 25, 35, 43, 50, 60, 85, 100 };
+static const int S_SNAPSHOT_QUIET_GPU_T[FAN_POINTS] = { 60, 62, 63, 64, 65, 68, 70, 105 };
+static const int S_SNAPSHOT_QUIET_GPU_P[FAN_POINTS] = { 53, 53, 53, 53, 75, 75, 105, 105 };
 
-static const int S_FACTORY_BAL_CPU_T[FAN_POINTS]   = { 40, 54, 61, 67, 71, 75, 80, 90 };
-static const int S_FACTORY_BAL_CPU_P[FAN_POINTS]   = { 22, 75, 80, 98, 135, 175, 215, 255 };
-static const int S_FACTORY_BAL_GPU_T[FAN_POINTS]   = { 61, 62, 63, 64, 65, 66, 69, 105 };
-static const int S_FACTORY_BAL_GPU_P[FAN_POINTS]   = { 53, 53, 53, 53, 255, 255, 255, 255 };
+static const int S_SNAPSHOT_BAL_CPU_T[FAN_POINTS]   = { 40, 54, 61, 67, 71, 75, 80, 90 };
+static const int S_SNAPSHOT_BAL_CPU_P[FAN_POINTS]   = { 22, 75, 80, 98, 125, 160, 190, 210 };
+static const int S_SNAPSHOT_BAL_GPU_T[FAN_POINTS]   = { 51, 53, 59, 64, 66, 70, 74, 83 };
+static const int S_SNAPSHOT_BAL_GPU_P[FAN_POINTS]   = { 33, 53, 73, 93, 140, 180, 215, 245 };
 
-static const int S_FACTORY_PERF_CPU_T[FAN_POINTS]  = { 38, 62, 71, 79, 83, 89, 96, 105 };
-static const int S_FACTORY_PERF_CPU_P[FAN_POINTS]  = { 47, 105, 135, 163, 205, 230, 255, 255 };
-static const int S_FACTORY_PERF_GPU_T[FAN_POINTS]  = { 58, 62, 71, 76, 84, 91, 98, 105 };
-static const int S_FACTORY_PERF_GPU_P[FAN_POINTS]  = { 78, 113, 158, 193, 210, 220, 230, 255 };
+static const int S_SNAPSHOT_PERF_CPU_T[FAN_POINTS]  = { 38, 62, 71, 79, 83, 89, 96, 105 };
+static const int S_SNAPSHOT_PERF_CPU_P[FAN_POINTS]  = { 47, 105, 135, 163, 205, 230, 255, 255 };
+static const int S_SNAPSHOT_PERF_GPU_T[FAN_POINTS]  = { 58, 62, 71, 76, 84, 91, 98, 105 };
+static const int S_SNAPSHOT_PERF_GPU_P[FAN_POINTS]  = { 78, 113, 158, 193, 210, 220, 230, 255 };
 
 const char *fan_preset_name(fan_preset_t p)
 {
@@ -258,7 +264,8 @@ const char *fan_preset_name(fan_preset_t p)
     }
 }
 
-static int parse_fan_block(const char *block, const char *fan_tag, fan_curve_t *fc)
+static int parse_fan_block(const char *block, const char *fan_tag, fan_curve_t *fc,
+                           bool *en)
 {
     if (!fc || !block || !fan_tag)
         return -1;
@@ -274,6 +281,21 @@ static int parse_fan_block(const char *block, const char *fan_tag, fan_curve_t *
         return -1;
     if (next_fan && temp_str > next_fan)
         return -1;
+
+    /* "enabled: true/false" belongs to this fan's block when it sits
+     * between the tag and the next "fan:" (absent = true, asusd always
+     * writes it) */
+    if (en) {
+        *en = true;
+        const char *e = strstr(p, "enabled:");
+        if (e && (!next_fan || e < next_fan)) {
+            const char *v = e + strlen("enabled:");
+            while (*v == ' ')
+                v++;
+            if (!strncmp(v, "false", 5))
+                *en = false;
+        }
+    }
 
     const char *po = strchr(pwm_str, '(');
     const char *to = strchr(temp_str, '(');
@@ -299,7 +321,8 @@ static int parse_fan_block(const char *block, const char *fan_tag, fan_curve_t *
     return 0;
 }
 
-int fan_ron_parse(const char *text, fan_preset_t preset, fan_curve_t *cpu, fan_curve_t *gpu)
+int fan_ron_parse(const char *text, fan_preset_t preset, fan_curve_t *cpu,
+                  fan_curve_t *gpu, bool *cpu_en, bool *gpu_en)
 {
     if (!text)
         return -1;
@@ -332,54 +355,38 @@ int fan_ron_parse(const char *text, fan_preset_t preset, fan_curve_t *cpu, fan_c
     block[len] = '\0';
 
     int rc = -1;
+    if (cpu_en)
+        *cpu_en = true;
+    if (gpu_en)
+        *gpu_en = true;
     if (cpu) {
-        if (parse_fan_block(block, "fan: CPU", cpu) == 0)
+        if (parse_fan_block(block, "fan: CPU", cpu, cpu_en) == 0)
             rc = 0;
     }
     if (gpu) {
-        if (parse_fan_block(block, "fan: GPU", gpu) == 0)
+        if (parse_fan_block(block, "fan: GPU", gpu, gpu_en) == 0)
             rc = 0;
     }
     free(block);
     return rc;
 }
 
-int fan_preset_get(hw_state_t *hw, fan_preset_t preset, fan_curve_t *cpu, fan_curve_t *gpu)
+/* Pure built-in snapshot fill — no file or hardware access. */
+int fan_preset_builtin(fan_preset_t preset, fan_curve_t *cpu, fan_curve_t *gpu)
 {
-    if (preset == FAN_PRESET_ACTIVE) {
-        if (hw && hw_fan_hwmon_read_live(hw, cpu, gpu) == 0)
-            return 0;
-        if (hw) {
-            if (cpu) *cpu = hw->fan_cpu_stock;
-            if (gpu) *gpu = hw->fan_gpu_stock;
-            return 0;
-        }
-        if (cpu) fan_default(cpu);
-        if (gpu) fan_default(gpu);
-        return 0;
-    }
-
-    /* Try asusd fan_curves.ron first */
-    char buf[8192];
-    if (ut_read_file_all("/etc/asusd/fan_curves.ron", buf, sizeof(buf)) == 0) {
-        if (fan_ron_parse(buf, preset, cpu, gpu) == 0)
-            return 0;
-    }
-
-    /* Built-in factory tables fallback */
     const int *ct = NULL, *cp = NULL, *gt = NULL, *gp = NULL;
     switch (preset) {
     case FAN_PRESET_QUIET:
-        ct = S_FACTORY_QUIET_CPU_T; cp = S_FACTORY_QUIET_CPU_P;
-        gt = S_FACTORY_QUIET_GPU_T; gp = S_FACTORY_QUIET_GPU_P;
+        ct = S_SNAPSHOT_QUIET_CPU_T; cp = S_SNAPSHOT_QUIET_CPU_P;
+        gt = S_SNAPSHOT_QUIET_GPU_T; gp = S_SNAPSHOT_QUIET_GPU_P;
         break;
     case FAN_PRESET_BALANCED:
-        ct = S_FACTORY_BAL_CPU_T; cp = S_FACTORY_BAL_CPU_P;
-        gt = S_FACTORY_BAL_GPU_T; gp = S_FACTORY_BAL_GPU_P;
+        ct = S_SNAPSHOT_BAL_CPU_T; cp = S_SNAPSHOT_BAL_CPU_P;
+        gt = S_SNAPSHOT_BAL_GPU_T; gp = S_SNAPSHOT_BAL_GPU_P;
         break;
     case FAN_PRESET_PERF:
-        ct = S_FACTORY_PERF_CPU_T; cp = S_FACTORY_PERF_CPU_P;
-        gt = S_FACTORY_PERF_GPU_T; gp = S_FACTORY_PERF_GPU_P;
+        ct = S_SNAPSHOT_PERF_CPU_T; cp = S_SNAPSHOT_PERF_CPU_P;
+        gt = S_SNAPSHOT_PERF_GPU_T; gp = S_SNAPSHOT_PERF_GPU_P;
         break;
     default:
         return -1;
@@ -400,5 +407,52 @@ int fan_preset_get(hw_state_t *hw, fan_preset_t preset, fan_curve_t *cpu, fan_cu
         }
     }
     return 0;
+}
+
+int fan_preset_get(hw_state_t *hw, fan_preset_t preset, fan_curve_t *cpu,
+                   fan_curve_t *gpu, fan_preset_info_t *info)
+{
+    if (info) {
+        info->src = FAN_PSRC_DEFAULT;
+        info->cpu_en = true;
+        info->gpu_en = true;
+    }
+
+    if (preset == FAN_PRESET_ACTIVE) {
+        if (hw && hw_fan_hwmon_read_live(hw, cpu, gpu) == 0) {
+            if (info)
+                info->src = FAN_PSRC_HWMON;
+            return 0;
+        }
+        if (hw) {
+            if (cpu) *cpu = hw->fan_cpu_stock;
+            if (gpu) *gpu = hw->fan_gpu_stock;
+            if (info)
+                info->src = FAN_PSRC_STOCK;
+            return 0;
+        }
+        if (cpu) fan_default(cpu);
+        if (gpu) fan_default(gpu);
+        return 0; /* info stays DEFAULT */
+    }
+
+    /* Try asusd fan_curves.ron first */
+    char buf[8192];
+    if (ut_read_file_all("/etc/asusd/fan_curves.ron", buf, sizeof(buf)) == 0) {
+        bool c_en = true, g_en = true;
+        if (fan_ron_parse(buf, preset, cpu, gpu, &c_en, &g_en) == 0) {
+            if (info) {
+                info->src = FAN_PSRC_RON;
+                info->cpu_en = c_en;
+                info->gpu_en = g_en;
+            }
+            return 0;
+        }
+    }
+
+    /* Built-in snapshot fallback */
+    if (info)
+        info->src = FAN_PSRC_BUILTIN;
+    return fan_preset_builtin(preset, cpu, gpu);
 }
 

@@ -1,6 +1,8 @@
 # Ctron Handoff
 
-Latest session — **2026-10-16** **GLM / FA608PP** (review of the
+Latest session — **2026-10-17** **GLM / FA608PP** (fan preset honesty
+package — Balanced table sync + source visibility, see below). Before
+that **2026-10-16** **GLM / FA608PP** (review of the
 10-12..14 parallel line + test-environment guard fixes — see below).
 Before that **2026-10-14** **Antigravity / Kerempkl / FA608PP** (Fan
 curve startup honesty & FAN PRESETS modal overlay — see below). Before that
@@ -77,6 +79,33 @@ prioritized todo list and the distilled session lessons.
   pidfile removal, exit 0). Harness-proven: rc=0 + pidfile gone.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
+
+## Session 2026-10-17 — fan preset honesty package (GLM / FA608PP)
+
+- User suspected the "ASUS factory" preset curves were wrong. Verified
+  against the live /etc/asusd/fan_curves.ron: Quiet/Perf identical,
+  Balanced CPU pwm off on 4/8 points, Balanced GPU a completely
+  different (step) curve — almost certainly from another TUF model.
+- Plan was self-reviewed once before approval (v2): modal height
+  unchanged (source line replaced the "Curve preview:" label row),
+  honesty moved onto the Apply button label ("Load into editor"),
+  info struct slimmed to src+enabled, tuitest verified untouched.
+- Landed: tables synced to this machine's ron (S_FACTORY_* →
+  S_SNAPSHOT_*, provenance comment — NOT verified factory, ctron's own
+  writes land in the ron); fan_preset_info_t source/enabled plumbing
+  (fan_preset_get +5th param, fan_ron_parse +2, pure fan_preset_builtin
+  seam); modal source line incl. per-fan "off (factory runs)" — this
+  machine's Quiet has BOTH fans disabled in the ron (loading it does
+  nothing audible; now it says so); Active fallback chain labelled;
+  tiny-frame row clipping fixed; HELP 'm' line updated.
+- Provenance caveat for FA507NVR: its own ron differs (no
+  asus-armoury on some installs → built-in snapshot fires; the
+  snapshot is FA608PP data — acceptable as a no-asusd fallback, now
+  visibly labelled as such).
+- Verified: make 0 warnings, unit (Balanced 2×8 pin + enabled:false +
+  src paths) + tuitest green, installed; live harness checks of the
+  modal (ron/live-EC sources, Load-into-editor, CPU+GPU-off wording).
+- Commit by the agent (path-scoped).
 
 ## Session 2026-10-16 — parallel-line review + test-environment guard fixes (GLM / FA608PP)
 

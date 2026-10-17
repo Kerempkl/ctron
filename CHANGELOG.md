@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-10-17 — fan presets: Balanced tables synced, sources made visible
+
+- User suspicion confirmed: the built-in "ASUS factory" Balanced
+  tables did not match the machine's real asusd curves — the GPU table
+  was a completely different curve (a 53→255 step, likely from another
+  TUF model) and the CPU pwm column diverged on 4 of 8 points. Quiet
+  and Performance were byte-identical. The built-ins now carry this
+  machine's asusd values (ron snapshot 2026-10-17), renamed
+  S_FACTORY_* → S_SNAPSHOT_*.
+- Provenance honesty: asusd rewrites fan_curves.ron on every curve
+  change (ctron's own fan writes persist there too), so neither the
+  ron nor the snapshot is VERIFIED factory data — "factory" is gone
+  from the UI and comments; sources are labelled as "asusd ron" vs
+  "built-in snapshot 2026-10-17".
+- The FAN PRESETS modal now shows a source line: "Source: asusd ron ·
+  CPU ✓ GPU ✓", per-fan asusd disabled flags ("· CPU+GPU off (factory
+  runs)" — this machine's Quiet profile has both disabled, so loading
+  its points would silently do nothing), and Active's fallback chain
+  (live EC curve / init snapshot / generic default). Preset labels
+  dropped the "(ASUS factory …)" suffixes; the apply button now reads
+  "Load into editor (Enter)" — the modal never writes the EC, and now
+  it says so at the point of action. HELP's 'm' line matches. Also
+  fixed: preview rows printed outside the frame when the modal was
+  height-clamped on tiny terminals (rows are now guarded).
+- API: fan_preset_get gains an optional fan_preset_info_t (source +
+  enabled), fan_ron_parse gains optional enabled out-params, and the
+  built-in fill is exported as pure fan_preset_builtin() so tests can
+  pin the tables without /etc present. Tests: full 2×8 Balanced pin
+  (sync marker), Quiet/Perf spot pins, enabled:false parsing with
+  per-fan attribution, source-path assertions (pure where possible;
+  ACTIVE on real hardware documented as HWMON|STOCK).
+- Live-verified in the real TUI via the harness: ron source line,
+  "Load into editor" button, per-preset sources (ron/ron/ron/live EC),
+  and the both-fans-off Quiet wording. make 0 warnings, unit + tuitest
+  green, installed.
+
 ## 2026-10-16 — test environment: the guard no longer fights the harness
 
 - Full-review pass found the pty harness red (9–10 flows) and 4 unit
