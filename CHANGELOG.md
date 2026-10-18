@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-10-18 — hardware finding: asusd's regenerated defaults are GENERIC, not factory
+
+- One-off probe (script in ~/asusd-default-probe.sh, user-run with
+  sudo; artifacts in ~/asusd-default-probe/): moved fan_curves.ron
+  aside and restarted asusd — it regenerated the file in 1335 bytes
+  with curves that are clearly generic fallbacks, NOT this model's
+  factory data: every profile comes back `enabled: false`, quiet
+  carries a 255 °C sentinel point, temps start at 20 °C, and the pwm
+  ramps look formula-generated. Restored afterwards, byte-identical
+  (md5), service active.
+- Consequence: the CURRENT ron (which all three ctron S_SNAPSHOT_*
+  tables now match exactly — Quiet and Perf always did, Balanced was
+  synced on 10-17) is the best available "factory" reference: most
+  plausibly seeded from the EC by asusd at first init, since asusd's
+  own defaults demonstrably differ. The 10-17 provenance caveat
+  ("may include user edits") still stands but is now bounded: the
+  only alternative source is the EC, not some other machine's table.
+- Footgun documented: `asusctl fan-curve --default` exists ("set the
+  active profile's fan curve to default") but per the probe it
+  installs these GENERIC curves, not the OEM factory curve — avoid it
+  when factory behaviour is the goal.
+
 ## 2026-10-17 — fan presets: Balanced tables synced, sources made visible
 
 - User suspicion confirmed: the built-in "ASUS factory" Balanced

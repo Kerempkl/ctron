@@ -1,6 +1,8 @@
 # Ctron Handoff
 
-Latest session — **2026-10-17** **GLM / FA608PP** (fan preset honesty
+Latest session — **2026-10-18** **GLM / Kerempkl / FA608PP** (asusd
+factory-default probe — findings below). Before that **2026-10-17**
+**GLM / FA608PP** (fan preset honesty
 package — Balanced table sync + source visibility, see below). Before
 that **2026-10-16** **GLM / FA608PP** (review of the
 10-12..14 parallel line + test-environment guard fixes — see below).
@@ -79,6 +81,37 @@ prioritized todo list and the distilled session lessons.
   pidfile removal, exit 0). Harness-proven: rc=0 + pidfile gone.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
+
+## Session 2026-10-18 — asusd factory-default probe (GLM / Kerempkl / FA608PP)
+
+- Goal: learn the "standard" fan curves. Plan approved (restore-after,
+  user's choice): ~/asusd-default-probe.sh, user-run with sudo once;
+  ron moved aside → asusd restart → capture → restore. Clean run:
+  REGENERATED, restore md5-identical, service active, profile
+  Performance intact.
+- **Finding 1:** asusd's regenerated defaults are GENERIC fallbacks —
+  every profile `enabled: false`, quiet has a 255 °C sentinel temp
+  point, 20 °C starts, formula-looking ramps. NOT the model's factory
+  curves. Therefore the pre-existing ron content (EC-seeded at asusd's
+  first init, most plausibly) is the real factory reference — and
+  ctron's S_SNAPSHOT_* tables now match it exactly for all three
+  profiles (Balanced synced 10-17; Quiet/Perf were already exact).
+  The 10-17 provenance caveat is now bounded: alternative source is
+  only the EC/user edits, not another machine's table.
+- **Finding 2 (footgun):** `asusctl fan-curve --default` installs
+  those GENERIC curves — do not use it expecting factory behaviour.
+  Also `asusctl --version` is not a flag on this build (report uses
+  `--help`).
+- Live == Performance preset (user's observation) re-confirmed as
+  correct: active profile is Performance and the EC curve is
+  byte-identical to the ron's performance section.
+- Artifacts: ~/asusd-default-probe/ (ron-before = factory reference
+  copy, ron-defaults = asusd generic fallback, diff, report). Script
+  kept for future re-verification. No code changes — docs only
+  (CHANGELOG note + this section). Possible follow-ups (offered, not
+  done): reword the S_SNAPSHOT provenance comment/modal label from
+  "not verified factory" to "asusd default = generic; this snapshot is
+  EC-seeded"; HARDWARE.md note for the --default footgun.
 
 ## Session 2026-10-17 — fan preset honesty package (GLM / FA608PP)
 
