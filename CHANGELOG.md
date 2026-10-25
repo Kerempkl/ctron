@@ -1,5 +1,38 @@
 # Changelog
 
+## 2026-10-25 — release: v0.3.0 (first tag; numbering now agent-managed)
+
+- Version numbering delegated to the agent by the user. Policy recorded
+  in NEXT.md: semver (PATCH = fixes only, MINOR = features/UX, MAJOR =
+  breaking config/CLI changes); the annotated `vX.Y.Z` tag sits on the
+  same commit as the VERSION bump; pushing tags stays with the user,
+  like every push.
+- First cut v0.3.0 — the accumulation since 0.2.1 (09-27) is
+  MINOR-grade: fan presets modal with source visibility, M4 toggle +
+  single-instance guard + clean SIGTERM exit, PPT/ryzenadj write path,
+  GPU clock lock, daeboard control + binds editor, background apply
+  worker.
+- VERSION bump in src/main.c (the only definition) + README title.
+  make 0 warnings, make test green, `--version` prints 0.3.0.
+
+## 2026-10-25 — docs: NEXT.md rewritten as the single-source roadmap
+
+- NEXT.md is now roadmap-only: version policy, FAZ 1 maintenance &
+  honesty (S_SNAPSHOT provenance reword from the 10-18 probe,
+  HARDWARE.md `--default` footgun note, flake.nix), FAZ 2 field-test
+  debt (FA507NVR live tests, FA608PP CCD/OCCT field tests,
+  multi-monitor parsing, Hyprland TUI mouse), FAZ 3 security hardening
+  (ut_priv_write fork+execve, ut_exec_argv migration, pidfile O_EXCL
+  audit, sudoers doc), mini telemetry graphs parked with a scope
+  decision pending (user choice), one unified parked list. The old
+  mostly-BİTTİ archive stays in git history (this file at 5570b48).
+- Truth fixes: PLANS.md's daeboard sections still said "Not built" —
+  both shipped (client + control + binds editor; daeboard.c,
+  editor_daeboard.c, LIGHT rows, CLI --daeboard-*/--follow); dashboard
+  section marked unbuilt with a pointer to NEXT.md. README Roadmap
+  (parked) unified with NEXT.md's list (+UI language table, +polkit
+  helper) and now points at NEXT.md as the single source.
+
 ## 2026-10-18 — hardware finding: asusd's regenerated defaults are GENERIC, not factory
 
 - One-off probe (script in ~/asusd-default-probe.sh, user-run with

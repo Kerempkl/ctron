@@ -1,4 +1,4 @@
-# ctron v0.2.1
+# ctron v0.3.0
 
 Lightweight ASUS laptop control center for Linux. One C binary, one
 dependency ([notcurses](https://github.com/dankamongmen/notcurses)).

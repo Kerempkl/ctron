@@ -1,6 +1,8 @@
 # Ctron Handoff
 
-Latest session — **2026-10-18** **GLM / Kerempkl / FA608PP** (asusd
+Latest session — **2026-10-25** **GLM / Kerempkl / FA608PP** (roadmap
+rewrite + v0.3.0 release cut — see below). Before that **2026-10-18**
+**GLM / Kerempkl / FA608PP** (asusd
 factory-default probe — findings below). Before that **2026-10-17**
 **GLM / FA608PP** (fan preset honesty
 package — Balanced table sync + source visibility, see below). Before
@@ -81,6 +83,27 @@ prioritized todo list and the distilled session lessons.
   pidfile removal, exit 0). Harness-proven: rc=0 + pidfile gone.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
+
+## Session 2026-10-25 — roadmap rewrite + v0.3.0 release cut (GLM / Kerempkl / FA608PP)
+
+- Docs audit first (user asked for a roadmap + critique of the files):
+  NEXT.md had become an archive (6/8 "SIRADAKİ İŞLER" items BİTTİ,
+  numbering broken — four items numbered "2"), the tctl gauge was
+  listed half-open though it was closed as impossible-honestly, and
+  open work was scattered across NEXT.md / PLANS.md / README /
+  SECURITY.md / HANDOFF plus agent memory (v0.2.1 tag, FA507NVR live
+  tests, 10-18 provenance follow-ups). PLANS.md still said "Not built"
+  for daeboard sections that shipped long ago.
+- NEXT.md rewritten as the single-source roadmap: version policy,
+  FAZ 1 maintenance & honesty, FAZ 2 field-test debt, FAZ 3 security
+  hardening (from SECURITY.md Phases 1-2), mini telemetry graphs parked
+  with a scope decision pending (user chose "park" for now), one
+  unified parked list; README Roadmap synced and now points at NEXT.md.
+- Version numbering delegated to the agent by the user (10-25).
+  Policy: semver, annotated tag on the VERSION-bump commit, tags
+  pushed by the user only. First cut **v0.3.0** — MINOR-grade
+  accumulation since 0.2.1 — tag sits on the release commit, local.
+- Verified: make 0 warnings, make test green, `--version` = 0.3.0.
 
 ## Session 2026-10-18 — asusd factory-default probe (GLM / Kerempkl / FA608PP)
 
