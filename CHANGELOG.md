@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-10-25 — docs: README redesigned as a GitHub landing page
+
+- Real TUI screenshots (not mockups): `docs/tui-fan.png` (fan curve
+  editor, hero) and `docs/tui-power.png` (POWER view), captured from
+  the live binary by the new permanent tool `scripts/tui_screenshot.py`
+  — pty Session from tui_smoke.py + a small ANSI terminal-emulator
+  replay + PIL render (no pyte/tmux/pip needed on this machine).
+  Isolated CTRON_CONFIG, so the real settings.ini is untouched.
+- README restructured: centered hero with shields badges
+  (version/language/dependency/platform), features table, working-
+  principles list, TUI key table, collapsible details for display
+  backends / KDE M4 key / code layout, documentation index.
+- Truth fixes while rewriting: CLI reference regenerated from the real
+  `--help` (`--setup`/`--tui` were stale → removed; `--freq core|ccd`,
+  `--ac-profile`/`--battery-profile`, `--follow`/`--daeboard-*`,
+  `--fan cpu|gpu on|off` added; the duplicated `--ppt` entry
+  collapsed), snapshot directory corrected to `profiles/*.ctr`,
+  parked list synced with NEXT.md's unified list.
+- Version policy (NEXT.md): the README `version` badge is updated in
+  the same release commit as the VERSION bump.
+- No code changes; version stays v0.3.0 (docs-only).
+
 ## 2026-10-25 — release: v0.3.0 (first tag; numbering now agent-managed)
 
 - Version numbering delegated to the agent by the user. Policy recorded

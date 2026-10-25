@@ -15,6 +15,8 @@ Kullanıcı sürüm numaralandırmasını agent'a devretti. Şema: semver.
 - Etiket `vX.Y.Z` **annotated** olarak atılır ve VERSION bump'la **aynı
   release commit'ini** işaret eder. Tag'i push etmek kullanıcı tarafında
   kalır (her push gibi).
+- README'deki `version` badge'i de aynı release commit'inde güncellenir
+  (10-25 README yeniden tasarımıyla geldi).
 - İlk kesim **v0.3.0** — 0.2.1'den (09-27) bu yana birikim MINOR
   seviyesinde: fan presets modali, M4 toggle + tek-örnek guard,
   PPT/ryzenadj yazma yolu, GPU clock lock, daeboard control + editör,

@@ -1,8 +1,9 @@
 # Ctron Handoff
 
-Latest session — **2026-10-25** **GLM / Kerempkl / FA608PP** (roadmap
-rewrite + v0.3.0 release cut — see below). Before that **2026-10-18**
-**GLM / Kerempkl / FA608PP** (asusd
+Latest session — **2026-10-25** **GLM / Kerempkl / FA608PP** (README
+redesign: GitHub landing page + real TUI screenshots — see below;
+same-day earlier: roadmap rewrite + v0.3.0 release cut). Before that
+**2026-10-18** **GLM / Kerempkl / FA608PP** (asusd
 factory-default probe — findings below). Before that **2026-10-17**
 **GLM / FA608PP** (fan preset honesty
 package — Balanced table sync + source visibility, see below). Before
@@ -83,6 +84,33 @@ prioritized todo list and the distilled session lessons.
   pidfile removal, exit 0). Harness-proven: rc=0 + pidfile gone.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
+
+## Session 2026-10-25 — README redesign: GitHub landing page + real TUI screenshots (GLM / Kerempkl / FA608PP)
+
+- User asked for a better-looking GitHub page. Delivered: hero header
+  (centered title, tagline, shields badges: version/language/deps/
+  platform), features table, honesty principles, TUI key table,
+  collapsible `<details>` for display backends / M4 key / code layout,
+  documentation index table.
+- **Real screenshots, not mockups:** `scripts/tui_screenshot.py`
+  (permanent tool) runs the live binary on a pty (Session adapted from
+  tui_smoke.py, real xterm-256 palette + COLORTERM=truecolor in the
+  responder), replays the ANSI stream through a small built-in terminal
+  emulator (CSI/SGR subset — no pyte/tmux on this machine, no pip) and
+  renders the screen grid to PNG with PIL/DejaVu Mono. Captures against
+  an isolated CTRON_CONFIG. Output: `docs/tui-fan.png` (fan editor,
+  hero) + `docs/tui-power.png` (POWER view). All three candidate frames
+  (incl. the presets modal) vision-verified clean — coherent panels,
+  no garbled cells.
+- Truth fixes surfaced by the rewrite: CLI reference was stale —
+  regenerated from the real `--help` (`--setup`/`--tui` removed;
+  `--freq core|ccd`, `--ac/--battery-profile`, daeboard flags,
+  `--fan cpu|gpu on|off` added; duplicated `--ppt` entry collapsed);
+  snapshot dir corrected to `profiles/*.ctr`; parked list synced with
+  NEXT.md's unified list.
+- NEXT.md version policy: README `version` badge updates in the same
+  release commit as the VERSION bump.
+- No code changes; `make` untouched. Version stays v0.3.0 (docs-only).
 
 ## Session 2026-10-25 — roadmap rewrite + v0.3.0 release cut (GLM / Kerempkl / FA608PP)
 
