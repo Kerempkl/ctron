@@ -203,11 +203,15 @@ is the agreed handoff point. Current state and open items:
 
 ## Roadmap (parked)
 
+Open work is tracked in `NEXT.md` (single source). Intentionally parked:
+
 - Waybar color sync (v1 feature, intentionally out of v2)
 - MUX / dGPU switch (`gpu_mux_mode`, `dgpu_disable`) — needs reboot flow
 - `throttle_thermal_policy` — overlaps platform profiles, skipped to
   avoid two masters fighting over fan behaviour
 - wlr-randr / xrandr display backends
+- UI language table (EN/TR)
+- polkit helper (SECURITY.md Phase 3)
 
 ## Files
 

@@ -1,9 +1,16 @@
 # ctron — later plans
 
-Not built. `PLAN.md` is the v2 that is already in the tree. Nothing in
-this file runs unless someone opens it on purpose.
+Status (2026-10-25): the two daeboard sections below are **shipped**
+(client + control + binds editor live in this tree); the dashboard
+telemetry section is still **unbuilt** — scope decision pending, see
+NEXT.md ("Kapsam kararı bekliyor"). `PLAN.md` is the v2 that is already
+in the tree. Nothing in this file runs unless someone opens it on
+purpose.
 
 ## Fullscreen dashboard telemetry
+
+Still unbuilt — kept as the reference plan; the strip-vs-dash scope
+decision is tracked in NEXT.md.
 
 A last-look screen: many live graphs and a full read of the machine,
 plus ASCII art the user picks. It is not the default. No-args `ctron`
@@ -77,7 +84,10 @@ Missing file or unknown name falls back to `none` and logs one line.
 
 ## daeboard client
 
-Not built. daeboard is a separate root daemon
+**Shipped (2026-10)**: `src/daeboard.c` + LIGHT view rows + CLI
+`--daeboard-start/stop/reload`. What remains of this section is
+daemon-side work (socket effect commands, NixOS unit, AUR) and lives in
+the daemon repo, not here. daeboard is a separate root daemon
 (`~/Documents/daeboard`, socket `/run/daeboard/daeboard.sock`). While it
 is running it owns the FA507NVR keyboard color. ctron must not also call
 `asusctl aura` or write `kbd_rgb_mode` in that same action.
@@ -120,7 +130,12 @@ Commands the daemon accepts today:
 
 ## daeboard control
 
-Not built. This is the step after the client above. ctron can start the
+**Shipped (2026-10)**: binds editor (`src/ui/editor_daeboard.c`),
+Start/Stop/Install/Editor/Reload rows on the LIGHT view, and the
+`--follow` follower are in this tree. Remaining pieces are daemon-side
+or distribution (socket effect commands, NixOS unit, AUR — daemon repo).
+
+This is the step after the client above. ctron can start the
 daemon, stop it, and edit what a key does. The daemon still owns the
 keys and the LED. ctron does not read evdev.
 
