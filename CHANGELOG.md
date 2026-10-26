@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-10-26 — fan provenance: S_SNAPSHOT upgraded to the 10-18 probe finding
+
+- Wording-only change (no behaviour): the S_SNAPSHOT_* provenance
+  comment (src/fan.c), the fan.h preset comment and FAN_PSRC_BUILTIN
+  enum note, and the presets-modal source label now state the probe
+  result — asusd's own defaults are GENERIC fallbacks, so this
+  machine's ron (which the snapshot matches exactly) is the best
+  available factory reference, most plausibly EC-seeded by asusd at
+  first init. The residual caveat stays written down (asusd rewrites
+  the ron on every curve change; pre-2026-10-17 edits on this machine
+  may be baked in). Modal label: "built-in snapshot 2026-10-17" →
+  "EC-seeded snapshot 10-17". Factual "factory" wording about
+  pwmN_enable kernel semantics is untouched.
+- HARDWARE.md EN+TR: new footgun bullet — `asusctl fan-curve
+  --default` installs asusd's GENERIC curves (every profile disabled,
+  255 °C sentinel), not the OEM factory curve.
+- Roadmap: NEXT.md FAZ 1 item 2 closed. Verified: make 0 warnings,
+  make test + make tuitest green.
+
 ## 2026-10-25 — docs: README redesigned as a GitHub landing page
 
 - Real TUI screenshots (not mockups): `docs/tui-fan.png` (fan curve

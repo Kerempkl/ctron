@@ -26,7 +26,8 @@ Kullanıcı sürüm numaralandırmasını agent'a devretti. Şema: semver.
 ## FAZ 1 — Bakım & dürüstlük (kısa vade)
 
 1. **[BİTTİ 10-25]** v0.3.0 sürüm kesimi (yukarıdaki politika).
-2. **Provenance düzeltmesi (10-18 bulgusunun doc/kod yansıması):**
+2. **[BİTTİ 10-26]** Provenance düzeltmesi (10-18 bulgusunun doc/kod
+   yansıması):
    `src/fan.c`'teki S_SNAPSHOT provenance yorumu ve presets modalındaki
    kaynak etiketi "NOT verified factory" temelli söylemden
    "asusd default = generic fallback; bu anlık görüntü EC-seed'li fabrika

@@ -232,12 +232,15 @@ int fan_raw_is_on(int raw)
 }
 
 /* Compiled-in snapshot of THIS machine's asusd state (FA608PP,
- * /etc/asusd/fan_curves.ron as of 2026-10-17). NOT verified factory
- * data: asusd rewrites the file on every curve change and ctron's own
- * fan writes persist here too, so user edits may be baked in. Used
- * only when asusd is absent. The Balanced tables were synced to the
- * live ron on 2026-10-17 — the previous values came from some other
- * machine (the GPU curve was a completely different step curve). */
+ * /etc/asusd/fan_curves.ron as of 2026-10-17). Provenance (probed
+ * 2026-10-18): asusd's own regenerated defaults are GENERIC fallbacks
+ * (every profile disabled, a 255 °C sentinel point), so this ron —
+ * which these tables match exactly — is the best available factory
+ * reference, most plausibly seeded from the EC by asusd at first
+ * init. Residual caveat: asusd rewrites the file on every curve
+ * change and ctron's own fan writes persist here too, so edits made
+ * on this machine before 2026-10-17 may be baked in. Used only when
+ * asusd is absent. */
 static const int S_SNAPSHOT_QUIET_CPU_T[FAN_POINTS] = { 38, 63, 66, 69, 71, 76, 79, 105 };
 static const int S_SNAPSHOT_QUIET_CPU_P[FAN_POINTS] = { 22, 25, 35, 43, 50, 60, 85, 100 };
 static const int S_SNAPSHOT_QUIET_GPU_T[FAN_POINTS] = { 60, 62, 63, 64, 65, 68, 70, 105 };

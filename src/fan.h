@@ -45,9 +45,9 @@ int fan_raw_is_on(int raw);
 
 /* Preset fan curves. QUIET/BALANCED/PERF come from asusd's
  * fan_curves.ron when present (asusd's CURRENT state — it rewrites
- * the file on every curve change, so these are not guaranteed
- * factory values), or from a compiled-in snapshot of this machine's
- * asusd state. ACTIVE re-reads the live EC curves. */
+ * the file on every curve change), or from a compiled-in snapshot of
+ * this machine's asusd state (EC-seeded factory reference, probed
+ * 2026-10-18). ACTIVE re-reads the live EC curves. */
 typedef enum {
     FAN_PRESET_QUIET = 0,
     FAN_PRESET_BALANCED,
@@ -61,7 +61,7 @@ const char *fan_preset_name(fan_preset_t p);
 /* Where a preset's data came from (shown in the presets modal). */
 typedef enum {
     FAN_PSRC_RON,    /* /etc/asusd/fan_curves.ron (asusd's current state) */
-    FAN_PSRC_BUILTIN,/* compiled-in snapshot of this machine's asusd state */
+    FAN_PSRC_BUILTIN,/* compiled-in snapshot of this machine's ron (EC-seeded factory ref) */
     FAN_PSRC_HWMON,  /* live EC hwmon read (ACTIVE) */
     FAN_PSRC_STOCK,  /* init-time snapshot (ACTIVE, hwmon unreadable) */
     FAN_PSRC_DEFAULT /* generic fan_default (ACTIVE, no data at all) */

@@ -597,7 +597,7 @@ static const char *preset_src_str(fan_preset_src_t s)
 {
     switch (s) {
     case FAN_PSRC_RON:     return "asusd ron";
-    case FAN_PSRC_BUILTIN: return "built-in snapshot 2026-10-17";
+    case FAN_PSRC_BUILTIN: return "EC-seeded snapshot 10-17";
     case FAN_PSRC_HWMON:   return "live EC curve";
     case FAN_PSRC_STOCK:   return "init snapshot (hwmon unreadable)";
     default:               return "generic default (no data)";

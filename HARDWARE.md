@@ -42,6 +42,12 @@ Notes:
   shows "everything + armoury limits", FA507NVR shows "everything but
   the generic PPT ceiling + stale reads". The gap is exactly the
   kernel / asus-armoury difference.
+- **`asusctl fan-curve --default` is a footgun (probed 2026-10-18)**:
+  it installs asusd's GENERIC fallback curves — every profile comes
+  back `enabled: false` and quiet gains a 255 °C sentinel point — not
+  the OEM factory curve. The pre-existing `fan_curves.ron` (seeded
+  from the EC at asusd's first init) is the better factory reference;
+  do not reset it expecting factory behaviour.
 - **KDE M4 / Armoury Crate key (FA608PP, verified 2026-10-03)**: the key
   emits scancode `0x26` → `KEY_PROG3` → XKB keysym `XF86Launch3`, so the
   KDE shortcut picker shows it as **"Launch (3)"**. Bind it to ctron via
@@ -142,6 +148,12 @@ Notlar:
   "her şey + armoury limitleri", FA507NVR "her şey ama jenerik PPT
   tavanı + bayat okuma" profili çizer. Aradaki fark tam olarak
   kernel / asus-armoury farkıdır.
+- **`asusctl fan-curve --default` bir tuzak (2026-10-18'de denendi)**:
+  asusd'nin GENERIC yedek eğrilerini kurar — her profil `enabled:
+  false` döner, quiet'e 255 °C sentinel noktası girer — OEM fabrika
+  eğrisini değil. Önceden var olan `fan_curves.ron` (asusd ilk açılışta
+  EC'den aldığı değerler) daha iyi fabrika referansı; fabrika davranışı
+  bekleyerek sıfırlamayın.
 - **KDE M4 / Armoury Crate tuşu (FA608PP, 2026-10-03'te doğrulandı)**:
   tuş `0x26` tarama kodu → `KEY_PROG3` → XKB `XF86Launch3` yollar; KDE
   kısayol seçicisinde **"Launch (3)"** olarak görünür. ctron'a

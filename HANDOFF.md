@@ -1,6 +1,8 @@
 # Ctron Handoff
 
-Latest session — **2026-10-25** **GLM / Kerempkl / FA608PP** (README
+Latest session — **2026-10-26** **GLM / Kerempkl / FA608PP** (roadmap
+execution started: FAZ 1 provenance fix — see below). Before that
+**2026-10-25** **GLM / Kerempkl / FA608PP** (README
 redesign: GitHub landing page + real TUI screenshots — see below;
 same-day earlier: roadmap rewrite + v0.3.0 release cut). Before that
 **2026-10-18** **GLM / Kerempkl / FA608PP** (asusd
@@ -84,6 +86,27 @@ prioritized todo list and the distilled session lessons.
   pidfile removal, exit 0). Harness-proven: rc=0 + pidfile gone.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
+
+## Session 2026-10-26 — roadmap execution: FAZ 1 provenance fix (GLM / Kerempkl / FA608PP)
+
+- First roadmap item executed (NEXT.md FAZ 1 item 2): S_SNAPSHOT
+  provenance wording upgraded to the 10-18 probe finding — asusd's
+  own defaults are GENERIC fallbacks, so this machine's ron (which
+  the snapshot matches exactly) is the best available factory
+  reference, most plausibly EC-seeded at asusd first init; the
+  residual caveat (ron rewritten on every curve change, pre-10-17
+  edits may be baked in) stays in the comment. fan.h preset comment +
+  FAN_PSRC_BUILTIN note + presets-modal label ("built-in snapshot
+  2026-10-17" → "EC-seeded snapshot 10-17") aligned. pwmN_enable
+  "factory" wording untouched (kernel semantics).
+- HARDWARE.md EN+TR gained the `asusctl fan-curve --default` footgun
+  bullet (installs GENERIC curves, not factory).
+- Wording-only; unit tests pin values not strings and tuitest's
+  flow_fan_presets pins title+log only — verified unaffected.
+  make 0 warnings, make test + make tuitest green.
+- Next candidates (not started): FAZ 3.10 pidfile O_EXCL audit,
+  FAZ 3.8 ut_priv_write fork+execve; FAZ 1 flake.nix waits for
+  Arcioth-side verification.
 
 ## Session 2026-10-25 — README redesign: GitHub landing page + real TUI screenshots (GLM / Kerempkl / FA608PP)
 
