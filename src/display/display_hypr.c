@@ -112,37 +112,48 @@ static int hypr_parse_mon(const char *obj, hypr_mon_t *m)
     return 0;
 }
 
-static int hypr_read_focused(hypr_mon_t *m)
+/* Pure: extract the monitor object we control from a monitors-JSON
+ * buffer — the focused one when present, else the first. Mode lists
+ * are parsed from THIS object only, so a second monitor's modes never
+ * leak into the focused monitor's list. */
+static int hypr_obj_from(const char *buf, char *obj, size_t n)
 {
-    char buf[HYPR_BUF];
-    if (hypr_query(buf, sizeof(buf)) != 0)
-        return -1;
-
-    hypr_mon_t first = {0};
+    char first[HYPR_BUF];
     int have_first = 0;
     const char *p = buf;
     while ((p = strchr(p, '{')) != NULL) {
-        char obj[HYPR_BUF];
-        if (hypr_extract_obj(p, obj, sizeof(obj)) != 0)
+        if (hypr_extract_obj(p, obj, n) != 0)
             break;
-        hypr_mon_t cur;
-        if (hypr_parse_mon(obj, &cur) == 0 && cur.w > 0) {
-            if (!have_first) {
-                first = cur;
-                have_first = 1;
-            }
-            if (strstr(obj, "\"focused\": true") || strstr(obj, "\"focused\":true")) {
-                *m = cur;
-                return 0;
-            }
+        if (strstr(obj, "\"focused\": true") || strstr(obj, "\"focused\":true"))
+            return 0;
+        if (!have_first) {
+            snprintf(first, sizeof first, "%s", obj);
+            have_first = 1;
         }
         p++;
     }
-    if (have_first) {
-        *m = first;
-        return 0;
-    }
-    return -1;
+    if (!have_first)
+        return -1;
+    snprintf(obj, n, "%s", first);
+    return 0;
+}
+
+static int hypr_mon_obj(char *obj, size_t n)
+{
+    char buf[HYPR_BUF];
+    if (hypr_query(buf, sizeof buf) != 0)
+        return -1;
+    return hypr_obj_from(buf, obj, n);
+}
+
+static int hypr_read_focused(hypr_mon_t *m)
+{
+    char obj[HYPR_BUF];
+    if (hypr_mon_obj(obj, sizeof obj) != 0)
+        return -1;
+    if (hypr_parse_mon(obj, m) != 0 || m->w <= 0)
+        return -1;
+    return 0;
 }
 
 /* ---- ops ------------------------------------------------------------- */
@@ -165,14 +176,11 @@ static int hypr_current_hz(void)
     return (int)(m.refresh + 0.5);
 }
 
-static int hypr_modes_hz(int *out, int max)
+/* Sorted unique hz values from ONE monitor object's availableModes. */
+static int hypr_modes_from_obj(const char *obj, int *out, int max)
 {
-    char buf[HYPR_BUF];
-    if (hypr_query(buf, sizeof(buf)) != 0)
-        return 0;
-
     int n = 0;
-    const char *p = strstr(buf, "\"availableModes\"");
+    const char *p = strstr(obj, "\"availableModes\"");
     if (p) {
         const char *q = p;
         while ((q = strchr(q, '"')) != NULL && n < max) {
@@ -192,11 +200,6 @@ static int hypr_modes_hz(int *out, int max)
             q = e ? e + 1 : q;
         }
     }
-    if (n == 0) {
-        int hz = hypr_current_hz();
-        if (hz > 0)
-            out[n++] = hz;
-    }
     for (int i = 1; i < n; i++)
         for (int j = i; j > 0 && out[j - 1] > out[j]; j--) {
             int t = out[j - 1];
@@ -206,12 +209,26 @@ static int hypr_modes_hz(int *out, int max)
     return n;
 }
 
+static int hypr_modes_hz(int *out, int max)
+{
+    char obj[HYPR_BUF];
+    int n = 0;
+    if (hypr_mon_obj(obj, sizeof obj) == 0)
+        n = hypr_modes_from_obj(obj, out, max);
+    if (n == 0) {
+        int hz = hypr_current_hz();
+        if (hz > 0)
+            out[n++] = hz;
+    }
+    return n;
+}
+
 static int hypr_pick_mode_string(int hz, int w, int h, char *out, size_t n)
 {
-    char buf[HYPR_BUF];
-    if (hypr_query(buf, sizeof(buf)) != 0)
+    char obj[HYPR_BUF];
+    if (hypr_mon_obj(obj, sizeof obj) != 0)
         return -1;
-    const char *p = strstr(buf, "\"availableModes\"");
+    const char *p = strstr(obj, "\"availableModes\"");
     if (!p)
         return -1;
     const char *q = p;
@@ -283,6 +300,17 @@ static int hypr_set_hz(int hz)
         }
     }
     return -1;
+}
+
+/* Offline parser entry point for tests (no hyprctl involved): the
+ * focused (or first) monitor object's availableModes as sorted unique
+ * hz values. */
+int disp_hypr_test_parse(const char *json, int *hz_out, int hz_max)
+{
+    char obj[HYPR_BUF];
+    if (hypr_obj_from(json, obj, sizeof obj) != 0)
+        return -1;
+    return hypr_modes_from_obj(obj, hz_out, hz_max);
 }
 
 const display_ops_t disp_hypr_ops = {

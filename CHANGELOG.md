@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-10-26 — display: multi-monitor parsing — the panel's own modes, not the first monitor's
+
+- kde backend: output blocks are now picked (the eDP* laptop panel
+  when present, else the first "Output:" block) and the Modes line is
+  parsed strictly within that block. Previously the first "Output:"
+  and the first "Modes:" in the whole buffer were taken, mixing or
+  misattributing monitors when an external output is listed first.
+- hyprland backend: name, geometry AND mode list now all come from
+  ONE extracted monitor object (focused:true, else the first) via new
+  hypr_obj_from/hypr_mon_obj — hypr_modes_hz and
+  hypr_pick_mode_string previously took the first "availableModes"
+  array anywhere in the JSON, which could list the wrong monitor's
+  modes on a focused-panel + external-HDMI setup.
+- Offline tests: a two-output kscreen-doctor sample (HDMI first → eDP
+  picked, HDMI's 120 Hz absent, current hz from the panel block) and
+  a two-monitor hyprctl JSON (focused wins; no-focused falls back to
+  the first; empty array fails honestly). New disp_hypr_test_parse
+  seam mirrors disp_kde_test_parse.
+- Verified: make 0 warnings, unit green, live single-monitor
+  regression identical (165 Hz, 60/165 modes on FA608PP). Live
+  two-monitor proof (HDMI-A-1) moved to the FAZ 2 field-test items.
+
 ## 2026-10-26 — release: v0.3.1 (PATCH — security chain)
 
 - PATCH per the agent-managed semver policy: everything since v0.3.0

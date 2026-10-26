@@ -27,12 +27,20 @@ typedef struct {
     bool current;
 } kde_mode_t;
 
-/* Parse "Output: <idx> <name> <uuid>" -> name. */
-static int kde_parse_output_name(const char *text, char *name, size_t n)
+/* Bounded substring search: needle fully inside [s, e). */
+static const char *kde_find(const char *s, const char *e, const char *needle)
 {
-    const char *p = strstr(text, "Output:");
-    if (!p)
-        return -1;
+    size_t len = strlen(needle);
+    for (const char *p = s; p + len <= e; p++)
+        if (memcmp(p, needle, len) == 0)
+            return p;
+    return NULL;
+}
+
+/* Parse "Output: <idx> <name> <uuid>" from a line starting at
+ * "Output:" -> name. */
+static int kde_parse_name_at(const char *p, char *name, size_t n)
+{
     p += strlen("Output:");
     while (*p && isspace((unsigned char)*p))
         p++;
@@ -53,21 +61,53 @@ static int kde_parse_output_name(const char *text, char *name, size_t n)
     return 0;
 }
 
-/* Scan every "N:WxH@R[*][!]" token in a "Modes:" line. */
-static int kde_parse_modes(const char *text, kde_mode_t *out, int max)
+/* Pick the output block we control and bound it to [start, next
+ * "Output:" or end): the laptop panel (eDP*) when present, else the
+ * first block. On multi-monitor listings the chosen block's own Modes
+ * line is parsed, so a second monitor's modes never leak into the
+ * panel's list (and vice versa). */
+static const char *kde_pick_block(const char *text, char *name, size_t n,
+                                  const char **end_out)
 {
-    const char *line = strstr(text, "Modes:");
+    const char *best = NULL, *best_end = NULL;
+    char best_name[64] = {0};
+    const char *p = strstr(text, "Output:");
+    while (p) {
+        const char *next = strstr(p + strlen("Output:"), "Output:");
+        const char *bend = next ? next : p + strlen(p);
+        char nm[64];
+        if (kde_parse_name_at(p, nm, sizeof nm) == 0 &&
+            (!best || (strncmp(nm, "eDP", 3) == 0 &&
+                       strncmp(best_name, "eDP", 3) != 0))) {
+            best = p;
+            best_end = bend;
+            snprintf(best_name, sizeof best_name, "%s", nm);
+        }
+        p = next;
+    }
+    if (!best)
+        return NULL;
+    snprintf(name, n, "%s", best_name);
+    *end_out = best_end;
+    return best;
+}
+
+/* Scan every "N:WxH@R[*][!]" token in the "Modes:" line inside
+ * [start, end). */
+static int kde_parse_modes_range(const char *start, const char *end,
+                                 kde_mode_t *out, int max)
+{
+    const char *line = kde_find(start, end, "Modes:");
     if (!line)
         return 0;
-    const char *end = strchr(line, '\n');
-    if (!end)
-        end = line + strlen(line);
+    const char *nl = memchr(line, '\n', (size_t)(end - line));
+    const char *lend = nl ? nl : end;
 
     int n = 0;
     const char *p = line;
-    while (p < end && n < max) {
-        const char *colon = memchr(p, ':', (size_t)(end - p));
-        if (!colon || colon + 1 >= end)
+    while (p < lend && n < max) {
+        const char *colon = memchr(p, ':', (size_t)(lend - p));
+        if (!colon || colon + 1 >= lend)
             break;
         const char *q = colon + 1;
         int w = (int)strtol(q, (char **)&q, 10);
@@ -84,7 +124,7 @@ static int kde_parse_modes(const char *text, kde_mode_t *out, int max)
         q++;
         double r = strtod(q, (char **)&q);
         bool cur = false;
-        while (q < end && (*q == '*' || *q == '!')) {
+        while (q < lend && (*q == '*' || *q == '!')) {
             if (*q == '*')
                 cur = true;
             q++;
@@ -107,9 +147,11 @@ static int kde_query(char *buf, size_t n, char *name, size_t name_n,
     const char *q[] = { "kscreen-doctor", "-o", NULL };
     if (ut_exec_argv_raw(q, buf, n) != 0)
         return -1;
-    if (kde_parse_output_name(buf, name, name_n) != 0)
+    const char *bend = NULL;
+    const char *block = kde_pick_block(buf, name, name_n, &bend);
+    if (!block)
         return -1;
-    *mode_count = kde_parse_modes(buf, modes, max_modes);
+    *mode_count = kde_parse_modes_range(block, bend, modes, max_modes);
     return 0;
 }
 
@@ -117,10 +159,12 @@ static int kde_query(char *buf, size_t n, char *name, size_t name_n,
 int disp_kde_test_parse(const char *text, char *name, size_t nn,
                         int *hz_cur, int *hz_out, int hz_max)
 {
-    if (kde_parse_output_name(text, name, nn) != 0)
+    const char *bend = NULL;
+    const char *block = kde_pick_block(text, name, nn, &bend);
+    if (!block)
         return -1;
     kde_mode_t modes[64];
-    int mc = kde_parse_modes(text, modes, 64);
+    int mc = kde_parse_modes_range(block, bend, modes, 64);
     int n = 0;
     for (int i = 0; i < mc && n < hz_max; i++) {
         if (hz_cur && modes[i].current)

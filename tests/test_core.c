@@ -211,6 +211,57 @@ static void check_kde_parser(void)
     int cur = -1;
     disp_kde_test_parse(sample, name, sizeof(name), &cur, hz, 16);
     CHECK(cur == 165, "kde current hz (marked with *)");
+
+    /* multi-monitor listing: an external HDMI output comes FIRST — the
+     * panel (eDP*) must be chosen and only ITS modes parsed */
+    const char *multi =
+        "Output: 1 HDMI-A-1 1111-2222\n"
+        "\tenabled\n"
+        "\tconnected\n"
+        "Modes:  1:1920x1080@60.00*  2:1920x1080@120.00 \n"
+        "Geometry: 1920,0 1920x1080\n"
+        "Output: 2 eDP-1 3333-4444\n"
+        "\tenabled\n"
+        "\tconnected\n"
+        "Modes:  1:2560x1600@165.00*!  2:2560x1600@60.00 \n"
+        "Geometry: 0,0 2560x1600\n";
+    rc = disp_kde_test_parse(multi, name, sizeof(name), &cur, hz, 16);
+    CHECK(!strcmp(name, "eDP-1"), "kde multi: panel picked over first HDMI");
+    CHECK(rc == 2 && hz[0] == 60 && hz[1] == 165, "kde multi: panel modes only");
+    CHECK(cur == 165, "kde multi: current from panel block");
+}
+
+static void check_hypr_parser(void)
+{
+    extern int disp_hypr_test_parse(const char *json, int *hz_out, int hz_max);
+
+    /* two monitors, external listed FIRST and NOT focused: the focused
+     * panel's availableModes must win */
+    const char *two =
+        "[{ \"name\":\"HDMI-A-1\", \"width\":1920, \"height\":1080, "
+        "\"refreshRate\":60.00, \"x\":1920, \"y\":0, \"scale\":1.00, "
+        "\"focused\":false, "
+        "\"availableModes\":[\"1920x1080@60.00Hz\",\"1920x1080@120.00Hz\"] }, "
+        "{ \"name\":\"eDP-1\", \"width\":1920, \"height\":1080, "
+        "\"refreshRate\":144.06, \"x\":0, \"y\":0, \"scale\":1.00, "
+        "\"focused\":true, "
+        "\"availableModes\":[\"1920x1080@60.06Hz\",\"1920x1080@144.06Hz\"] }]";
+    int hz[16];
+    int rc = disp_hypr_test_parse(two, hz, 16);
+    CHECK(rc == 2 && hz[0] == 60 && hz[1] == 144,
+          "hypr multi: focused monitor's modes only");
+
+    /* no focused flag anywhere -> first monitor (HDMI) is the fallback */
+    const char *nofocus =
+        "[{ \"name\":\"HDMI-A-1\", \"width\":1920, \"height\":1080, "
+        "\"refreshRate\":60.00, \"availableModes\":[\"1920x1080@60.00Hz\"] }, "
+        "{ \"name\":\"eDP-1\", \"width\":1920, \"height\":1080, "
+        "\"refreshRate\":144.00, \"availableModes\":[\"1920x1080@144.00Hz\"] }]";
+    rc = disp_hypr_test_parse(nofocus, hz, 16);
+    CHECK(rc == 1 && hz[0] == 60, "hypr no-focus: first monitor fallback");
+
+    rc = disp_hypr_test_parse("[]", hz, 16);
+    CHECK(rc == -1, "hypr empty array honest failure");
 }
 
 static void check_power_fmt(void)
@@ -1136,6 +1187,7 @@ int main(void)
 
     check_profiles();
     check_kde_parser();
+    check_hypr_parser();
     check_power_fmt();
     check_cpu_list_parse();
     check_topology_group();

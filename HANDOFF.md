@@ -89,6 +89,27 @@ prioritized todo list and the distilled session lessons.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
 
+## Session 2026-10-26 — display multi-monitor parsing + flake.nix (GLM / Kerempkl / FA608PP)
+
+- "Yapılacakları bitirelim" round. Roadmap FAZ 2 item 6 (code half)
+  closed: kde backend picks the eDP* panel block (else first) and
+  parses Modes only within it; hypr backend derives name + geometry +
+  modes from ONE focused monitor object (hypr_obj_from/hypr_mon_obj).
+  Offline two-monitor tests for both (new disp_hypr_test_parse seam);
+  live single-monitor regression identical (165 Hz / 60,165 on
+  FA608PP). Live HDMI-A-1 proof explicitly moved to the FAZ 2
+  field-test items (hypr on FA507NVR, kde on FA608PP with an external
+  monitor).
+- flake.nix written from scratch (no nix on this machine — NOT
+  build-verified here; the retired v1 copies no longer carry one):
+  packages.<sys>.ctron + default, devShell = the documented
+  nix-shell toolchain. flake version now rides the release commit
+  (policy line added). Arcioth checklist: nix build, nix develop +
+  make, generate+commit flake.lock on first run.
+- FAZ 1 item 3 stays open pending that verification. Remaining agent
+  work in the roadmap: none — the rest is FAZ 2 field tests
+  (Arcioth/user), the mini-graph scope decision (user), parked.
+
 ## Session 2026-10-26 — FAZ 3.12 wrapper probe + v0.3.1 cut (GLM / Kerempkl / FA608PP)
 
 - ctrl_ppt_wrapper_cmd: PPT writes in ryzenadj-mode probe

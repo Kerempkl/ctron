@@ -44,17 +44,21 @@ Kullanıcı sürüm numaralandırmasını agent'a devretti. Şema: semver.
 ## FAZ 2 — Saha & doğrulama borcu (makineli, paralel yürür)
 
 4. **FA507NVR canlı testleri (Arcioth):** `pwmN_enable=1` yazımı
-   (custom mod canlı), asılı daeboard socket'i (SO_RCVTIMEO yolu canlı),
-   `--gpu-clock` canlı. (HANDOFF 10-08 Grok oturumunun "not done live"
+   (custom mod canlı), asılı daeboard socket'i (SO_RCVTIMEO yolu
+   canlı), `--gpu-clock` canlı, **çok monitör canlı proof (HDMI-A-1 +
+   panel; hypr backend odaklı monitörün modlarını listeliyor)**.
+   (HANDOFF 10-08 Grok oturumunun "not done live"
    listesi — bugüne dek hiçbir todo dosyasında değildi.)
 5. **FA608PP saha testleri:** CCD kolonlarını elle doğrulama; post-OCCT
-   kernel clamp → reboot → yeniden test.
-6. **Çok monitör:** kde backend yalnız ilk `Output:`/`Modes:` bloğunu
-   okuyor (`display_kde.c` `kde_parse_output_name`/`kde_parse_modes`);
-   hypr backend availableModes'i bellekteki ilk diziden alıyor, odaklı
-   monitörden değil (`display_hypr.c` `hypr_modes_hz`). Doğrulama
-   HDMI-A-1 takılıyken (FA507NVR). README "Hyprland handoff notes"
-   checklist'iyle aynı madde.
+   kernel clamp → reboot → yeniden test; (fırsat çıkarsa) harici
+   monitör takılıyken kde çok-ekran listesi.
+6. **[BİTTİ 10-26 — kod tarafı]** Çok monitör: kde backend artık blok
+   bazlı (eDP* panel tercih edilir, yoksa ilk blok; Mod satırı yalnız
+   kendi bloğundan), hypr backend adı/geometriyi/mod listesini TEK
+   odaklı monitör objesinden alıyor (önceki: bellekteki ilk
+   availableModes). Offline iki-ekran testleri pinned; **canlı
+   HDMI-A-1 proof'u** FAZ 2'ye taşındı (item 4 hypr / item 5 kde
+   tarafı).
 7. **Hyprland'de TUI mouse** (v1 edge-tab geçmişi; README handoff).
 
 ## FAZ 3 — Güvenlik yapısal (SECURITY.md Faz 1-2 sırasıyla)
