@@ -111,17 +111,79 @@ static void fmt_val(char *out, size_t n, unit_t u, double v)
     }
 }
 
-/* multi-row block chart over the whole ring window, newest on the
- * right. Each column covers a slice of samples and keeps their max, so
- * a spike between two columns still shows. Half blocks double the
- * vertical resolution: 2*rows levels. */
+/* multi-row braille line chart over the ring window (btop-style):
+ * 2x4 dots per cell — rows*4 vertical levels, no cell seams — one
+ * line drawn left-to-right with vertical interpolation between
+ * points, newest on the right. */
 #define CHART_COLS_MAX 256
+#define CHART_ROWS_MAX 8
+
+static double s_rng_mn[TS_COUNT], s_rng_mx[TS_COUNT];
+static bool s_rng_ok[TS_COUNT];
+
+static double dmax3(double a, double b, double c)
+{
+    return a > b ? (a > c ? a : c) : (b > c ? b : c);
+}
+
+/* Fixed series ranges (0-100) pass through untouched — they never
+ * rescale, so none of this applies. AUTO windows get: a minimum span
+ * of 25% of the larger magnitude (a near-flat series must LOOK flat,
+ * not explode into full-height noise), 5% headroom pad, and an
+ * exponential follow that hides the rescale jump every time the 60 s
+ * window slides a sample out. */
+static void chart_scale(int sidx, int count, double *mnp, double *mxp)
+{
+    double mn, mx;
+    telem_range(sidx, &mn, &mx);
+    if (mn != TELEM_AUTO || mx != TELEM_AUTO) {
+        *mnp = mn;
+        *mxp = mx;
+        return;
+    }
+    if (count <= 0) {
+        *mnp = *mxp = -1;
+        return;
+    }
+
+    telem_minmax(sidx, &mn, &mx);
+    double span = mx > mn ? mx - mn : 0.0;
+    double mag = mn < 0 ? -mn : mn; /* magnitudes here are >= 0 */
+    double minspan = 0.25 * dmax3(mx, mag, 1.0);
+    if (span < minspan) {
+        double mid = (mx + mn) / 2.0;
+        mn = mid - minspan / 2.0;
+        mx = mid + minspan / 2.0;
+    } else {
+        double pad = 0.05 * span;
+        mn -= pad;
+        mx += pad;
+    }
+
+    if (!s_rng_ok[sidx]) {
+        s_rng_mn[sidx] = mn;
+        s_rng_mx[sidx] = mx;
+        s_rng_ok[sidx] = true;
+    } else {
+        s_rng_mn[sidx] += 0.2 * (mn - s_rng_mn[sidx]);
+        s_rng_mx[sidx] += 0.2 * (mx - s_rng_mx[sidx]);
+        if (s_rng_mx[sidx] <= s_rng_mn[sidx]) {
+            s_rng_mn[sidx] = mn;
+            s_rng_mx[sidx] = mx;
+        }
+    }
+    *mnp = s_rng_mn[sidx];
+    *mxp = s_rng_mx[sidx];
+}
+
 static void chart(struct ncplane *n, int x, int y, int w, int rows, int sidx)
 {
     const palette_t *pal = ui_palette(g_prefs.theme);
     int count = telem_count(sidx);
     if (count < 1 || rows < 1)
         return;
+    if (rows > CHART_ROWS_MAX)
+        rows = CHART_ROWS_MAX;
     int cols = w - 2;
     if (cols < 4)
         cols = 4;
@@ -129,58 +191,54 @@ static void chart(struct ncplane *n, int x, int y, int w, int rows, int sidx)
         cols = CHART_COLS_MAX;
 
     double mn, mx;
-    telem_range(sidx, &mn, &mx);
-    if (mn == TELEM_AUTO && mx == TELEM_AUTO)
-        telem_minmax(sidx, &mn, &mx);
-    if (mx <= mn) { /* flat window: stand on the middle, like the spark */
-        mn -= 1.0;
-        mx += 1.0;
-    }
+    chart_scale(sidx, count, &mn, &mx);
+    if (!(mx > mn))
+        return;
 
-    int h[CHART_COLS_MAX];
-    for (int c = 0; c < cols; c++) {
-        int lo = (int)((long long)c * count / cols);
-        int hi = (int)((long long)(c + 1) * count / cols);
-        if (hi <= lo)
-            hi = lo + 1;
-        double peak = -1, v;
-        for (int k = lo; k < hi && k < count; k++) {
-            if (telem_at(sidx, count - 1 - k, &v) && v > peak)
-                peak = v;
-        }
-        if (peak < 0) {
-            h[c] = -1; /* no sample in this column */
+    int drows = rows * 4; /* dot rows */
+    int half = cols * 2;  /* one sample point per dot column */
+    unsigned char grid[CHART_ROWS_MAX][CHART_COLS_MAX];
+    memset(grid, 0, sizeof grid);
+
+    int prev = -1;
+    for (int i = 0; i < half; i++) {
+        int k = (int)((long long)i * count / half);
+        double v;
+        if (!telem_at(sidx, count - 1 - k, &v) || v < 0) {
+            prev = -1;
             continue;
         }
-        double lvl = (peak - mn) / (mx - mn);
-        if (lvl < 0)
-            lvl = 0;
-        if (lvl > 1)
-            lvl = 1;
-        h[c] = (int)(lvl * (2 * rows) + 0.5);
-        if (h[c] > 2 * rows)
-            h[c] = 2 * rows;
+        double f = (v - mn) / (mx - mn);
+        if (f < 0)
+            f = 0;
+        if (f > 1)
+            f = 1;
+        int yb = (int)(f * (drows - 1) + 0.5); /* bottom-based */
+        /* dot the point; connect vertically to the previous point so
+         * fast moves render as one stroke, not dotted columns */
+        int y0 = prev >= 0 && prev < yb ? prev : yb;
+        int y1 = prev >= 0 && prev > yb ? prev : yb;
+        for (int yy = y0; yy <= y1; yy++) {
+            int dt = drows - 1 - yy; /* dot row from the top */
+            grid[dt / 4][i / 2] |= (i % 2 ? 0x10u : 0x01u) << (dt % 4);
+        }
+        prev = yb;
     }
 
     char buf[CHART_COLS_MAX * 3 + 4];
-    for (int rr = 0; rr < rows; rr++) {
-        int br = rows - 1 - rr; /* bottom-based row index */
+    for (int r = 0; r < rows; r++) {
         size_t wb = 0;
         for (int c = 0; c < cols && wb + 4 < sizeof buf; c++) {
-            if (h[c] >= 2 * (br + 1)) {
-                buf[wb++] = (char)0xE2; /* █ */
-                buf[wb++] = (char)0x96;
-                buf[wb++] = (char)0x88;
-            } else if (h[c] == 2 * br + 1) {
-                buf[wb++] = (char)0xE2; /* ▄ lower half */
-                buf[wb++] = (char)0x96;
-                buf[wb++] = (char)0x84;
+            if (grid[r][c]) {
+                buf[wb++] = (char)0xE2; /* U+2800..U+28FF braille */
+                buf[wb++] = (char)0xA0;
+                buf[wb++] = (char)(0x80 | grid[r][c]);
             } else {
                 buf[wb++] = ' ';
             }
         }
         buf[wb] = '\0';
-        ui_putln(n, x + 1, y + rr, w, buf, pal->accent, false);
+        ui_putln(n, x + 1, y + r, w, buf, pal->accent, false);
     }
 }
 
@@ -229,8 +287,8 @@ static void detail_charts(struct ncplane *n, const rect_t *r,
         return;
     }
     int per = (avail - ninfo) / nch - 2;
-    if (per > 10)
-        per = 10;
+    if (per > CHART_ROWS_MAX) /* braille: 4 dot-rows per line, plenty */
+        per = CHART_ROWS_MAX;
     int y = r->y + 1;
     for (int i = 0; i < nch; i++) {
         chart_block(n, x, y, w, per, &cd[i]);

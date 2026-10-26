@@ -147,6 +147,18 @@ prioritized todo list and the distilled session lessons.
   README badge + flake.nix in the release commit, annotated tag on
   top. Push stays with the user. Sensor-expansion series (PD watts,
   pstate, ...) is the natural next task — inventory above.
+- Same-day follow-up (user report "grafikler çok bozuk"): block area
+  charts replaced by btop-style **braille line graphs** (2×4 dots per
+  cell, vertical interpolation between points, no cell seams) plus a
+  new chart_scale for AUTO series — 25%-of-magnitude minimum span
+  (near-flat series render flat, not full-height noise), 5% pad,
+  exponential follow against window-slide rescale jumps; fixed 0-100
+  ranges untouched. No -lm added (dmax3 helper, not fmax/fabs).
+  STALE INSTALL BIT AGAIN, for the exact reason the lesson exists:
+  the user tested in the 20:07→20:27 window before `make install`
+  ran ("bişey değişmedi" — nothing changed, because nothing HAD
+  changed in ~/.local/bin). Also remind them a RUNNING ctron does
+  not hot-swap: quit + relaunch after any install.
 
 ## Session 2026-10-26 — security: privileged writes fully shell-free (GLM / Kerempkl / FA608PP)
 

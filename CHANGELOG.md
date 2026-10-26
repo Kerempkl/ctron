@@ -1,5 +1,28 @@
 # Changelog
 
+## 2026-10-26 — ui: detail charts redrawn as braille line graphs
+
+- User report: the block area charts "çok bozuk" in the real terminal.
+  Two causes, both fixed: (1) AUTO window scaling amplified a
+  near-flat series (e.g. clock 2212–2378 MHz) into full-height noise
+  and rescaled every 250 ms tick (constant jumping); (2) half-block
+  ▄ cells leave seams between rows on many font/line-height combos.
+- Charts are now btop-style braille line graphs: 2×4 dots per cell
+  (rows×4 vertical levels, no cell seams), one thin line drawn
+  left-to-right with vertical interpolation between points, newest
+  right. Tofu-free in DejaVu-class monospace fonts.
+- New chart_scale() for AUTO series only (fixed 0-100 ranges pass
+  through untouched): minimum span = 25% of the larger magnitude so a
+  flat series LOOKS flat, 5% headroom pad, and an exponential follow
+  (k=0.2) that hides the rescale jump as the 60 s window slides.
+  Chart height cap 10→8 rows (braille quadruples the resolution).
+- No libm dependency introduced (dmax3 helper instead of fmax/fabs —
+  the Makefile has no -lm and portability keeps it that way).
+- Verified: make 0 warnings, make test, full make tuitest on both
+  build/ and the INSTALLED binary, screenshots (thin lines, no tofu,
+  flat clock renders flat with gentle wiggle). Rides the unpushed
+  v0.5.0 (tag untouched).
+
 ## 2026-10-26 — ui: fullscreen telemetry section detail pages (v0.5.0)
 
 - The 't' fullscreen grew a second mode: j/k (or arrows) walks the
