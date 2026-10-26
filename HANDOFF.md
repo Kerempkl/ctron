@@ -1,7 +1,9 @@
 # Ctron Handoff
 
 Latest session — **2026-10-26** **GLM / Kerempkl / FA608PP**
-(performance audit → FAZ 4 planned and LANDED: items 13/14/15 in
+(small docs pass: machine-local setup notes genericized across the
+guides — see below). Before that **2026-10-26** **GLM / Kerempkl /
+FA608PP** (performance audit → FAZ 4 planned and LANDED: items 13/14/15 in
 three commits, key-burst CPU 8.7% → 3.3% — see below). Before that
 **2026-10-26** **GLM / Kerempkl / FA608PP**
 (comprehensive performance/optimization audit, measured → NEXT.md
@@ -37,8 +39,7 @@ rebased onto `07d19c2` (PPT/ryzenadj). Fan enable is `1` on / `2` auto;
 matches the TUI command set (`--freq ccd`, `--fan cpu|gpu on|off`,
 `--gpu-clock`, asusd auto profiles). `make` is warning-free and
 `make test` passes. Not done live: writing enable `1`, a hung daeboard
-socket, and `--gpu-clock`. This machine's sudo is `NOPASSWD: ALL`.
-The FA608PP sudoers rule was not checked. Before that **2026-10-06** **GLM / FA608PP** (util write-path
+socket, and `--gpu-clock`. The FA608PP sudoers rule was not checked. Before that **2026-10-06** **GLM / FA608PP** (util write-path
 hardening — P4 item 1, see below). Before that **2026-10-04** **GLM /
 FA608PP** (GPU clock lock -lgc + verify-race/unstaged-CPU fixes, hz
 ceiling) and **2026-10-03** **GLM / FA608PP** (full code audit +
@@ -95,6 +96,18 @@ prioritized todo list and the distilled session lessons.
   pidfile removal, exit 0). Harness-proven: rc=0 + pidfile gone.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
+
+## Session 2026-10-26 — docs: machine-local setup notes genericized (GLM / Kerempkl / FA608PP)
+
+- Pass over the public docs replacing per-host setup-state sentences
+  with generic guidance: SECURITY.md §4.4 NixOS paragraph reworded,
+  one 10-08 handoff line and one changelog line trimmed. Generic
+  sudoers wording and rule examples untouched — host-local setup
+  state doesn't belong in the guides.
+- Accepted by the user: pushed history still carries the old wording
+  (a true removal would need history rewrite + force push — out of
+  proportion for this).
+- No code change; make/test untouched.
 
 ## Session 2026-10-26 — FAZ 4 executed: items 13/14/15 landed (GLM / Kerempkl / FA608PP)
 

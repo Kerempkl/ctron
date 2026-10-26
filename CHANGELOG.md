@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-26 — docs: machine-local setup notes genericized
+
+- Wording pass over SECURITY.md / HANDOFF.md / CHANGELOG.md: per-host
+  setup-state sentences replaced with generic guidance (§4.4 NixOS
+  paragraph reworded; two session-record lines trimmed). Rule
+  examples and generic risk notes untouched. No code change.
+
 ## 2026-10-26 — perf: FAZ 4 items 13/14/15 landed (key-burst 8.7% → 3.3% CPU)
 
 - hw: cpu_limits_sweep split (a7d82b5) — the static column (present +
@@ -211,7 +218,7 @@
   §4.3 is the stricter three-integers wrapper, which needs the small
   ctrl_ppt_ryzen_cmd probe follow-up now tracked as NEXT.md FAZ 3
   item 12 before ctron itself can use it; §4.4 documents NixOS
-  store-path instability (FA507NVR unverified, still NOPASSWD: ALL);
+  store-path instability (FA507NVR unverified);
   §4.5 is the install verification checklist. Live-checked: both asus
   fan hwmons (`asus`, `asus_custom_fan_curve`) resolve under
   /sys/devices/platform/asus-nb-wmi/*, so the tee rule family covers

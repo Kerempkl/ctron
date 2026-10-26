@@ -214,8 +214,9 @@ Store paths change per generation, so a literal sudoers path goes
 stale at the next `nixos-rebuild`. Prefer `security.sudo.extraRules`
 with the generation-independent spelling
 (`/run/current-system/sw/bin/...`), or package the §4.3 wrapper and
-allow only that. This half is unverified on the FA507NVR (roadmap
-FAZ 2, Arcioth) — that machine currently runs `NOPASSWD: ALL`.
+allow only that. This half is unverified on the NixOS machine (roadmap
+FAZ 2, Arcioth); until it is, treat any NixOS host's sudoers state as
+machine-local and re-check the rule spelling after each rebuild.
 
 ### 4.5 Verifying an install
 
