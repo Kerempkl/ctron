@@ -6,7 +6,7 @@
 
 One C binary. One dependency ([notcurses](https://github.com/dankamongmen/notcurses)). No daemon.
 
-![version](https://img.shields.io/badge/version-v0.4.0-0072c6)
+![version](https://img.shields.io/badge/version-v0.5.0-0072c6)
 ![language](https://img.shields.io/badge/language-C-659ad2)
 ![deps](https://img.shields.io/badge/dependency-notcurses%20only-2ea043)
 ![platform](https://img.shields.io/badge/platform-Linux%20%C2%B7%20ASUS%20TUF-555)
@@ -97,6 +97,11 @@ sections (CPU / GPU / iGPU / RAM / storage / power), each with rolling
 sparklines over a ~60 s window — CPU & GPU temperatures, clocks, load,
 fan RPMs, dGPU power/utilisation/VRAM, iGPU temp/clock/power, RAM use
 + module temps, NVMe temps + disk I/O + fill bar, battery draw/charge.
+`j`/`k` walk the section grid and `Enter` (or `1`–`6`) opens a
+section's **detail page**: full-width multi-row charts with
+min/max/last stats plus info lines from a fresh live snapshot
+(PPT/EPP, per-core ceilings, VRAM/clock lock, battery health …);
+`h`/`l` flips sections, `esc` backs out to the grid.
 Unknown sensors stay `--`; the screen never writes hardware.
 
 ![ctron TUI — POWER view](docs/tui-power.png)

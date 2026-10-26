@@ -1,5 +1,33 @@
 # Changelog
 
+## 2026-10-26 — ui: fullscreen telemetry section detail pages (v0.5.0)
+
+- The 't' fullscreen grew a second mode: j/k (or arrows) walks the
+  section grid with an accent-selected box, Enter/Space or 1-6 opens
+  that section's detail page; h/l flips between detail sections
+  without going back, esc backs out to the grid and closes from
+  there. t/T close from either mode, q quits — rule 5 untouched.
+- Detail pages stack full-width multi-row block charts over the same
+  ~60 s rings (new pure accessor `telem_at`; every column keeps its
+  window slice's max, so a spike between columns still shows; half
+  blocks double the vertical resolution) plus min/max/last stats and
+  info lines from a fresh `hw_refresh_live` run on every detail
+  entry/switch: topology/EPP/PPT/fans and per-core ceiling blocks on
+  CPU, VRAM/clock max/lock/NV boost on GPU, module temps on RAM,
+  NVMe temps + / fill bar on STORAGE, status/AC/charge limit on POWER.
+- Two cheap reads landed with it: amdgpu `in0/in1_input` (iGPU
+  vddgfx/vddnb, mV) in the fast-poll extras, and battery health %
+  (`charge_full`/`charge_full_design`, `energy_*` fallback) in the
+  live snapshot — both honest ("--") when absent.
+- Grid boxes are mouse targets (click selects, second click opens —
+  presets-modal convention); a click outside the overlay closes it
+  like every other overlay. HELP line and both footers updated in the
+  same commit (new key = HELP line).
+- Verified per commit: make 0 warnings, make test (telem_at unit
+  tests added), full make tuitest — the telem flow now walks
+  cursor/enter/h-l/digits/esc/stray-key — plus screenshots of the
+  grid and the CPU/POWER detail pages, and make install.
+
 ## 2026-10-26 — security: privileged writes fully shell-free (follow-up pass)
 
 - control: cpufreq batch tee + PPT go argv (12bd760) —

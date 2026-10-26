@@ -1,6 +1,10 @@
 # Ctron Handoff
 
 Latest session — **2026-10-26** **GLM / Kerempkl / FA608PP**
+(telemetry detail pages: the 't' fullscreen gained a j/k grid cursor
+and Enter/1-6 section detail pages with full-width multi-row charts;
+two cheap reads — iGPU voltages + battery health; **v0.5.0** cut —
+see below). Before that **2026-10-26** **GLM / Kerempkl / FA608PP**
 (security follow-up pass: the last privileged shell paths closed —
 cpufreq/PPT exec argv vectors, daeboard `system()` gone; user's picks
 1+2+3 of the review, items 4/5 deferred — see below). Before that
@@ -100,6 +104,49 @@ prioritized todo list and the distilled session lessons.
   pidfile removal, exit 0). Harness-proven: rc=0 + pidfile gone.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
+
+## Session 2026-10-26 — telemetry: section detail pages + v0.5.0 (GLM / Kerempkl / FA608PP)
+
+- Started as a read-only sensor inventory the user asked for (full
+  hwmon/nvidia-smi/battery/PD sweep — the shortlist for the NEXT
+  telemetry expansion: PD port watts, GPU pstate/throttle reasons,
+  Tccd1, NVMe sensor 1/2, network rx/tx; RAPL package energy exists
+  but is root-only 0400). The user then picked the layout feature:
+  grid navigation + per-section full pages.
+- UX as shipped (user plan + agreed additions): j/k/arrows move the
+  grid cursor (row-major, wrap), Enter/Space opens the selected
+  detail, 1-6 jumps directly, h/l flips detail sections, esc backs
+  detail→grid→close, t/T close from anywhere, q quits (rule 5 kept).
+  Detail entry/switch runs `hw_refresh_live` so live-only info lines
+  (PPT/EPP/boost/health/limits) are never stale. `telem_sel`
+  persists across close/reopen; `telem_detail` resets on close.
+- Charts: new pure accessor `telem_at(idx, back)` (unit-tested);
+  the panel-side renderer maps the whole ring window to columns
+  (slice max per column — spikes survive), half blocks give 2×rows
+  levels, scale = series range or window min/max (AUTO), flat
+  windows stand on the middle like the sparkline. Charts shrink then
+  drop (newest-last) on short terminals; info lines survive alone.
+- Reads added: amdgpu `in0/in1_input` → `igpu_vddgfx_mv/vddnb_mv`
+  (fast poll), battery `charge_full(_design)` (+`energy_*` fallback)
+  → `bat_health` % (live snapshot). Honest "--" when absent.
+- Mouse: grid boxes register `TGT_PANEL_TELEM` targets (click =
+  select, second click = open); click outside the overlay closes it,
+  matching every other overlay. The detail page has no targets yet.
+- Harness lesson (cost a debug round): the notcurses render diff
+  skips unchanged cells — multi-word probes like "esc grid" arrive
+  fragmented ("esc`[10G`grid") because the spaces between words
+  didn't change. Assert single words instead (detail: `h/l`, grid:
+  `j/k`). Second lesson: bash double quotes pass `\r` as two chars —
+  screenshot-script key sequences need `$'...\r...'` ANSI quoting.
+- Verified: make 0 warnings; make test; full make tuitest (telem
+  flow extended: cursor → enter → h/l → digit jump → esc back →
+  stray key still swallowed → close/reopen → q); screenshots of the
+  grid + CPU/POWER detail pages reviewed; make install. User field
+  test (real terminal + mouse) still pending, as usual.
+- Release: **v0.5.0** cut per policy (MINOR = new UX): VERSION +
+  README badge + flake.nix in the release commit, annotated tag on
+  top. Push stays with the user. Sensor-expansion series (PD watts,
+  pstate, ...) is the natural next task — inventory above.
 
 ## Session 2026-10-26 — security: privileged writes fully shell-free (GLM / Kerempkl / FA608PP)
 

@@ -24,7 +24,10 @@ Kullanıcı sürüm numaralandırmasını agent'a devretti. Şema: semver.
   PPT/ryzenadj yazma yolu, GPU clock lock, daeboard control + editör,
   apply worker. *(v0.3.0 atıldı 10-25; **v0.3.1** atıldı 10-26 —
   PATCH: FAZ 3 güvenlik zinciri + dürüstlük/doküman fixes; **v0.4.0**
-  atıldı 10-26 — MINOR: tam ekran bölümü telemetri ekranı 't'.)*
+  atıldı 10-26 — MINOR: tam ekran bölümü telemetri ekranı 't';
+  **v0.5.0** atıldı 10-26 — MINOR: telemetri bölüm detay sayfaları
+  (j/k + Enter/1-6, tam genişlik grafikler) + iGPU gerilim ve batarya
+  sağlığı okumaları.)*
 
 ## FAZ 1 — Bakım & dürüstlük (kısa vade)
 
