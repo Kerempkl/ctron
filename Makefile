@@ -1,13 +1,21 @@
 # GNU make required ($(shell) below). An external CFLAGS/LDLIBS (distro
 # packaging, Nix stdenv, -O0 debugging) is honoured; the flags ctron
 # cannot build without are appended after it. pkg-config absence falls
-# back to the plain library names.
+# back to the plain library names. LTO=1 opts into link-time
+# optimization (off by default so debug/packaging builds are
+# untouched); `make install` strips the installed binary only —
+# build/ctron keeps its symbols.
 CFLAGS ?= -O2 -Wall -Wextra
 CFLAGS += -std=c11 -Isrc -D_GNU_SOURCE -pthread
 CFLAGS += $(shell pkg-config --cflags notcurses 2>/dev/null)
 LDLIBS ?=
 LDLIBS += $(shell pkg-config --libs notcurses 2>/dev/null \
            || echo -lnotcurses -lnotcurses-core)
+LDLTO =
+ifeq ($(LTO),1)
+CFLAGS += -flto=auto
+LDLTO = -flto=auto
+endif
 
 SRC = src/main.c src/util.c src/hw.c src/control.c src/daeboard.c src/fan.c src/cmds.c \
       src/modes.c src/profile.c src/settings.c src/telem.c \
@@ -29,7 +37,7 @@ all: $(TARGET)
 
 $(TARGET): $(OBJ)
 	@mkdir -p $(dir $@)
-	$(CC) $(OBJ) -o $@ $(LDLIBS)
+	$(CC) $(LDLTO) $(OBJ) -o $@ $(LDLIBS)
 
 HEADERS = $(wildcard src/*.h src/ui/*.h src/display/*.h)
 
@@ -54,7 +62,7 @@ $(TEST_BIN): $(TEST_SRC) $(TEST_LIBOBJ)
 
 install: $(TARGET)
 	mkdir -p $(HOME)/.local/bin
-	install -m 755 $(TARGET) $(HOME)/.local/bin/ctron
+	install -m 755 -s $(TARGET) $(HOME)/.local/bin/ctron
 	install -m 755 scripts/ctron-toggle.sh $(HOME)/.local/bin/ctron-toggle
 	@echo "installed to $(HOME)/.local/bin/ctron (+ctron-toggle)"
 	@case ":$$PATH:" in *":$(HOME)/.local/bin:"*) ;; *) \
