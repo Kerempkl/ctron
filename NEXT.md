@@ -64,7 +64,7 @@ Kullanıcı sürüm numaralandırmasını agent'a devretti. Şema: semver.
    korunur, yenileri argv vektörünü kanıtlar. (SECURITY.md Faz 1.1.)
 9. **`ut_exec_argv` + migrasyon** — nvidia-smi / kscreen-doctor /
    hyprctl çağrıları string-komuttan argv vektörüne. (Faz 2.1.)
-10. **Pidfile/claim sertleştirme denetimi** — O_CREAT|O_EXCL|O_NOFOLLOW
+10. **[BİTTİ 10-26]** Pidfile/claim sertleştirme denetimi — O_CREAT|O_EXCL|O_NOFOLLOW
     + sahiplik doğrulaması, özellikle `/tmp` fallback'inde; zaten
     sağlamsa testle kanıtla, değilse düzelt. (Faz 1.3.)
 11. **Sudoers sertleştirme dokümanı** — ctron-ppt wrapper betiği +

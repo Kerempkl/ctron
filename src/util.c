@@ -5,6 +5,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <pthread.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -220,17 +221,42 @@ int ut_singleton_enter(const char *comm)
         >= (int)sizeof s_pidfile)
         return -1;
 
-    char buf[32];
     s_pidfile_pid = (long)getpid();
-    if (ut_read_file(s_pidfile, buf, sizeof buf) == 0 &&
-        !ut_singleton_stale(buf, s_pidfile_pid, comm))
-        return atoi(buf); /* live instance holds the slot */
 
+    /* Claim with O_EXCL|O_NOFOLLOW: in a shared fallback dir a planted
+     * symlink is never followed, and only our own regular file is
+     * trusted as a holder. Taking over means unlinking (which never
+     * follows) and retrying the exclusive create; when the slot cannot
+     * be taken (e.g. sticky /tmp foreign entry) we fail open. */
     char pidstr[24];
     snprintf(pidstr, sizeof pidstr, "%ld", s_pidfile_pid);
-    if (ut_write_file(s_pidfile, pidstr) != 0)
-        return -1; /* cannot claim — fail open */
-    return 0;
+    for (int tries = 0; tries < 3; tries++) {
+        int fd = open(s_pidfile, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW,
+                      0600);
+        if (fd >= 0) {
+            size_t len = strlen(pidstr);
+            ssize_t w = write(fd, pidstr, len);
+            int rc = close(fd);
+            if (w != (ssize_t)len || rc != 0) {
+                unlink(s_pidfile);
+                return -1;
+            }
+            return 0;
+        }
+        if (errno != EEXIST)
+            return -1; /* cannot claim — fail open */
+        struct stat st;
+        if (lstat(s_pidfile, &st) == 0 && S_ISREG(st.st_mode) &&
+            st.st_uid == geteuid()) {
+            char buf[32];
+            if (ut_read_file(s_pidfile, buf, sizeof buf) == 0 &&
+                !ut_singleton_stale(buf, s_pidfile_pid, comm))
+                return atoi(buf); /* live instance holds the slot */
+        }
+        if (unlink(s_pidfile) != 0 && errno != ENOENT)
+            return -1; /* cannot take over — fail open */
+    }
+    return -1;
 }
 
 void ut_singleton_leave(void)

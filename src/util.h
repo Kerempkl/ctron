@@ -52,6 +52,9 @@ bool ut_have_cmd(const char *name);
  *   >0  another live instance holds it (its pid — bow out)
  *   -1  no runtime dir / undecidable — fail open, run anyway.
  * A stale pidfile (dead pid, comm mismatch, garbage) is overwritten.
+ * The pidfile is created 0600 with O_EXCL|O_NOFOLLOW; a symlink or
+ * foreign-owned entry in a shared fallback dir is never followed or
+ * trusted as a holder — it is replaced (or the guard fails open).
  * Pure decision part (ut_singleton_stale) is unit-tested. */
 int ut_singleton_enter(const char *comm);
 void ut_singleton_leave(void); /* removes the pidfile if it is ours */

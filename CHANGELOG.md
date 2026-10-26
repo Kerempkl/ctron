@@ -1,5 +1,33 @@
 # Changelog
 
+## 2026-10-26 — security: singleton pidfile claim hardened (O_EXCL|O_NOFOLLOW, 0600, ownership)
+
+- FAZ 3.10 audit result (SECURITY.md Phase 1.3): the toggle-script
+  claim was already safe — noclobber create is O_EXCL and the stale
+  steal is `rm -f`, which never follows symlinks — but the TUI
+  singleton pidfile claim wrote through ut_write_file = fopen("w"):
+  no exclusivity, no O_NOFOLLOW, 0644. In the shared /tmp fallback a
+  planted /tmp/ctron-tui.pid symlink would have been followed on the
+  stale-takeover write, clobbering the symlink's target.
+- ut_singleton_enter now claims with open(O_WRONLY|O_CREAT|O_EXCL|
+  O_NOFOLLOW, 0600) in a bounded retry. An existing entry is trusted
+  as a holder only when lstat says regular file owned by the effective
+  uid; anything else (symlink, foreign owner, garbage, dead pid) is
+  unlinked — unlink never follows — and the exclusive create retried.
+  A foreign entry that cannot be taken (sticky /tmp) fails open as
+  before. The old pre-loop fast-path read that trusted the file
+  before any ownership check is gone; every read now sits behind the
+  lstat gate. ut_singleton_leave is unchanged (unlink never follows
+  and already required a content match).
+- ctron-toggle.sh: umask 077 (stamp/log/js are single-user artifacts)
+  and log() refuses to append through a symlinked LOG in the /tmp
+  fallback.
+- Regression test (check_singleton): a planted pidfile symlink
+  pointing at a victim file survives ctron's claim untouched while
+  the slot is retaken by a regular 0600 file; the existing
+  defer/claim/leave coverage is unchanged. make 0 warnings, unit +
+  tuitest green.
+
 ## 2026-10-26 — fan provenance: S_SNAPSHOT upgraded to the 10-18 probe finding
 
 - Wording-only change (no behaviour): the S_SNAPSHOT_* provenance

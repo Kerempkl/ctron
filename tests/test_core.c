@@ -623,6 +623,22 @@ static void check_singleton(void)
     ut_singleton_leave();
     CHECK(!ut_path_exists(path), "leave removes");
 
+    /* hardened claim: a planted symlink is never followed — the victim
+     * file survives and the slot is retaken by a regular 0600 file */
+    char victim[320];
+    snprintf(victim, sizeof(victim), "%s/victim", tmp);
+    CHECK(ut_write_file(victim, "VICTIM") == 0, "victim written");
+    CHECK(symlink(victim, path) == 0, "pidfile symlink planted");
+    CHECK(ut_singleton_enter("test_core") == 0, "enter replaces symlink");
+    struct stat st;
+    CHECK(lstat(path, &st) == 0 && S_ISREG(st.st_mode), "pidfile regular");
+    CHECK((st.st_mode & 0777) == 0600, "pidfile mode 0600");
+    char vbuf[32];
+    CHECK(ut_read_file(victim, vbuf, sizeof(vbuf)) == 0 &&
+              strcmp(vbuf, "VICTIM") == 0, "victim untouched");
+    ut_singleton_leave();
+    CHECK(!ut_path_exists(path), "leave removes (post-symlink)");
+
     if (old)
         setenv("XDG_RUNTIME_DIR", old, 1);
     else

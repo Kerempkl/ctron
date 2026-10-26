@@ -15,9 +15,16 @@
 # Targets the TUI by process name; short-lived headless CLI calls
 # (ctron --status etc.) are gone before anyone can press a key twice.
 
+# stamp/log/js are single-user artifacts; keep them out of other eyes
+umask 077
+
 STAMP="${XDG_RUNTIME_DIR:-/tmp}/ctron-toggle.launching"
 LOG="${XDG_RUNTIME_DIR:-/tmp}/ctron-toggle.log"
-log() { printf '%s %s\n' "$(date +%H:%M:%S)" "$*" >> "$LOG"; }
+log() {
+    # never append through a planted symlink in the shared /tmp fallback
+    [ -L "$LOG" ] && return 0
+    printf '%s %s\n' "$(date +%H:%M:%S)" "$*" >> "$LOG"
+}
 
 log "invoked pid=$$ ctron=$(pgrep -x ctron | wc -l) stamp=$(cat "$STAMP" 2>/dev/null || echo none)"
 

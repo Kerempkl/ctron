@@ -1,7 +1,8 @@
 # Ctron Handoff
 
 Latest session — **2026-10-26** **GLM / Kerempkl / FA608PP** (roadmap
-execution started: FAZ 1 provenance fix — see below). Before that
+execution: FAZ 1 provenance fix + FAZ 3.10 pidfile hardening — see
+below). Before that
 **2026-10-25** **GLM / Kerempkl / FA608PP** (README
 redesign: GitHub landing page + real TUI screenshots — see below;
 same-day earlier: roadmap rewrite + v0.3.0 release cut). Before that
@@ -86,6 +87,23 @@ prioritized todo list and the distilled session lessons.
   pidfile removal, exit 0). Harness-proven: rc=0 + pidfile gone.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
+
+## Session 2026-10-26 — FAZ 3.10: singleton/toggle claim hardening (GLM / Kerempkl / FA608PP)
+
+- Roadmap FAZ 3 item 10 executed. Audit verdict: the toggle script's
+  stamp was already symlink-safe (noclobber create, `rm -f` steal);
+  the TUI pidfile claim was NOT — ut_write_file's fopen("w") followed
+  a planted symlink in the /tmp fallback and would have clobbered its
+  target on the stale-takeover write.
+- ut_singleton_enter rewritten around open(O_CREAT|O_EXCL|O_NOFOLLOW,
+  0600) with an lstat trust gate (regular + euid-owned) before any
+  read/holder decision, bounded unlink+retry takeover, fail-open on
+  un-takeable foreign entries (sticky /tmp). util.h contract updated.
+- ctron-toggle.sh: umask 077 + log() symlink guard.
+- New unit coverage pins the attack: planted symlink survives, victim
+  file byte-identical, retaken pidfile regular 0600. make 0 warnings,
+  unit + tuitest green. Next candidates: FAZ 3.8 ut_priv_write
+  fork+execve, FAZ 3.9 ut_exec_argv.
 
 ## Session 2026-10-26 — roadmap execution: FAZ 1 provenance fix (GLM / Kerempkl / FA608PP)
 
