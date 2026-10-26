@@ -82,6 +82,19 @@ Kullanıcı sürüm numaralandırmasını agent'a devretti. Şema: semver.
     çağrı zinciri önce `/usr/local/bin/ctron-ppt`'yi denesin (varsa
     `sudo -n /usr/local/bin/ctron-ppt SPL SPPT FPPT`); SECURITY.md §4.3'ü
     ctron'un kendisi için etkin kılar (~10 satır + test).
+17. **[BİTTİ 10-26 — 12bd760]** Kalan iki ayrıcalıklı shell yolu kapandı
+    (aynı günün takip turu): `cpufreq_write_all`'ın batched
+    `sudo -n tee`'si `ut_write_via_argv` ile saf argv (journal-kanıtlı
+    tek çağrı — 16 cpu path'i tek sudo'da; 4 KB komut-string tavanı da
+    kalktı, >HW_CPU_MAX derdi yok) + PPT `ctrl_ppt_*_cmd` →
+    `ctrl_ppt_*_argv` vektör kurucuları (kelimeler testli, flag sırası
+    + W→mW eşlemesi aynı). Canlı EPP roundtrip gerçek sudo kuralıyla
+    doğrulandı; PPT live test bilinçli atlandı (SMU uçucu, o anki
+    kullanıcı niyeti bilinmiyor).
+18. **[BİTTİ 10-26 — 53fd272]** Ağaçta `system()` kalmadı: daeboard
+    start/install (4 çağrı noktası) + `--doctor` sudo probe'u
+    `ut_exec_argv`; env'den gelen yollar artık kelime olarak exec
+    ediliyor, elle tırnak-redde kontrolleri shell ile birlikte kalktı.
 
 ## FAZ 4 — Performans & optimizasyon (2026-10-26 ölçümlü denetim)
 

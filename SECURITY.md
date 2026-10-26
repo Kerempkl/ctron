@@ -39,16 +39,19 @@ Other privileged operations:
     boundaries, allowing malicious flags if invoked outside ctron.
 
 ### 2.2. Subshell Execution (`/bin/sh -c`)
-- **Current State:** `ut_priv_write()` builds a shell command string and runs it:
-  `sh -c "echo '...' | sudo -n tee '...'"` (via `popen`/`system`).
-- **Mitigation in place:** `ut_priv_write` rejects single quotes (`'`) in paths
-  and values prior to execution.
-- **Residual Risk:** Invoking `/bin/sh` introduces shell parsing overhead,
-  environment variable sensitivity (`PATH`, `IFS`), and potential injection risk
-  if sanitization ever misses an edge case.
-  *(Resolved 2026-10-26 for the privileged write path — `ut_priv_write`
-  exec's a pure argv vector, no shell; see Phase 1.1. The read-only
-  `ut_exec` helpers still use a shell until Phase 2 lands.)*
+- **Current State:** No privileged path uses a shell: `ut_priv_write`
+  and the batched cpufreq `sudo -n tee` exec pure argv vectors
+  (`ut_write_via_argv`), the PPT calls go through `ctrl_ppt_*_argv` +
+  `ut_exec_argv`, and daeboard start/install exec argv vectors
+  (`system()` is gone from the tree).
+- **Residual Risk:** The remaining shell users are read-only and
+  code-constant: the `asusctl`/`busctl` calls (constant or integer
+  arguments) and the two `command -v` probes (`command` is a builtin).
+  Their `PATH` sensitivity is inherited, but nothing user- or
+  config-derived is ever parsed by a shell.
+  *(Writes resolved 2026-10-26 in two passes — Phase 1.1 for
+  `ut_priv_write`, then the same-day follow-up for cpufreq/PPT/daeboard;
+  see Phase 2.1.)*
 
 ### 2.3. IPC & File Race Conditions
 - **Current State:**
@@ -111,8 +114,14 @@ Other privileged operations:
      (`-o` query + mode apply) and every `hyprctl` call (`monitors -j`,
      `eval`, `keyword` fallback) now exec argv vectors. `ut_have_cmd`
      and `nvidia_smi_bin` keep the shell only because `command -v` is a
-     builtin. Remaining `ut_exec` users (asusctl, ryzenadj with
-     ints-only args) are intentionally left to a later pass.
+     builtin. The same-day follow-up pass closed the privileged rest:
+     cpufreq's batched `sudo -n tee` feeds through `ut_write_via_argv`
+     (journal-proven one invocation for every cpu path), ryzenadj and
+     the ctron-ppt wrapper build argv vectors (`ctrl_ppt_*_argv`), and
+     daeboard's start/install calls plus the `--doctor` sudo probe
+     dropped `system()` for `ut_exec_argv`. Remaining `ut_exec` users
+     are the unprivileged asusctl/busctl calls with constant/integer
+     arguments.
 
 2. **Environment Variable Hygiene:**
    - In `ctron-toggle.sh`, sanitize `$TERMINAL` to ensure it resolves to a valid

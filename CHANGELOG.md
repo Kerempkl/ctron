@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-10-26 — security: privileged writes fully shell-free (follow-up pass)
+
+- control: cpufreq batch tee + PPT go argv (12bd760) —
+  `cpufreq_write_all` feeds the value through `ut_write_via_argv`
+  (one `sudo -n tee`, every path an argv word; journal-proven single
+  invocation for all cpus, and the 4 KB command-string ceiling that
+  refused machines beyond a few dozen cpus is gone).
+  `ctrl_ppt_*_cmd` string builders became `ctrl_ppt_*_argv` vector
+  builders (unit tests assert the words; flag order + W→mW mapping
+  unchanged). Live: EPP roundtrip through the real sudo rule.
+- daeboard + doctor: `system()` gone tree-wide (53fd272) — start/
+  install sudo calls and the `--doctor` probe exec argv vectors;
+  env-derived paths are words, never parsed, so the manual
+  quote-rejection checks left with the shell. `--doctor`'s
+  "sudo -n: unavailable" verified honest here (`sudo -n true` is not
+  in the NOPASSWD set under the minimal ruleset).
+- SECURITY.md §2.2/Phase-2.1 honesty update: remaining shell users are
+  the read-only code-constant asusctl/busctl calls and the two
+  `command -v` probes — no config- or user-derived string is parsed
+  by a shell anymore.
+
 ## 2026-10-26 — docs: machine-local setup notes genericized
 
 - Wording pass over SECURITY.md / HANDOFF.md / CHANGELOG.md: per-host

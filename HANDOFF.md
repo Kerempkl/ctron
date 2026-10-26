@@ -1,6 +1,10 @@
 # Ctron Handoff
 
 Latest session — **2026-10-26** **GLM / Kerempkl / FA608PP**
+(security follow-up pass: the last privileged shell paths closed —
+cpufreq/PPT exec argv vectors, daeboard `system()` gone; user's picks
+1+2+3 of the review, items 4/5 deferred — see below). Before that
+**2026-10-26** **GLM / Kerempkl / FA608PP**
 (small docs pass: machine-local setup notes genericized across the
 guides — see below). Before that **2026-10-26** **GLM / Kerempkl /
 FA608PP** (performance audit → FAZ 4 planned and LANDED: items 13/14/15 in
@@ -96,6 +100,41 @@ prioritized todo list and the distilled session lessons.
   pidfile removal, exit 0). Harness-proven: rc=0 + pidfile gone.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
+
+## Session 2026-10-26 — security: privileged writes fully shell-free (GLM / Kerempkl / FA608PP)
+
+- User asked "security ile ilgili neler yapılabilir"; the read-only
+  review found the FAZ 3 chain intact but two privileged paths still
+  through `/bin/sh` and daeboard.c never migrated. User picked items
+  1+2+3; deferred: 4 (install.sh-sudoers honesty note) and 5
+  (toggle-js noclobber + env-hygiene doc lines).
+- `cpufreq_write_all` (control.c) now feeds the value through
+  `ut_write_via_argv`: one `timeout 3 sudo -n tee` with every path as
+  an argv word. Journal-proven single invocation (all 16 present cpus
+  in one sudo); the old 4 KB command-string ceiling that refused
+  machines beyond a few dozen cpus is gone. Per-node
+  `ut_priv_write` fallback unchanged.
+- `ctrl_ppt_ryzen_cmd`/`ctrl_ppt_wrapper_cmd` became `ctrl_ppt_*_argv`
+  vector builders (integer words in a caller-supplied
+  `char bufs[3][16]`; `ut_exec_argv` execs under its 3 s cap). Tests
+  assert the words; flag order + W→mW mapping unchanged. PPT
+  deliberately NOT live-tested (volatile SMU state, current user
+  intent unknown) — `ut_exec_argv` itself is live-proven by the
+  nvidia-smi paths.
+- daeboard: all four `system()` calls (start/install probes,
+  systemd-run, install.sh) and `--doctor`'s probe exec argv vectors;
+  env-derived paths are exec'd as words, the manual quote-rejection
+  checks left with the shell.
+- Verified: clean `make` (0 warnings), `make test` ok, `--doctor` +
+  `--status` healthy, EPP roundtrip through the real
+  `sudo -n tee /sys/devices/system/cpu/*` rule (power →
+  balance_performance → power, read back). `--doctor`'s
+  "sudo -n: unavailable" is the honest answer on this box — `sudo -n
+  true` is not in the NOPASSWD set (same verdict the old probe gave;
+  not a regression).
+- Commits: 12bd760 (control + tests), 53fd272 (daeboard + doctor),
+  this docs commit. `make install` refreshed ~/.local/bin. No version
+  cut (hardening, no API/UX change — rides the next release).
 
 ## Session 2026-10-26 — docs: machine-local setup notes genericized (GLM / Kerempkl / FA608PP)
 
