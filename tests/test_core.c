@@ -476,12 +476,26 @@ static void check_util_write(void)
     if (fds0 >= 0 && fds1 >= 0)
         CHECK(fds1 - fds0 <= 4, "failed writes leak no fds");
 
-    /* the sudo fallback shells out; quotes must be rejected BEFORE any
-     * exec (both probes use unwritable paths so the fallback is reached) */
+    /* the sudo fallback is a pure argv exec: quotes are no longer
+     * rejected pre-exec; unwritable paths must fail cleanly through
+     * the real child (no sudo rule for the test runner) */
     snprintf(path, sizeof(path), "%s/nodir/w.txt", tmp);
-    CHECK(ut_priv_write(path, "4'2") != 0, "priv rejects quote in value");
+    CHECK(ut_priv_write(path, "4'2") != 0, "unwritable path fails cleanly");
     CHECK(ut_priv_write("/no'such/dir/w", "42") != 0,
-          "priv rejects quote in path");
+          "quoted path survives the exec path");
+
+    /* argv-fed child plumbing without sudo: a real tee writes verbatim */
+    snprintf(path, sizeof(path), "%s/tee.txt", tmp);
+    const char *av[] = { "tee", path, NULL };
+    CHECK(ut_write_via_argv(av, "V'Q\"") == 0, "argv tee writes");
+    CHECK(ut_read_file(path, buf, sizeof(buf)) == 0 &&
+              !strcmp(buf, "V'Q\""), "tee roundtrip quotes verbatim");
+    unlink(path);
+
+    /* a child that exits before reading must not SIGPIPE the runner */
+    const char *av_early[] = { "true", NULL };
+    ut_write_via_argv(av_early, "x");
+    CHECK(1, "early-exit child does not kill the writer");
 
     int saved_pref = g_prefs.write_pref;
     char locked[300];

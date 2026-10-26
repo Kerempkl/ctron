@@ -26,9 +26,17 @@ int ut_write_int(const char *path, long v);
 /* Privileged write chain: direct write first, then `sudo -n tee`.
  * Returns 0 on success. Never prompts for a password.
  * The sudo step runs only when ut_sudo_fallback_allowed() is nonzero.
- * The default is allowed. settings.c replaces it so "no sudo" is real. */
+ * The default is allowed. settings.c replaces it so "no sudo" is real.
+ * The fallback is a pure argv exec — no shell ever parses the path or
+ * the value, so quotes/metacharacters are safe to write. */
 int ut_priv_write(const char *path, const char *val);
 int ut_sudo_fallback_allowed(void);
+
+/* Feed `data` to a child's stdin and wait for it: fork + execvp of a
+ * plain argv vector (no shell). Returns the child's exit status, or -1
+ * when it could not be started/reaped. The writer survives a child
+ * that exits before reading (EPIPE is not fatal). */
+int ut_write_via_argv(const char *const argv[], const char *data);
 
 /* ---- process helpers ------------------------------------------------- */
 

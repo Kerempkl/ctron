@@ -59,7 +59,7 @@ Kullanıcı sürüm numaralandırmasını agent'a devretti. Şema: semver.
 
 ## FAZ 3 — Güvenlik yapısal (SECURITY.md Faz 1-2 sırasıyla)
 
-8. **`ut_priv_write`: `/bin/sh -c` → fork + execve argv** — shell
+8. **[BİTTİ 10-26]** `ut_priv_write`: `/bin/sh -c` → fork + execve argv — shell
    enjeksiyon sınıfını tamamen kapatır; mevcut tırnak-red testleri
    korunur, yenileri argv vektörünü kanıtlar. (SECURITY.md Faz 1.1.)
 9. **`ut_exec_argv` + migrasyon** — nvidia-smi / kscreen-doctor /

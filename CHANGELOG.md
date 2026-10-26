@@ -1,5 +1,28 @@
 # Changelog
 
+## 2026-10-26 — security: ut_priv_write no longer spawns a shell (fork+execve argv)
+
+- The sudo fallback used to build `printf '%s' '<val>' | sudo -n tee
+  '<path>'` and run it through popen's /bin/sh, with a pre-exec
+  single-quote rejection as the only injection guard. The fallback is
+  now ut_write_via_argv(): pipe2(O_CLOEXEC), fork, the child dup2's
+  the read end onto stdin and execvp's a pure argv vector —
+  `timeout 3 sudo -n tee <path>` (the 3 s cap survives as an argv
+  word, not a shell string). Quotes and metacharacters can no longer
+  be parsed by anything, so the rejection guard is removed.
+- Parent side survives a child that exits before reading (SIGPIPE
+  ignored around the single feed write, EPIPE breaks the loop) and the
+  child's exit status decides success — same lesson as the ut_exec
+  SIGPIPE race: a dead child is a failed write, never our crash.
+- ut_write_via_argv is exported as a generic stdin-feeding argv runner
+  and unit-tested without sudo: a real `tee` child writes our bytes
+  verbatim (quote round-trip pinned), an early-exiting child (`true`)
+  must not kill the runner, and unwritable paths still fail cleanly
+  through the real chain. Existing no-sudo and fd-leak coverage
+  unchanged. SECURITY.md Phase 1.1 marked done (1.3 done earlier
+  today). make 0 warnings, unit + tuitest green — the fan-write flow
+  exercises the new path live.
+
 ## 2026-10-26 — security: singleton pidfile claim hardened (O_EXCL|O_NOFOLLOW, 0600, ownership)
 
 - FAZ 3.10 audit result (SECURITY.md Phase 1.3): the toggle-script

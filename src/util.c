@@ -7,12 +7,14 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -89,6 +91,64 @@ __attribute__((weak)) int ut_sudo_fallback_allowed(void)
     return 1;
 }
 
+int ut_write_via_argv(const char *const argv[], const char *data)
+{
+    if (!argv || !argv[0])
+        return -1;
+    int fds[2];
+    if (pipe2(fds, O_CLOEXEC) != 0)
+        return -1;
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(fds[0]);
+        close(fds[1]);
+        return -1;
+    }
+    if (pid == 0) {
+        /* child: stdin = pipe read end, output dropped */
+        if (dup2(fds[0], STDIN_FILENO) < 0)
+            _exit(127);
+        int devnull = open("/dev/null", O_WRONLY);
+        if (devnull >= 0) {
+            dup2(devnull, STDOUT_FILENO);
+            dup2(devnull, STDERR_FILENO);
+            if (devnull > STDERR_FILENO)
+                close(devnull);
+        }
+        execvp(argv[0], (char *const *)argv);
+        _exit(127);
+    }
+    close(fds[0]);
+    /* A child that exits before reading would SIGPIPE us — survive it
+     * and let the exit status decide (the ignore window is one write). */
+    struct sigaction ign, old;
+    memset(&ign, 0, sizeof ign);
+    ign.sa_handler = SIG_IGN;
+    sigaction(SIGPIPE, &ign, &old);
+    size_t len = data ? strlen(data) : 0;
+    size_t off = 0;
+    while (off < len) {
+        ssize_t w = write(fds[1], data + off, len - off);
+        if (w < 0) {
+            if (errno == EINTR)
+                continue;
+            break; /* EPIPE: child gone; its status decides */
+        }
+        off += (size_t)w;
+    }
+    close(fds[1]);
+    sigaction(SIGPIPE, &old, NULL);
+
+    int st;
+    pid_t w;
+    do {
+        w = waitpid(pid, &st, 0);
+    } while (w < 0 && errno == EINTR);
+    if (w != pid)
+        return -1;
+    return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
+}
+
 int ut_priv_write(const char *path, const char *val)
 {
     if (ut_write_file(path, val) == 0)
@@ -97,14 +157,11 @@ int ut_priv_write(const char *path, const char *val)
     if (!ut_sudo_fallback_allowed())
         return -1;
 
-    /* The fallback shells out; a single quote would break the quoting. */
-    if (strchr(val, '\'') || strchr(path, '\''))
-        return -1;
-    char cmd[768];
-    snprintf(cmd, sizeof(cmd),
-             "printf '%%s' '%s' | sudo -n tee '%s' >/dev/null 2>&1", val, path);
-    int rc = ut_exec(cmd, NULL, 0);
-    return rc == 0 ? 0 : -1;
+    /* No shell anywhere in the chain: the value rides a pipe into
+     * `timeout 3 sudo -n tee <path>` exec'd as a pure argv vector, so
+     * quotes and metacharacters in path or value are never parsed. */
+    const char *av[] = { "timeout", "3", "sudo", "-n", "tee", path, NULL };
+    return ut_write_via_argv(av, val) == 0 ? 0 : -1;
 }
 
 /* ---- process helpers ------------------------------------------------- */

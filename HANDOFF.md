@@ -1,7 +1,8 @@
 # Ctron Handoff
 
 Latest session — **2026-10-26** **GLM / Kerempkl / FA608PP** (roadmap
-execution: FAZ 1 provenance fix + FAZ 3.10 pidfile hardening — see
+execution: FAZ 1 provenance fix + FAZ 3.10 pidfile hardening + FAZ 3.8
+shell-free privileged writes — see
 below). Before that
 **2026-10-25** **GLM / Kerempkl / FA608PP** (README
 redesign: GitHub landing page + real TUI screenshots — see below;
@@ -87,6 +88,25 @@ prioritized todo list and the distilled session lessons.
   pidfile removal, exit 0). Harness-proven: rc=0 + pidfile gone.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
+
+## Session 2026-10-26 — FAZ 3.8: ut_priv_write goes shell-free (GLM / Kerempkl / FA608PP)
+
+- Roadmap FAZ 3 item 8 executed (SECURITY.md Phase 1.1). The sudo
+  fallback had built `printf '%s' | sudo -n tee` through popen's
+  /bin/sh with a pre-exec single-quote rejection as the only guard.
+  New: ut_write_via_argv() — pipe2(O_CLOEXEC), fork, child dup2 +
+  execvp of a pure argv vector (`timeout 3 sudo -n tee <path>`, the
+  3 s cap now an argv word); parent ignores SIGPIPE around the feed
+  write, the child's exit status decides. Quote rejection removed —
+  nothing parses the arguments anymore.
+- ut_write_via_argv is exported as a generic runner (FAZ 3.9's
+  ut_exec_argv will grow next to it) and unit-tested without sudo:
+  real tee round-trip with quotes verbatim, early-exit child must not
+  SIGPIPE the runner, unwritable path fails cleanly.
+- Verified: make 0 warnings, unit + tuitest green (the fan Write flow
+  runs the new path live). SECURITY.md Phase 1.1 + 1.3 marked done.
+  Next: FAZ 3.9 (ut_exec_argv + nvidia-smi/kscreen-doctor/hyprctl
+  migration), FAZ 3.11 (sudoers doc).
 
 ## Session 2026-10-26 — FAZ 3.10: singleton/toggle claim hardening (GLM / Kerempkl / FA608PP)
 

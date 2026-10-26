@@ -46,6 +46,9 @@ Other privileged operations:
 - **Residual Risk:** Invoking `/bin/sh` introduces shell parsing overhead,
   environment variable sensitivity (`PATH`, `IFS`), and potential injection risk
   if sanitization ever misses an edge case.
+  *(Resolved 2026-10-26 for the privileged write path — `ut_priv_write`
+  exec's a pure argv vector, no shell; see Phase 1.1. The read-only
+  `ut_exec` helpers still use a shell until Phase 2 lands.)*
 
 ### 2.3. IPC & File Race Conditions
 - **Current State:**
@@ -69,13 +72,14 @@ Other privileged operations:
 ### Phase 1: Immediate Hardening (Quick Wins)
 
 1. **Eliminate Subshell in Privileged Writes (`fork` + `execve`):**
-   - Replace `/bin/sh -c` in `ut_priv_write` with direct `fork` + `execve`
-     invoking `sudo -n tee <path>`.
-   - Pass arguments as a discrete `char *argv[]` vector rather than formatting
-     into a shell string.
-   - Pipe data directly into `tee`'s stdin via `pipe2(fds, O_CLOEXEC)`.
-   - **Benefit:** Complete immunity against shell injection and zero subshell
-     spawning overhead.
+   - **Status: DONE 2026-10-26** — `ut_write_via_argv()` (src/util.c):
+     `pipe2(O_CLOEXEC)` + fork, the child dup2's the read end onto stdin
+     and `execvp`s a pure argv vector — `timeout 3 sudo -n tee <path>`
+     (the 3 s cap survives as an argv word, not a shell string). The
+     parent survives a child that exits before reading (SIGPIPE ignored
+     around the feed write; the exit status decides), and the old
+     single-quote rejection is gone because nothing parses the
+     arguments anymore.
 
 2. **Deploy Least-Privilege Sudoers Wrapper for `ryzenadj`:**
    - Instead of granting `NOPASSWD` to `/usr/bin/ryzenadj`, deploy a strict
@@ -99,6 +103,11 @@ Other privileged operations:
    - Ensure all pidfile and timestamp claim operations use `open()` with
      `O_CREAT | O_EXCL | O_NOFOLLOW` and `0600` permissions, especially when
      falling back to `/tmp`.
+   - **Status: DONE 2026-10-26** — the singleton pidfile claims with
+     `O_CREAT|O_EXCL|O_NOFOLLOW, 0600` behind an lstat ownership gate;
+     the toggle stamp was already symlink-safe (noclobber create,
+     `rm -f` steal) and its log now refuses symlinked targets
+     (`umask 077` for stamp/log/js).
 
 ---
 
