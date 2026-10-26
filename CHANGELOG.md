@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-10-26 — ui: telemetry charts take 3 fixes (area fill, white info text, grid parity)
+
+- User follow-up on the braille line charts: (1) "ne gösterildiği
+  anlaşılmıyor" — a lone 1-dot line is too faint to read at real
+  terminal sizes; (2) the muted-grey stats/info lines were nearly
+  unreadable; (3) the new charts only lived in the detail pages, the
+  grid boxes still had the old one-row sparklines.
+- Charts are now braille AREA graphs: dots filled from the bottom up
+  to each sample, so the series shape reads at a glance (btop look);
+  scale fix from the previous entry still applies.
+- info_line switched from pal->muted to pal->text across the
+  telemetry panels (stats + info lines are real numbers; footers stay
+  muted). Theme palettes untouched — this is local to the telemetry
+  screens.
+- Grid/detail parity: per-section series lists (CD_CPU..CD_POWER)
+  are now shared by both views through one stack_charts() stacker
+  (detail: stats row + min height 2 + tall blocks; grid: compact,
+  min height 1, cap 4 rows; both shrink-then-drop on short boxes).
+  metric()/sparkline rows deleted from the grid sections; telem_spark
+  itself stays (LIVE strip elsewhere + unit tests).
+- Verified: make 0 warnings, make test, full make tuitest,
+  screenshots (grid shows the mini area charts in all six boxes,
+  info lines white, no tofu), make install immediately after.
+
 ## 2026-10-26 — ui: detail charts redrawn as braille line graphs
 
 - User report: the block area charts "çok bozuk" in the real terminal.

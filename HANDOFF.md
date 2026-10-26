@@ -159,6 +159,16 @@ prioritized todo list and the distilled session lessons.
   ran ("bişey değişmedi" — nothing changed, because nothing HAD
   changed in ~/.local/bin). Also remind them a RUNNING ctron does
   not hot-swap: quit + relaunch after any install.
+- Same-day take 3 (user: "grafik te ne gösterildiği anlaşılmıyor +
+  silik yazılar okunmuyor + yeni grafikler sadece detayda"): charts
+  became braille AREA graphs (dots filled bottom-up — shape reads at
+  a glance), info/stats lines went muted→text color (telemetry-local;
+  palettes untouched), and the grid boxes now chart the SAME series
+  as the detail pages via shared CD_* lists + one stack_charts()
+  stacker (grid: compact, no stats row, 1-row min; detail: stats row,
+  2-row min). metric()/sparkline rows deleted from the grid;
+  telem_spark itself survives (LIVE strip + tests). Installed in the
+  same breath this time.
 
 ## Session 2026-10-26 — security: privileged writes fully shell-free (GLM / Kerempkl / FA608PP)
 

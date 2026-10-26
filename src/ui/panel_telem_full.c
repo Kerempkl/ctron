@@ -52,26 +52,11 @@ static void fmt_bs(char *out, size_t n, double bs)
     }
 }
 
-/* one "label  current-value  sparkline" row */
-static void metric(struct ncplane *n, int x, int y, int w,
-                   const char *label, const char *cur, int sidx)
-{
-    const palette_t *pal = ui_palette(g_prefs.theme);
-    char spark[600];
-    int cells = w - 24;
-    if (cells < 6)
-        cells = 6;
-    if ((size_t)cells * 3 + 1 > sizeof spark)
-        cells = (int)(sizeof spark - 1) / 3;
-    telem_spark(sidx, spark, sizeof spark, cells);
-    char line[700];
-    snprintf(line, sizeof line, " %-8s %-12s %s", label, cur, spark);
-    ui_putln(n, x, y, w, line, pal->text, false);
-}
-
+/* plain text, not muted: stats/info lines carry real numbers and the
+ * muted grey was unreadable on dark themes (user report) */
 static void info_line(struct ncplane *n, int x, int y, int w, const char *s)
 {
-    ui_putln(n, x, y, w, s, ui_palette(g_prefs.theme)->muted, false);
+    ui_putln(n, x, y, w, s, ui_palette(g_prefs.theme)->text, false);
 }
 
 /* filled/empty block bar (█/░), cell-safe */
@@ -111,10 +96,11 @@ static void fmt_val(char *out, size_t n, unit_t u, double v)
     }
 }
 
-/* multi-row braille line chart over the ring window (btop-style):
- * 2x4 dots per cell — rows*4 vertical levels, no cell seams — one
- * line drawn left-to-right with vertical interpolation between
- * points, newest on the right. */
+/* multi-row braille area chart over the ring window (btop-style):
+ * 2x4 dots per cell — rows*4 vertical levels, no cell seams — filled
+ * from the bottom up to each sample, so the series SHAPE reads at a
+ * glance (a lone thin line was unreadable at real terminal sizes),
+ * newest on the right. */
 #define CHART_COLS_MAX 256
 #define CHART_ROWS_MAX 8
 
@@ -200,29 +186,21 @@ static void chart(struct ncplane *n, int x, int y, int w, int rows, int sidx)
     unsigned char grid[CHART_ROWS_MAX][CHART_COLS_MAX];
     memset(grid, 0, sizeof grid);
 
-    int prev = -1;
     for (int i = 0; i < half; i++) {
         int k = (int)((long long)i * count / half);
         double v;
-        if (!telem_at(sidx, count - 1 - k, &v) || v < 0) {
-            prev = -1;
-            continue;
-        }
+        if (!telem_at(sidx, count - 1 - k, &v) || v < 0)
+            continue; /* unknown tick: this dot column stays empty */
         double f = (v - mn) / (mx - mn);
         if (f < 0)
             f = 0;
         if (f > 1)
             f = 1;
         int yb = (int)(f * (drows - 1) + 0.5); /* bottom-based */
-        /* dot the point; connect vertically to the previous point so
-         * fast moves render as one stroke, not dotted columns */
-        int y0 = prev >= 0 && prev < yb ? prev : yb;
-        int y1 = prev >= 0 && prev > yb ? prev : yb;
-        for (int yy = y0; yy <= y1; yy++) {
+        for (int yy = 0; yy <= yb; yy++) {
             int dt = drows - 1 - yy; /* dot row from the top */
             grid[dt / 4][i / 2] |= (i % 2 ? 0x10u : 0x01u) << (dt % 4);
         }
-        prev = yb;
     }
 
     char buf[CHART_COLS_MAX * 3 + 4];
@@ -248,11 +226,42 @@ typedef struct {
     int sidx;
 } chartdef_t;
 
-/* one labelled block: value row, `rows` chart rows, min/max/last row */
+/* the series each section charts — one list per section, shared by
+ * its grid box and its detail page so the two never drift apart */
+static const chartdef_t CD_CPU[] = {
+    { "temp", U_TEMP, TS_CPU_TEMP },
+    { "clock", U_MHZ, TS_CPU_MHZ },
+    { "load", U_LOAD, TS_CPU_LOAD },
+};
+static const chartdef_t CD_GPU[] = {
+    { "temp", U_TEMP, TS_GPU_TEMP },
+    { "power", U_W, TS_GPU_MW },
+    { "clock", U_MHZ, TS_GPU_MHZ },
+    { "util", U_PCT, TS_GPU_UTIL },
+};
+static const chartdef_t CD_IGPU[] = {
+    { "temp", U_TEMP, TS_IGPU_TEMP },
+    { "power", U_W, TS_IGPU_MW },
+    { "clock", U_MHZ, TS_IGPU_MHZ },
+};
+static const chartdef_t CD_RAM[] = {
+    { "used", U_MB, TS_MEM_USED },
+};
+static const chartdef_t CD_DISK[] = {
+    { "read", U_MBPS, TS_DISK_RD },
+    { "write", U_MBPS, TS_DISK_WR },
+};
+static const chartdef_t CD_POWER[] = {
+    { "draw", U_W, TS_BAT_MW },
+    { "charge", U_PCT, TS_BAT_PCT },
+};
+#define CD_COUNT(a) ((int)(sizeof(a) / sizeof((a)[0])))
+
+/* one labelled block: value row, `rows` chart rows, optional stats */
 static void chart_block(struct ncplane *n, int x, int y, int w, int rows,
-                        const chartdef_t *cd)
+                        const chartdef_t *cd, bool stats)
 {
-    char v[40], a[40], b[40], c2[40], line[160];
+    char v[40], line[160];
     double last = telem_last(cd->sidx);
     fmt_val(v, sizeof v, cd->u, last);
     snprintf(line, sizeof line, " %-10s %s", cd->label, v);
@@ -260,8 +269,11 @@ static void chart_block(struct ncplane *n, int x, int y, int w, int rows,
 
     chart(n, x, y + 1, w, rows, cd->sidx);
 
+    if (!stats)
+        return;
     double mn, mx;
     telem_minmax(cd->sidx, &mn, &mx);
+    char a[40], b[40], c2[40];
     fmt_val(a, sizeof a, cd->u, mn);
     fmt_val(b, sizeof b, cd->u, mx);
     fmt_val(c2, sizeof c2, cd->u, last);
@@ -269,132 +281,88 @@ static void chart_block(struct ncplane *n, int x, int y, int w, int rows,
     info_line(n, x, y + 1 + rows, w, line);
 }
 
-/* stacked full-width chart blocks with trailing info lines. Charts
- * shrink first and then drop (newest-last) on short terminals; a
- * page that fits nothing shows the info lines alone. */
-static void detail_charts(struct ncplane *n, const rect_t *r,
-                          const chartdef_t *cd, int ncd,
-                          const char *const *info, int ninfo)
+/* stacked full-width chart blocks with trailing info lines, shared
+ * by the detail pages and the grid boxes: detail passes stats=true
+ * (min/max/last per chart, min height 2, tall blocks); the grid
+ * passes stats=false with min height 1 and a low cap. Charts shrink
+ * first and then drop (newest-last) on short terminals; a box that
+ * fits nothing shows the info lines alone. */
+static void stack_charts(struct ncplane *n, const rect_t *r,
+                         const chartdef_t *cd, int ncd, bool stats,
+                         int minper, int maxper,
+                         const char *const *info, int ninfo)
 {
     int x = r->x + 2, w = r->w - 4;
     int avail = r->h - 2;
+    if (avail < 1)
+        return;
+    int over = stats ? 2 : 1; /* label row + optional stats row */
     int nch = ncd;
-    while (nch > 0 && (avail - ninfo) / nch - 2 < 2)
+    while (nch > 0 && (avail - ninfo) / nch - over < minper)
         nch--;
     if (nch <= 0) {
         for (int i = 0; i < ninfo && i < avail; i++)
             info_line(n, x, r->y + 1 + i, w, info[i]);
         return;
     }
-    int per = (avail - ninfo) / nch - 2;
-    if (per > CHART_ROWS_MAX) /* braille: 4 dot-rows per line, plenty */
-        per = CHART_ROWS_MAX;
+    int per = (avail - ninfo) / nch - over;
+    if (per > maxper)
+        per = maxper;
     int y = r->y + 1;
     for (int i = 0; i < nch; i++) {
-        chart_block(n, x, y, w, per, &cd[i]);
-        y += per + 2;
+        chart_block(n, x, y, w, per, &cd[i], stats);
+        y += per + over;
     }
     for (int i = 0; i < ninfo; i++)
         info_line(n, x, y + i, w, info[i]);
 }
 
-/* ---- sections (each draws inside its own boxed rect) ----------------- */
+/* ---- sections (each draws inside its own boxed rect) ------------------
+ * Grid boxes chart the SAME series as their detail pages (shared
+ * CD_* lists), compact: label + chart, no stats row. On short boxes
+ * charts shrink to 1 row and then drop; the info line stays. */
 
 static void sec_cpu(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    char v[32], line[160];
-    int x = r->x + 2, w = r->w - 4;
-    if (r->h < 2)
-        return;
-    fmt_int(v, sizeof v, "°C", hw->cpu_temp);
-    metric(n, x, r->y + 1, w, "temp", v, TS_CPU_TEMP);
-    if (r->h < 3)
-        return;
-    fmt_int(v, sizeof v, " MHz", hw->cpu_mhz_cur);
-    metric(n, x, r->y + 2, w, "clock", v, TS_CPU_MHZ);
-    if (r->h < 4)
-        return;
-    if (hw->load1 >= 0)
-        snprintf(v, sizeof v, "%.2f", hw->load1);
-    else
-        snprintf(v, sizeof v, "--");
-    metric(n, x, r->y + 3, w, "load", v, TS_CPU_LOAD);
-    if (r->h < 5)
-        return;
+    char line[160];
     snprintf(line, sizeof line, " fan %d/%d rpm · %d cores · EPP %s",
              hw->rpm_cpu, hw->rpm_gpu, hw->cpu_n, hw_epp_name(hw->epp));
-    info_line(n, x, r->y + 4, w, line);
+    const char *info[1] = { line };
+    stack_charts(n, r, CD_CPU, CD_COUNT(CD_CPU), false, 1, 4, info, 1);
 }
 
 static void sec_gpu(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    char v[32], line[160];
-    int x = r->x + 2, w = r->w - 4;
-    if (r->h < 2)
-        return;
-    fmt_int(v, sizeof v, "°C", hw->gpu_temp);
-    metric(n, x, r->y + 1, w, "temp", v, TS_GPU_TEMP);
-    if (r->h < 3)
-        return;
-    fmt_int(v, sizeof v, " MHz", hw->gpu_mhz);
-    metric(n, x, r->y + 2, w, "clock", v, TS_GPU_MHZ);
-    if (r->h < 4)
-        return;
-    if (hw->gpu_mw >= 0)
-        snprintf(v, sizeof v, "%.2f W", hw->gpu_mw / 1000.0);
-    else
-        snprintf(v, sizeof v, "--");
-    metric(n, x, r->y + 3, w, "power", v, TS_GPU_MW);
-    if (r->h < 5)
-        return;
+    char line[160];
     if (hw->gpu_vram_total_mb > 0)
         snprintf(line, sizeof line, " util %d%% · VRAM %d/%d MB · %d MHz max",
                  hw->gpu_util, hw->gpu_vram_used_mb, hw->gpu_vram_total_mb,
                  hw->gpu_mhz_max);
     else
         snprintf(line, sizeof line, " util %d%%", hw->gpu_util);
-    info_line(n, x, r->y + 4, w, line);
+    const char *info[1] = { line };
+    stack_charts(n, r, CD_GPU, CD_COUNT(CD_GPU), false, 1, 4, info, 1);
 }
 
 static void sec_igpu(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    char v[32], line[160];
-    int x = r->x + 2, w = r->w - 4;
-    if (r->h < 2)
-        return;
-    fmt_int(v, sizeof v, "°C", hw->igpu_temp);
-    metric(n, x, r->y + 1, w, "temp", v, TS_IGPU_TEMP);
-    if (r->h < 3)
-        return;
-    fmt_int(v, sizeof v, " MHz", hw->igpu_mhz);
-    metric(n, x, r->y + 2, w, "clock", v, TS_IGPU_MHZ);
-    if (r->h < 4)
-        return;
+    char line[160];
     if (hw->igpu_mw >= 0)
         snprintf(line, sizeof line, " power %.2f W · amdgpu",
                  hw->igpu_mw / 1000.0);
     else
         snprintf(line, sizeof line, " power -- · amdgpu");
-    info_line(n, x, r->y + 3, w, line);
+    const char *info[1] = { line };
+    stack_charts(n, r, CD_IGPU, CD_COUNT(CD_IGPU), false, 1, 4, info, 1);
 }
 
 static void sec_ram(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    char v[32], line[160];
-    int x = r->x + 2, w = r->w - 4;
-    if (r->h < 2)
-        return;
-    if (hw->mem_total_mb > 0)
-        snprintf(v, sizeof v, "%d/%d MB", hw->mem_used_mb, hw->mem_total_mb);
-    else
-        snprintf(v, sizeof v, "--");
-    metric(n, x, r->y + 1, w, "used", v, TS_MEM_USED);
-    if (r->h < 3)
-        return;
+    char line[160];
     if (hw->ram_temp_n == 2)
         snprintf(line, sizeof line, " modules %d/%d °C · swap %d/%d MB",
                  hw->ram_temp[0], hw->ram_temp[1],
@@ -405,31 +373,21 @@ static void sec_ram(struct ncplane *n, const rect_t *r)
     else
         snprintf(line, sizeof line, " swap %d/%d MB",
                  hw->swap_used_mb, hw->swap_total_mb);
-    info_line(n, x, r->y + 2, w, line);
+    const char *info[1] = { line };
+    stack_charts(n, r, CD_RAM, CD_COUNT(CD_RAM), false, 1, 4, info, 1);
 }
 
 static void sec_disk(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    char v[32], line[200];
-    int x = r->x + 2, w = r->w - 4;
-    if (r->h < 2)
-        return;
-    fmt_bs(v, sizeof v, telem_last(TS_DISK_RD));
-    metric(n, x, r->y + 1, w, "read", v, TS_DISK_RD);
-    if (r->h < 3)
-        return;
-    fmt_bs(v, sizeof v, telem_last(TS_DISK_WR));
-    metric(n, x, r->y + 2, w, "write", v, TS_DISK_WR);
-    if (r->h < 4)
-        return;
-    char b[120];
-    int cells = w - 40;
-    if (cells < 8)
-        cells = 8;
-    if ((size_t)cells * 3 + 1 > sizeof b)
-        cells = (int)(sizeof b - 1) / 3;
+    char line[200];
     if (hw->fs_total_mb > 0) {
+        char b[120];
+        int cells = r->w - 40;
+        if (cells < 8)
+            cells = 8;
+        if ((size_t)cells * 3 + 1 > sizeof b)
+            cells = (int)(sizeof b - 1) / 3;
         bar(b, sizeof b, hw->fs_used_mb, hw->fs_total_mb, cells);
         int pct = hw->fs_total_mb > 0
                       ? hw->fs_used_mb * 100 / hw->fs_total_mb : 0;
@@ -444,32 +402,19 @@ static void sec_disk(struct ncplane *n, const rect_t *r)
     } else {
         snprintf(line, sizeof line, " / --");
     }
-    info_line(n, x, r->y + 3, w, line);
-    (void)hw;
+    const char *info[1] = { line };
+    stack_charts(n, r, CD_DISK, CD_COUNT(CD_DISK), false, 1, 4, info, 1);
 }
 
 static void sec_power(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    char v[32], line[160];
-    int x = r->x + 2, w = r->w - 4;
-    if (r->h < 2)
-        return;
-    if (hw->bat_mw_known)
-        snprintf(v, sizeof v, "%.1f W", hw->bat_mw / 1000.0);
-    else
-        snprintf(v, sizeof v, "--");
-    metric(n, x, r->y + 1, w, "draw", v, TS_BAT_MW);
-    if (r->h < 3)
-        return;
-    fmt_int(v, sizeof v, "%", hw->bat_pct);
-    metric(n, x, r->y + 2, w, "charge", v, TS_BAT_PCT);
-    if (r->h < 4)
-        return;
+    char line[160];
     snprintf(line, sizeof line, " %s · %s · charge limit %d%%",
              hw->bat_status, hw->ac_online ? "on AC" : "on battery",
              hw->bat_limit);
-    info_line(n, x, r->y + 3, w, line);
+    const char *info[1] = { line };
+    stack_charts(n, r, CD_POWER, CD_COUNT(CD_POWER), false, 1, 4, info, 1);
 }
 
 /* ---- section detail pages (full page inside the overlay) ------------- */
@@ -477,11 +422,6 @@ static void sec_power(struct ncplane *n, const rect_t *r)
 static void detail_cpu(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    static const chartdef_t cd[] = {
-        { "temp", U_TEMP, TS_CPU_TEMP },
-        { "clock", U_MHZ, TS_CPU_MHZ },
-        { "load", U_LOAD, TS_CPU_LOAD },
-    };
     char l0[128], l1[160], l2[192];
 
     snprintf(l0, sizeof l0, " %d threads · %d cores · %d CCD · EPP %s · boost %s",
@@ -518,18 +458,13 @@ static void detail_cpu(struct ncplane *n, const rect_t *r)
              blk, hw->cpu_mhz_max);
 
     const char *info[3] = { l0, l1, l2 };
-    detail_charts(n, r, cd, 3, info, 3);
+    stack_charts(n, r, CD_CPU, CD_COUNT(CD_CPU), true, 2, CHART_ROWS_MAX,
+                 info, 3);
 }
 
 static void detail_gpu(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    static const chartdef_t cd[] = {
-        { "temp", U_TEMP, TS_GPU_TEMP },
-        { "power", U_W, TS_GPU_MW },
-        { "clock", U_MHZ, TS_GPU_MHZ },
-        { "util", U_PCT, TS_GPU_UTIL },
-    };
     char l0[160], l1[128];
     if (hw->gpu_vram_total_mb > 0)
         snprintf(l0, sizeof l0, " VRAM %d / %d MB · clock max %d MHz",
@@ -544,31 +479,25 @@ static void detail_gpu(struct ncplane *n, const rect_t *r)
              hw->nv_boost > 0 ? "on" : "--",
              hw->nv_temp >= 70 ? "on" : "--");
     const char *info[2] = { l0, l1 };
-    detail_charts(n, r, cd, 4, info, 2);
+    stack_charts(n, r, CD_GPU, CD_COUNT(CD_GPU), true, 2, CHART_ROWS_MAX,
+                 info, 2);
 }
 
 static void detail_igpu(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    static const chartdef_t cd[] = {
-        { "temp", U_TEMP, TS_IGPU_TEMP },
-        { "power", U_W, TS_IGPU_MW },
-        { "clock", U_MHZ, TS_IGPU_MHZ },
-    };
     char vg[24], vn[24], l0[96];
     fmt_int(vg, sizeof vg, " mV", hw->igpu_vddgfx_mv);
     fmt_int(vn, sizeof vn, " mV", hw->igpu_vddnb_mv);
     snprintf(l0, sizeof l0, " vddgfx %s · vddnb %s · amdgpu hwmon", vg, vn);
     const char *info[1] = { l0 };
-    detail_charts(n, r, cd, 3, info, 1);
+    stack_charts(n, r, CD_IGPU, CD_COUNT(CD_IGPU), true, 2, CHART_ROWS_MAX,
+                 info, 1);
 }
 
 static void detail_ram(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    static const chartdef_t cd[] = {
-        { "used", U_MB, TS_MEM_USED },
-    };
     char l0[128], l1[96];
     if (hw->mem_total_mb > 0)
         snprintf(l0, sizeof l0, " %d / %d MB · swap %d / %d MB",
@@ -585,16 +514,13 @@ static void detail_ram(struct ncplane *n, const rect_t *r)
     else
         snprintf(l1, sizeof l1, " no spd5118 temp sensors");
     const char *info[2] = { l0, l1 };
-    detail_charts(n, r, cd, 1, info, 2);
+    stack_charts(n, r, CD_RAM, CD_COUNT(CD_RAM), true, 2, CHART_ROWS_MAX,
+                 info, 2);
 }
 
 static void detail_disk(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    static const chartdef_t cd[] = {
-        { "read", U_MBPS, TS_DISK_RD },
-        { "write", U_MBPS, TS_DISK_WR },
-    };
     char l0[96], l1[200];
     if (hw->nvme_temp_n == 2)
         snprintf(l0, sizeof l0, " NVMe %d / %d °C",
@@ -618,16 +544,13 @@ static void detail_disk(struct ncplane *n, const rect_t *r)
         snprintf(l1, sizeof l1, " / --");
     }
     const char *info[2] = { l0, l1 };
-    detail_charts(n, r, cd, 2, info, 2);
+    stack_charts(n, r, CD_DISK, CD_COUNT(CD_DISK), true, 2, CHART_ROWS_MAX,
+                 info, 2);
 }
 
 static void detail_power(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    static const chartdef_t cd[] = {
-        { "draw", U_W, TS_BAT_MW },
-        { "charge", U_PCT, TS_BAT_PCT },
-    };
     char l0[128], l1[96];
     snprintf(l0, sizeof l0, " %s · %s · charge limit %d%%",
              hw->bat_status, hw->ac_online ? "on AC" : "on battery",
@@ -638,7 +561,8 @@ static void detail_power(struct ncplane *n, const rect_t *r)
     else
         snprintf(l1, sizeof l1, " battery health -- (no full/design read)");
     const char *info[2] = { l0, l1 };
-    detail_charts(n, r, cd, 2, info, 2);
+    stack_charts(n, r, CD_POWER, CD_COUNT(CD_POWER), true, 2, CHART_ROWS_MAX,
+                 info, 2);
 }
 
 /* ---- the registry: order here is order on screen -------------------- */
