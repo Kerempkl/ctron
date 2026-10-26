@@ -68,6 +68,7 @@ typedef struct ui_ctx {
     focus_t focus;
     ws_view_t ws_view;
     bool settings_overlay; /* ESC: fullscreen settings over everything */
+    bool telem_full;       /* 't': fullscreen read-only telemetry */
     bool db_overlay;       /* dedicated daeboard editor / installer */
     rect_t rc_overlay;     /* settings overlay rectangle (below top bar) */
 
@@ -261,6 +262,9 @@ void pw_sync_from_hw(void);
 void pw_apply_writes(hw_state_t *hw, int *fails_out, char *sum, size_t sumn);
 
 void panel_telemetry_draw(struct ncplane *n, const rect_t *r);
+/* fullscreen sectioned telemetry ('t') + the poll-loop sampler */
+void panel_telem_full_draw(struct ncplane *n, const rect_t *r);
+void telem_poll(struct hw_state *hw, long now_ms);
 
 /* Settings overlay (ESC): fullscreen, covers all panels; the mode editor
  * runs inside it (md_field >= 0). */

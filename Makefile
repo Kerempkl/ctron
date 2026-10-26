@@ -12,7 +12,8 @@ LDLIBS += $(shell pkg-config --libs notcurses 2>/dev/null \
 SRC = src/main.c src/util.c src/hw.c src/control.c src/daeboard.c src/fan.c src/cmds.c \
       src/modes.c src/profile.c src/settings.c src/telem.c \
       src/ui/ui.c src/ui/panel_profiles.c src/ui/panel_controls.c \
-      src/ui/panel_workspace.c src/ui/panel_telemetry.c src/ui/panel_settings.c \
+      src/ui/panel_workspace.c src/ui/panel_telemetry.c src/ui/panel_telem_full.c \
+      src/ui/panel_settings.c \
       src/ui/editor_fan.c src/ui/editor_daeboard.c src/ui/editor_corefreq.c \
       src/display/display.c src/display/display_kde.c src/display/display_hypr.c
 OBJ = $(SRC:src/%.c=build/%.o)

@@ -567,6 +567,48 @@ def flow_fan_grid():
         s.close()
 
 
+def flow_telem_full():
+    """Fullscreen telemetry ('t'): contextual open from a non-typing view,
+    sections render, stray keys are swallowed, t closes, reopens, q quits
+    cleanly from the fullscreen."""
+    tmpcfg = tempfile.mkdtemp(prefix="ctron-tui-")
+    oldcfg = os.environ.get("CTRON_CONFIG")
+    os.environ["CTRON_CONFIG"] = tmpcfg
+    s = None
+    try:
+        s = Session("telem_full")
+        s.wait_render()
+        s.key(b"7")                # LIGHT view: 't' is not owned there
+        time.sleep(0.4)
+        m = s.mark()
+        s.key(b"t")                # open fullscreen telemetry
+        if not s.wait_for(b"TELEMETRY", since=m, timeout=6.0):
+            fail("telem_full", "'t' did not open the fullscreen TELEMETRY")
+            return
+        ok("telem_full", "fullscreen opened on contextual 't'")
+        for sec in (b"CPU", b"GPU", b"RAM", b"STORAGE", b"POWER"):
+            if not s.wait_for(sec, since=m, timeout=6.0):
+                fail("telem_full", f"section {sec!r} missing")
+                return
+        ok("telem_full", "all sections render")
+        s.key(b"5")                # view keys are swallowed on this screen
+        time.sleep(0.3)
+        s.key(b"t")                # close
+        time.sleep(0.4)
+        m3 = s.mark()
+        s.key(b"t")                # reopen (also proves the close worked)
+        if not s.wait_for(b"TELEMETRY", since=m3, timeout=6.0):
+            fail("telem_full", "'t' did not re-open after close")
+            return
+        ok("telem_full", "close + reopen round-trip")
+        rc = s.quit_expect0()      # q from the fullscreen quits cleanly
+        if rc != 0:
+            fail("telem_full", f"q exit {rc!r}")
+    finally:
+        if s is not None:
+            s.close()
+
+
 def flow_snapshots():
     """SNAPSHOTS panel round-trip against an isolated CTRON_CONFIG:
     save (with preview) → rename → note → delete. No hardware writes
@@ -684,6 +726,7 @@ def main():
     flows = [flow_open_quit, flow_settings_overlay,
              flow_power_stage_apply, flow_corefreq_overlay,
              flow_fan_buttons, flow_fan_staging, flow_fan_presets,
+             flow_telem_full,
              flow_view_hotkeys, flow_mode_drift, flow_fan_grid,
              flow_snapshots]
 

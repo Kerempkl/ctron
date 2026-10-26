@@ -365,8 +365,10 @@ static void ui_layout(unsigned dimy, unsigned dimx)
         g_ui.rc_telem.h = H - telem_y; /* absorb rounding at the bottom */
 
     /* settings overlay: centred floating window, not the whole screen.
-     * the daeboard editor uses the same slot but nearly the full frame. */
-    if (g_ui.db_overlay) {
+     * the daeboard editor uses the same slot but nearly the full frame.
+     * fullscreen telemetry takes the whole frame (same geometry rules
+     * as the daeboard editor). */
+    if (g_ui.telem_full || g_ui.db_overlay) {
         int ow = W - 4;
         int oh = H - top - 2;
         if (ow < 20)
@@ -745,6 +747,16 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
         return;
     }
 
+    /* fullscreen telemetry is read-only: t/esc closes, q quits the
+     * app (rule 5), everything else is swallowed */
+    if (g_ui.telem_full) {
+        if (key == 't' || key == 'T' || key == NCKEY_ESC)
+            g_ui.telem_full = false;
+        else if (key == 'q' || key == 'Q')
+            try_quit();
+        return;
+    }
+
     /* typing modes swallow printable keys first */
     if (g_ui.prof_input != 0 && g_ui.focus == FOC_PROFILES) {
         panel_profiles_key(key);
@@ -799,6 +811,17 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
     if (g_ui.focus == FOC_PROFILES && (key == 's' || key == 'S')) {
         panel_profiles_key(key);
         return;
+    }
+
+    /* contextual 't': fullscreen telemetry — everywhere except where
+     * 't' already starts exact-value typing (FAN/POWER views; the
+     * overlays above have returned by now, so their own 't' is safe) */
+    if (key == 't' || key == 'T') {
+        if (!(g_ui.focus == FOC_WORKSPACE &&
+              (g_ui.ws_view == WSV_FAN || g_ui.ws_view == WSV_POWER))) {
+            g_ui.telem_full = true;
+            return;
+        }
     }
 
     switch (key) {
@@ -955,7 +978,9 @@ int ui_run(hw_state_t *hw)
         panel_controls_draw(stdn, &g_ui.rc_ctl);
         panel_workspace_draw(stdn, &g_ui.rc_ws);
         panel_telemetry_draw(stdn, &g_ui.rc_telem);
-        if (g_ui.db_overlay)
+        if (g_ui.telem_full)
+            panel_telem_full_draw(stdn, &g_ui.rc_overlay);
+        else if (g_ui.db_overlay)
             editor_daeboard_draw(stdn, &g_ui.rc_overlay);
         else if (g_ui.cf_overlay)
             editor_corefreq_draw(stdn, &g_ui.rc_overlay);
@@ -981,8 +1006,10 @@ int ui_run(hw_state_t *hw)
         if (key == (uint32_t)-1)
             continue;
         if (key == 0 || key == NCKEY_RESIZE) {
-            if (!atomic_load(&g_ui.apply_busy))
+            if (!atomic_load(&g_ui.apply_busy)) {
                 hw_refresh_fast(hw);
+                telem_poll(hw, mono_ms());
+            }
             continue;
         }
         /* lone '[' / ']' are CSI leftovers from focus reporting; a bare
@@ -998,8 +1025,10 @@ int ui_run(hw_state_t *hw)
             dispatch_key(key, &ni);
         }
 
-        if (!atomic_load(&g_ui.apply_busy))
+        if (!atomic_load(&g_ui.apply_busy)) {
             hw_refresh_fast(hw);
+            telem_poll(hw, mono_ms());
+        }
     }
 
     /* the worker is never killed: wait it out (bounded by the freq

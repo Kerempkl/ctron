@@ -92,7 +92,15 @@ Rows are clickable (mouse is a known gap under Hyprland — see the
 Per-view keys (fan point editing, presets modal, core-limit overlay)
 are listed in the HELP view and the footer while you use them.
 
+`t` opens a **fullscreen read-only telemetry screen**: six live
+sections (CPU / GPU / iGPU / RAM / storage / power), each with rolling
+sparklines over a ~60 s window — CPU & GPU temperatures, clocks, load,
+fan RPMs, dGPU power/utilisation/VRAM, iGPU temp/clock/power, RAM use
++ module temps, NVMe temps + disk I/O + fill bar, battery draw/charge.
+Unknown sensors stay `--`; the screen never writes hardware.
+
 ![ctron TUI — POWER view](docs/tui-power.png)
+![ctron TUI — fullscreen telemetry](docs/tui-telem.png)
 
 ## CLI reference
 

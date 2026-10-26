@@ -1,5 +1,52 @@
 # Changelog
 
+## 2026-10-26 — ui: fullscreen sectioned TELEMETRY on contextual 't' (FAZ: telem, step 3)
+
+- New src/ui/panel_telem_full.c: a section REGISTRY drives the screen
+  (SECTIONS[] — adding/removing/moving a section is a one-line edit),
+  a responsive 2-column grid (single column under 76 cols, too-tiny
+  sections skipped rather than crammed), and per-section metric rows
+  (label + current value + block sparkline) plus read-only info lines.
+  Six sections ship: CPU (temp/clock/load + fan·cores·EPP), GPU
+  (temp/clock/power + util·VRAM·max), iGPU (temp/clock + power), RAM
+  (used spark + module temps·swap), STORAGE (read/write B/s sparks +
+  / fill bar + NVMe temps), POWER (draw/charge sparks + status·AC·
+  limit). Nothing on this screen writes; sampling rides the poll loop
+  (telem_poll after each hw_refresh_fast, never under apply_busy).
+- Key wiring: 't'/'T' opens the fullscreen everywhere EXCEPT where 't'
+  already starts exact-value typing (FAN/POWER views — settled keymap
+  untouched); while open, t/T/ESC close, q/Q quit the app (rule 5),
+  everything else is swallowed. Layout uses the db_overlay fullscreen
+  geometry. HELP view + LIVE strip hint lines updated (new key = HELP
+  line, same commit).
+- tuitest flow_telem_full: open from a non-typing view, all six
+  sections render, stray '5' swallowed, close + reopen round-trip, q
+  exits rc=0 from the fullscreen. Visual check: docs/tui-telem.png
+  captured live (160x50) and inspected — sections, real values, no
+  clipping; README shows the new screen. make 0 warnings, unit +
+  tuitest green.
+
+## 2026-10-26 — hw: telemetry read sources — iGPU/RAM/NVMe temps, extended dGPU query, disk/mem/load (step 2)
+
+- (Recorded with step 2 commit 59cdc97.) Extended single nvidia-smi
+  query (temp + power.draw + graphics clock + utilisation + VRAM; 2 s
+  cache; N/A fields honest -1), amdgpu hwmon iGPU temp/freq/power,
+  spd5118 RAM module temps (×2) and nvme temps (×2) via the new
+  hw_hwmon_path_nth/cached_hwmon_nth, /proc meminfo + loadavg +
+  diskstats (whole-disk parser — partitions/loops excluded so bytes
+  are not double-counted), statvfs / usage. Pure parsers
+  unit-tested; --status prints the new block live (verified: GPU
+  6.08 W draw, iGPU 57 °C/600 MHz, RAM modules, NVMe ×2).
+
+## 2026-10-26 — telem: pure sample-ring + sparkline core (step 1)
+
+- (Recorded with commit 5d0bf8a.) X-macro TELEM_SERIES table — enum
+  and defs from one list, a new metric is one row + one extractor;
+  240-slot rings with a 250 ms gate, -1-unknown skip, UTF-8 block
+  sparkline with fixed-range clipping / AUTO window scaling / flat
+  mid-level. Unit tests: gate, wrap, minmax, scales, clip, skip,
+  empty.
+
 ## 2026-10-26 — build: flake.nix added (nix build + nix develop)
 
 - v1 had a flake, v2 never did; Arcioth built via `nix-shell -p gcc
