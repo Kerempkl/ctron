@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-10-26 — release: v0.4.0 (MINOR — fullscreen telemetry)
+
+- MINOR per the agent-managed semver policy: the new user-facing
+  feature is the fullscreen sectioned TELEMETRY screen on contextual
+  't' (six sections, rolling sparklines, read-only) plus the telemetry
+  read layer behind it (extended dGPU query, iGPU amdgpu hwmon, RAM
+  module + NVMe temps, mem/load/diskstats/fs usage) and the new
+  --status telemetry block.
+- VERSION (src/main.c), README version badge and flake.nix version
+  bumped together in this commit per policy; annotated tag on it, push
+  stays user-side. Roadmap: the "mini-graph scope decision" item is
+  closed — the 't' screen supersedes it (PLANS.md dash plan marked
+  superseded; only its ASCII-art picker stays parked).
+
 ## 2026-10-26 — ui: fullscreen sectioned TELEMETRY on contextual 't' (FAZ: telem, step 3)
 
 - New src/ui/panel_telem_full.c: a section REGISTRY drives the screen

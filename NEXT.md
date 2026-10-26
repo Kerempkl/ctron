@@ -23,7 +23,8 @@ Kullanıcı sürüm numaralandırmasını agent'a devretti. Şema: semver.
   seviyesinde: fan presets modali, M4 toggle + tek-örnek guard,
   PPT/ryzenadj yazma yolu, GPU clock lock, daeboard control + editör,
   apply worker. *(v0.3.0 atıldı 10-25; **v0.3.1** atıldı 10-26 —
-  PATCH: FAZ 3 güvenlik zinciri + dürüstlük/doküman fixes.)*
+  PATCH: FAZ 3 güvenlik zinciri + dürüstlük/doküman fixes; **v0.4.0**
+  atıldı 10-26 — MINOR: tam ekran bölümü telemetri ekranı 't'.)*
 
 ## FAZ 1 — Bakım & dürüstlük (kısa vade)
 
@@ -81,18 +82,6 @@ Kullanıcı sürüm numaralandırmasını agent'a devretti. Şema: semver.
     çağrı zinciri önce `/usr/local/bin/ctron-ppt`'yi denesin (varsa
     `sudo -n /usr/local/bin/ctron-ppt SPL SPPT FPPT`); SECURITY.md §4.3'ü
     ctron'un kendisi için etkin kılar (~10 satır + test).
-
-## Kapsam kararı bekliyor
-
-- **Mini telemetri grafikleri** — iki alternatif: (a) pure örnek-ring +
-  sparkline render çekirdeği önce (birim-testli; poll döngüsü yalnız
-  okur), LIVE şeridinde 1-2 satır; `--dash` tam ekranı sonra aynı
-  çekirdekle. (b) PLANS.md "Fullscreen dashboard telemetry" planı
-  aynen, `--dash` tek seferde (grafikler + detay bloğu + ASCII art).
-  Kullanıcı 10-25'te "şimdilik park" dedi; açılınca (a)/(b) kararı
-  verilecek. PLANS.md'deki plan referans olarak duruyor. Kodda bugün
-  graph/ring/history yok — telemetri salt anlık-değer metni
-  (`panel_telemetry.c`).
 
 ## Bilinçli park (tek liste — README Roadmap ile eş güncellenir)
 

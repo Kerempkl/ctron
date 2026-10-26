@@ -9,8 +9,11 @@ purpose.
 
 ## Fullscreen dashboard telemetry
 
-Still unbuilt — kept as the reference plan; the strip-vs-dash scope
-decision is tracked in NEXT.md.
+**Superseded 2026-10-26**: the fullscreen telemetry shipped as the
+'t' screen (six sectioned panels over sample rings — see
+src/ui/panel_telem_full.c and the CHANGELOG). This plan remains as a
+historical design sketch; only the ASCII-art picker below was never
+built and stays parked.
 
 A last-look screen: many live graphs and a full read of the machine,
 plus ASCII art the user picks. It is not the default. No-args `ctron`

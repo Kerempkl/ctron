@@ -2,7 +2,8 @@
 
 Latest session — **2026-10-26** **GLM / Kerempkl / FA608PP** (roadmap
 execution: FAZ 1 provenance fix + FAZ 3.10/3.8/3.9 security chain +
-FAZ 3.11 sudoers doc + FAZ 3.12 wrapper probe + v0.3.1 cut — see
+FAZ 3.11 sudoers doc + FAZ 3.12 wrapper probe + v0.3.1 + fullscreen
+telemetry 't' + v0.4.0 — see
 below). Before that
 **2026-10-25** **GLM / Kerempkl / FA608PP** (README
 redesign: GitHub landing page + real TUI screenshots — see below;
@@ -88,6 +89,34 @@ prioritized todo list and the distilled session lessons.
   pidfile removal, exit 0). Harness-proven: rc=0 + pidfile gone.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
+
+## Session 2026-10-26 — fullscreen sectioned telemetry 't' + v0.4.0 (GLM / Kerempkl / FA608PP)
+
+- User request evolved the parked mini-graph decision into: "telemetry
+  fullscreen on 't', split into SECTIONS (CPU, GPU/iGPU, RAM, storage,
+  ...)". Data sources probed live first (amdgpu hwmon serves the iGPU
+  without gpu_metrics parsing; spd5118 x2 RAM module temps; nvme x2;
+  meminfo/loadavg/diskstats; dGPU query extended in-place) — then
+  built in four green-committed steps:
+  1. 5d0bf8a pure telem core (X-macro series table, 240-slot rings,
+     250 ms gate, block sparkline; unit-tested).
+  2. 59cdc97 hw read layer (extended nvidia-smi single query, iGPU/
+     RAM/NVMe hwmon via hw_hwmon_path_nth, diskstats whole-disk
+     parser, statvfs; --status block verified live: GPU 6.08 W, iGPU
+     57 °C/600 MHz).
+  3. 6beee01 UI: section registry (SECTIONS[] = the whole layout),
+     responsive 2-col grid, contextual 't' (FAN/POWER typing views
+     keep their 't'), t/T/esc close, q quits, all else swallowed,
+     read-only. tuitest flow_telem_full green; live screenshot
+     docs/tui-telem.png visually verified (6 sections, real values,
+     no clipping) and added to README.
+  4. v0.4.0 cut (this commit): VERSION + README badge + flake version
+     together per policy; NEXT.md mini-graph item closed (superseded
+     by the 't' screen), PLANS.md dash plan marked superseded (only
+     the ASCII-art picker stays parked).
+- Flexibility ask honoured: a section is one SECTIONS[] entry + one
+  draw fn; a metric is one TELEM_SERIES row + one telem_poll
+  extractor line — reorder/remove without touching anything else.
 
 ## Session 2026-10-26 — display multi-monitor parsing + flake.nix (GLM / Kerempkl / FA608PP)
 
