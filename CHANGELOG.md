@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-10-26 — release: v0.3.1 (PATCH — security chain)
+
+- PATCH per the agent-managed semver policy: everything since v0.3.0
+  is hardening/fixes/docs with no new user-facing features — the
+  singleton pidfile O_EXCL|O_NOFOLLOW claim, shell-free privileged
+  writes (ut_write_via_argv), argv-vector exec for
+  nvidia-smi/kscreen-doctor/hyprctl with the 2>&1 honesty fix, fan
+  provenance wording, SECURITY.md §4 sudoers documentation, and the
+  ctron-ppt wrapper probe.
+- VERSION bump (src/main.c, the only definition) + README version
+  badge in this commit; the annotated tag sits on this commit, push
+  stays user-side (commits + tags: `git push && git push origin
+  v0.3.1`).
+
 ## 2026-10-26 — power: ctron-ppt wrapper probed before ryzenadj (FAZ 3.12)
 
 - When `/usr/local/bin/ctron-ppt` exists and is executable, PPT writes
