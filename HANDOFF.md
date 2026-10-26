@@ -179,6 +179,12 @@ prioritized todo list and the distilled session lessons.
   while unplugged — this box is on barrel AC, ports read 0) and
   battery electricals (voltage_now/current_now → "14.69 V · 2.76 A")
   beside the health %. Series count now 18.
+- Same-day take 5 (user request): grid navigation is now SPATIAL —
+  arrows/hjkl move in 2D on the 2×3 grid (row-wise left/right,
+  column-wise up/down, edges clamp, no wrap; column count mirrors
+  the draw pass via rc_overlay). Smoke proves it: j+l from CPU must
+  reach RAM ("swap"), linear stepping would have hit iGPU. Detail
+  h/l stays a linear flip.
 
 ## Session 2026-10-26 — security: privileged writes fully shell-free (GLM / Kerempkl / FA608PP)
 

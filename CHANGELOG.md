@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-10-26 — ui: spatial grid navigation in the telemetry overlay
+
+- User request: arrows used to walk the sections linearly (1→2→3…);
+  now they move in 2D matching the on-screen 2×3 grid — left/right
+  step inside a row, up/down step between rows, edges clamp (no
+  wraparound; "down" from the bottom row stays put). hjkl mirror the
+  arrows; the column count follows the same wide/narrow rule as the
+  draw pass (2 columns ≥78 cols, else 1 — where left/right no-op).
+  Detail-page h/l keeps its linear section flip (a list, not a grid).
+- Smoke flow updated to PROVE the spatial behavior: j (down) + l
+  (right) from CPU must land on RAM (asserting the swap line; the
+  old linear stepping would have opened the iGPU page).
+- HELP lines extended (hjkl/arrows walk the grid, h/l flips details).
+
 ## 2026-10-26 — telem: self-describing charts + APU PPT honesty + PD/battery reads
 
 - "Grafiklerin neyi temsil ettiğini anlayamıyorum": every chart now

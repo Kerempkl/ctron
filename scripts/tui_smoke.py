@@ -625,12 +625,13 @@ def flow_telem_full():
                 fail("telem_full", f"section {sec!r} missing")
                 return
         ok("telem_full", "all sections render")
-        # navigation: j/j walks the grid cursor (row-major), enter opens
-        # the selected section's detail page
+        # navigation is SPATIAL on the 2x3 grid: j = one row down,
+        # l = one column right. CPU -> iGPU -> RAM proves it (linear
+        # j/j/l would have landed elsewhere)
         m4 = s.mark()
         s.key(b"j")
         time.sleep(0.2)
-        s.key(b"j")                # CPU -> GPU -> iGPU
+        s.key(b"l")
         time.sleep(0.2)
         s.key(b"\r")
         # footer words, not phrases: the render diff skips unchanged
@@ -639,10 +640,14 @@ def flow_telem_full():
             fail("telem_full", "enter did not open the section detail")
             return
         ok("telem_full", "enter opens the selected detail page")
+        if not s.wait_for(b"swap", since=m4, timeout=6.0):
+            fail("telem_full", "spatial j+l did not land on RAM (no swap line)")
+            return
+        ok("telem_full", "spatial grid nav: j down + l right = CPU->iGPU->RAM")
         m5 = s.mark()
-        s.key(b"l")                # iGPU -> RAM without leaving detail mode
-        if not s.wait_for(b"swap", since=m5, timeout=6.0):
-            fail("telem_full", "h/l did not switch to the RAM detail")
+        s.key(b"l")                # detail flip: RAM -> STORAGE
+        if not s.wait_for(b"NVMe", since=m5, timeout=6.0):
+            fail("telem_full", "h/l did not switch to the STORAGE detail")
             return
         ok("telem_full", "h/l switches detail sections")
         m6 = s.mark()

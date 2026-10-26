@@ -726,18 +726,37 @@ void panel_telem_full_key(uint32_t key)
         }
     }
 
+    /* grid navigation is spatial, matching the boxes on screen: the
+     * same 2-column/1-column rule the draw pass uses. Left/right
+     * step inside a row, up/down step between rows; edges clamp —
+     * no wraparound, "down" from the bottom row stays put */
+    if (g_ui.telem_sel < 0 || g_ui.telem_sel >= n)
+        g_ui.telem_sel = 0;
+    int cols = (g_ui.rc_overlay.w - 2) >= 76 ? 2 : 1;
+    int sel = g_ui.telem_sel;
+    int rows_n = (n + cols - 1) / cols;
+    int col = sel % cols, row = sel / cols;
+
     switch (key) {
     case 'j':
-    case 'l':
     case NCKEY_DOWN:
-    case NCKEY_RIGHT:
-        g_ui.telem_sel = (g_ui.telem_sel + 1) % n;
+        if (row + 1 < rows_n && sel + cols < n)
+            g_ui.telem_sel = sel + cols;
         return;
     case 'k':
-    case 'h':
     case NCKEY_UP:
+        if (row > 0)
+            g_ui.telem_sel = sel - cols;
+        return;
+    case 'l':
+    case NCKEY_RIGHT:
+        if (col + 1 < cols && sel + 1 < n)
+            g_ui.telem_sel = sel + 1;
+        return;
+    case 'h':
     case NCKEY_LEFT:
-        g_ui.telem_sel = (g_ui.telem_sel + n - 1) % n;
+        if (col > 0)
+            g_ui.telem_sel = sel - 1;
         return;
     case NCKEY_ENTER:
     case '\r':
