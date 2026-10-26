@@ -1,8 +1,8 @@
 # Ctron Handoff
 
 Latest session — **2026-10-26** **GLM / Kerempkl / FA608PP** (roadmap
-execution: FAZ 1 provenance fix + FAZ 3.10 pidfile hardening + FAZ 3.8
-shell-free privileged writes + FAZ 3.9 argv helpers — see
+execution: FAZ 1 provenance fix + FAZ 3.10/3.8/3.9 security chain +
+FAZ 3.11 sudoers doc — see
 below). Before that
 **2026-10-25** **GLM / Kerempkl / FA608PP** (README
 redesign: GitHub landing page + real TUI screenshots — see below;
@@ -88,6 +88,25 @@ prioritized todo list and the distilled session lessons.
   pidfile removal, exit 0). Harness-proven: rc=0 + pidfile gone.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
+
+## Session 2026-10-26 — FAZ 3.11: code-verified sudoers documentation (GLM / Kerempkl / FA608PP)
+
+- SECURITY.md section 4 written from the code and live machine facts:
+  the sudo invocation table (tee path families, ryzenadj try-order
+  /usr/bin → /usr/sbin → bare, nvidia-smi absolute from command -v,
+  daeboard, sudo -n true probes), minimal ruleset, three-integers
+  ctron-ppt wrapper, NixOS store-path notes, verification checklist.
+- Merged-usr literal-matching footgun documented (sudoers matches the
+  literal string; bare names resolve via secure_path sbin-first) —
+  the "password required while sudo -n true works" symptom explained.
+- Live-verified: both asus fan hwmons resolve under
+  /sys/devices/platform/asus-nb-wmi/* (tee rule family covers curve
+  points + pwm enable). Sandbox cannot read /etc/sudoers.d (by
+  design); the machine's current file is the user's path-scoped set
+  from 10-08.
+- Opened NEXT.md FAZ 3 item 12: the ~10-line wrapper probe in
+  ctrl_ppt_ryzen_cmd that would let ctron itself use §4.3. FAZ 3
+  items 8-11 all closed; docs-only change (no code, no build impact).
 
 ## Session 2026-10-26 — FAZ 3.9: argv exec for nvidia-smi/kscreen-doctor/hyprctl (GLM / Kerempkl / FA608PP)
 

@@ -82,22 +82,11 @@ Other privileged operations:
      arguments anymore.
 
 2. **Deploy Least-Privilege Sudoers Wrapper for `ryzenadj`:**
-   - Instead of granting `NOPASSWD` to `/usr/bin/ryzenadj`, deploy a strict
-     root-owned wrapper script that accepts *only* three integers:
-     ```sh
-     #!/bin/sh
-     # /usr/local/bin/ctron-ppt
-     set -eu
-     [ "$#" -eq 3 ] || exit 2
-     case "$1$2$3" in *[!0-9]*) exit 2;; esac
-     exec /usr/bin/ryzenadj -a "$1" -c "$2" -b "$3"
-     ```
-   - In `/etc/sudoers.d/ctron`:
-     ```sudoers
-     %wheel ALL=(ALL) NOPASSWD: /usr/local/bin/ctron-ppt
-     %wheel ALL=(ALL) NOPASSWD: /usr/sbin/nvidia-smi -lgc *, /usr/sbin/nvidia-smi -rgc
-     %wheel ALL=(ALL) NOPASSWD: /usr/bin/tee /sys/devices/platform/asus-nb-wmi/*, /usr/bin/tee /sys/devices/system/cpu/cpufreq/policy*/*
-     ```
+   - **Status: documented 2026-10-26** — superseded by section 4:
+     §4.2 is the minimal code-verified ruleset, §4.3 the stricter
+     wrapper. The wrapper needs one small code follow-up (tracked in
+     NEXT.md FAZ 3) before ctron itself can use it; until then it only
+     tightens what other tools on the machine can do.
 
 3. **Secure Atomic File Creation:**
    - Ensure all pidfile and timestamp claim operations use `open()` with
@@ -140,3 +129,99 @@ Other privileged operations:
      dbus/socket-activated helper daemon.
    - Allows fine-grained authorization via Polkit rules without granting
      arbitrary `sudo` privileges.
+
+---
+
+## 4. Recommended `/etc/sudoers.d/ctron` (code-verified, v0.3.0)
+
+Everything here is derived from what the binary actually execs with
+`sudo -n` — nothing else needs root. Apply with
+`visudo -f /etc/sudoers.d/ctron` (mode 0440) and verify per §4.5.
+
+### 4.1 What ctron runs with sudo
+
+| Purpose | Exact invocation | Where |
+|---|---|---|
+| sysfs writes: fan curve points + `pwmN_enable` (asus-nb-wmi hwmon), PPT/panel-OD via asus-armoury attributes, `platform_profile`, per-core cpufreq `scaling_*` + global `boost`, charge threshold, kbd brightness | `sudo -n tee <path>` | `ut_priv_write` (util.c) |
+| PPT fallback | `sudo -n /usr/bin/ryzenadj -a <mW> -c <mW> -b <mW>` — candidates tried in order `/usr/bin/ryzenadj`, `/usr/sbin/ryzenadj`, bare `ryzenadj`; values are integers validated in code | `ctrl_ppt_ryzen_cmd` (control.c) |
+| GPU clock lock / reset | `sudo -n /usr/sbin/nvidia-smi -lgc <m>,<m>` / `-rgc` — the absolute path comes from `command -v` at runtime | `ctrl_gpu_clock_*` (control.c) |
+| daeboard control (optional) | `sudo -n systemd-run --unit=daeboard --collect <bin>` and `sudo -n <install-script>` | daeboard.c |
+| capability probes | `sudo -n true` | `--doctor`, daeboard |
+
+**Merged-usr note (the footgun):** `/usr/sbin` is a symlink to
+`/usr/bin` on Arch/CachyOS, so both spellings are the same file — but
+sudoers matches the **literal** string ctron sends. Bare names
+(`tee`, `systemd-run`) are resolved by sudo's `secure_path` (sbin
+first); `nvidia-smi` arrives as whatever `command -v` printed
+(`/usr/sbin/nvidia-smi` on the verified machine); `ryzenadj` arrives
+as `/usr/bin/ryzenadj` (first candidate). If a write fails with
+"password required" while `sudo -n true` works, the rule spelling
+does not match the literal — check with `command -v` and §4.5.
+
+### 4.2 Minimal ruleset
+
+```sudoers
+# /etc/sudoers.d/ctron — apply with visudo -f, mode 0440
+Cmnd_Alias CTRON_SYSFS = /usr/sbin/tee /sys/devices/platform/asus-nb-wmi/*, \
+                         /usr/sbin/tee /sys/class/firmware-attributes/asus-armoury/*, \
+                         /usr/sbin/tee /sys/devices/system/cpu/*, \
+                         /usr/sbin/tee /sys/firmware/acpi/platform_profile, \
+                         /usr/sbin/tee /sys/class/power_supply/*, \
+                         /usr/sbin/tee /sys/class/leds/*, \
+                         /usr/bin/ryzenadj *, \
+                         /usr/sbin/nvidia-smi -lgc *, \
+                         /usr/sbin/nvidia-smi -rgc
+youruser ALL=(root) NOPASSWD: CTRON_SYSFS
+
+# optional, only if the daeboard control rows are used:
+# youruser ALL=(root) NOPASSWD: /usr/sbin/systemd-run --unit=daeboard --collect *
+```
+
+Residual risk kept honest: sudoers `*` spans the whole argument
+string, so `ryzenadj *` still allows *other* ryzenadj flags if typed
+manually (e.g. `--tctl-temp`) — that is §2.1's escalation concern. If
+your `/usr/bin/tee` spelling differs, adjust with
+`command -v tee`. Kbd brightness and most LED nodes are usually
+user-writable, so that line is belt-and-braces.
+
+### 4.3 Stricter variant: the `ctron-ppt` wrapper
+
+Root-owned, mode 0755, only ever three integers:
+
+```sh
+#!/bin/sh
+# /usr/local/bin/ctron-ppt
+set -eu
+[ "$#" -eq 3 ] || exit 2
+case "$1$2$3" in *[!0-9]*) exit 2 ;; esac
+exec /usr/bin/ryzenadj -a "$1" -c "$2" -b "$3"
+```
+
+```sudoers
+youruser ALL=(root) NOPASSWD: /usr/local/bin/ctron-ppt
+```
+
+Replace the `ryzenadj *` line with this and the SMU surface shrinks
+to exactly three watt values. **Note:** ctron currently calls
+ryzenadj directly, so using the wrapper from ctron needs the small
+probe follow-up tracked in NEXT.md FAZ 3 (try
+`/usr/local/bin/ctron-ppt` first in `ctrl_ppt_ryzen_cmd`); until that
+lands, the wrapper only constrains other invokers on the machine.
+
+### 4.4 NixOS (FA507NVR)
+
+Store paths change per generation, so a literal sudoers path goes
+stale at the next `nixos-rebuild`. Prefer `security.sudo.extraRules`
+with the generation-independent spelling
+(`/run/current-system/sw/bin/...`), or package the §4.3 wrapper and
+allow only that. This half is unverified on the FA507NVR (roadmap
+FAZ 2, Arcioth) — that machine currently runs `NOPASSWD: ALL`.
+
+### 4.5 Verifying an install
+
+```sh
+visudo -cf /etc/sudoers.d/ctron     # syntax
+sudo -n -l                          # the rules as sudo sees them
+./ctron --doctor                    # "sudo -n : passwordless"
+./ctron --freq <current-ceiling>    # real round-trip: writes and reads back
+```

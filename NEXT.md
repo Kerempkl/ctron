@@ -67,9 +67,13 @@ Kullanıcı sürüm numaralandırmasını agent'a devretti. Şema: semver.
 10. **[BİTTİ 10-26]** Pidfile/claim sertleştirme denetimi — O_CREAT|O_EXCL|O_NOFOLLOW
     + sahiplik doğrulaması, özellikle `/tmp` fallback'inde; zaten
     sağlamsa testle kanıtla, değilse düzelt. (Faz 1.3.)
-11. **Sudoers sertleştirme dokümanı** — ctron-ppt wrapper betiği +
-    yol-kapsamlı kurallar (kurulum tarafı; kod değişikliği değil).
-    (Faz 1.2.)
+11. **[BİTTİ 10-26]** Sudoers sertleştirme dokümanı — ctron-ppt wrapper
+    betiği + yol-kapsamlı kurallar (kurulum tarafı; kod değişikliği
+    değil). (Faz 1.2 → SECURITY.md §4.)
+12. **ctron-ppt wrapper probe (3.11'in kod yarısı)** — `ctrl_ppt_ryzen_cmd`
+    çağrı zinciri önce `/usr/local/bin/ctron-ppt`'yi denesin (varsa
+    `sudo -n /usr/local/bin/ctron-ppt SPL SPPT FPPT`); SECURITY.md §4.3'ü
+    ctron'un kendisi için etkin kılar (~10 satır + test).
 
 ## Kapsam kararı bekliyor
 

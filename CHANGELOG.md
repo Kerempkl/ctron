@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-10-26 — security docs: code-verified /etc/sudoers.d/ctron (FAZ 3.11)
+
+- SECURITY.md gained section 4: exactly what ctron execs with sudo,
+  derived from the code and verified against the live machine — the
+  `sudo -n tee` path families (ut_priv_write), the ryzenadj candidates
+  in try order (/usr/bin, /usr/sbin, bare), the absolute nvidia-smi
+  path from `command -v`, daeboard's systemd-run/install, and the
+  `sudo -n true` probes.
+- The merged-usr footgun is spelled out: /usr/sbin is a symlink to
+  /usr/bin on Arch/CachyOS but sudoers matches the LITERAL string
+  ctron sends — bare `tee` resolves through sudo's secure_path (sbin
+  first), ryzenadj arrives as /usr/bin/ryzenadj (first candidate),
+  nvidia-smi as /usr/sbin/nvidia-smi. Mismatched spelling shows up as
+  "password required" while `sudo -n true` works.
+- §4.2 minimal ruleset keeps the residual risk honest (`ryzenadj *`
+  still allows other SMU flags if typed manually — §2.1's concern);
+  §4.3 is the stricter three-integers wrapper, which needs the small
+  ctrl_ppt_ryzen_cmd probe follow-up now tracked as NEXT.md FAZ 3
+  item 12 before ctron itself can use it; §4.4 documents NixOS
+  store-path instability (FA507NVR unverified, still NOPASSWD: ALL);
+  §4.5 is the install verification checklist. Live-checked: both asus
+  fan hwmons (`asus`, `asus_custom_fan_curve`) resolve under
+  /sys/devices/platform/asus-nb-wmi/*, so the tee rule family covers
+  curve points + pwm enable.
+
 ## 2026-10-26 — security: nvidia-smi / kscreen-doctor / hyprctl exec via argv, no shell (FAZ 3.9)
 
 - New ut_exec_argv family in util.c: fork + execvp of a plain argv
