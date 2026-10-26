@@ -1,6 +1,9 @@
 # Ctron Handoff
 
-Latest session — **2026-10-26** **GLM / Kerempkl / FA608PP** (roadmap
+Latest session — **2026-10-26** **GLM / Kerempkl / FA608PP**
+(comprehensive performance/optimization audit, measured → NEXT.md
+FAZ 4; no code changes — see below). Before that
+**2026-10-26** **GLM / Kerempkl / FA608PP** (roadmap
 execution: FAZ 1 provenance fix + FAZ 3.10/3.8/3.9 security chain +
 FAZ 3.11 sudoers doc + FAZ 3.12 wrapper probe + v0.3.1 + fullscreen
 telemetry 't' + v0.4.0 — see
@@ -89,6 +92,41 @@ prioritized todo list and the distilled session lessons.
   pidfile removal, exit 0). Harness-proven: rc=0 + pidfile gone.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
+
+## Session 2026-10-26 — performance/optimization audit → NEXT.md FAZ 4 (GLM / Kerempkl / FA608PP)
+
+- User asked for a comprehensive look at optimization opportunities.
+  Question-first: no code changed, repo left clean; findings written to
+  NEXT.md as FAZ 4 with the raw numbers (CHANGELOG entry alongside).
+- Method: hot-path code read (ui_run loop, hw_refresh_fast, telem,
+  draw helpers) + live measurements — pty harness `Session` +
+  `/proc/<pid>/stat` utime/stime sampling for the TUI, `/usr/bin/time`
+  for --status and the external tools. Probe was throwaway (tmp),
+  deliberately not committed; FAZ 4 header records the method so it
+  can be rebuilt.
+- Measurements (FA608PP, 160×50, 250 ms poll): idle **1.10%** CPU,
+  telemetry fullscreen 1.13% (draw cost negligible; grep-proven zero
+  malloc/exec/strdup in all ui/*.c draw paths), key-held burst ~30 Hz
+  **8.7%** = 2.6 ms per keypress (every key runs a full
+  hw_refresh_fast + full redraw; fast poll ≈ 69 file reads/tick, 48
+  from cpu_limits_sweep), nvidia-smi extended query 20–30 ms every 2 s
+  on the UI thread, --status 0.21 s end-to-end (kscreen-doctor /
+  asusctl / busctl / nvidia-smi 10–30 ms each — startup is NOT a
+  problem), binary 285 KB unstripped.
+- Verdict: earlier wins (path cache 10-01, batched writes 10-09, 2 s
+  GPU query cache 10-26) did their job; what remains is polish. FAZ 4
+  ranking: 13 key→refresh decoupling (only measured win worth chasing;
+  rate-limit or input batching), 14 cpu_limits_sweep split (static
+  cpuinfo_* throttled → 48→17 reads), 15 install strip + optional LTO
+  (free; march=native explicitly parked against the portability
+  rule), 16 conditional nvidia-smi worker (only if load-lengthening
+  is observed). Weak-justification items recorded with reasons-not-to
+  (fd/pread cache vs suspend-resume model, statvfs cache, erase_region,
+  telem-sampling-always as deliberate design).
+- Harness lesson hit AGAIN, sharper: a bare pty with no responder
+  never returns from notcurses_init (0.00% CPU, stuck process) — the
+  harness Session with its query responder is the only reliable driver
+  for CPU measurements too, not just for flows.
 
 ## Session 2026-10-26 — telemetry open fix: stale install + 'T' everywhere (GLM / Kerempkl / FA608PP)
 

@@ -83,6 +83,72 @@ Kullanıcı sürüm numaralandırmasını agent'a devretti. Şema: semver.
     `sudo -n /usr/local/bin/ctron-ppt SPL SPPT FPPT`); SECURITY.md §4.3'ü
     ctron'un kendisi için etkin kılar (~10 satır + test).
 
+## FAZ 4 — Performans & optimizasyon (2026-10-26 ölçümlü denetim)
+
+> Kaynak: o günün kapsamlı taraması (sıcak yolların kod okuması + canlı
+> ölçüm; yöntem: pty harness `Session` + `/proc/<pid>/stat` utime/stime
+> örnekleme, `/usr/bin/time` — probe atılır araçtı, kalıcı değil).
+> Başlangıç zaten iyi: TUI boşta **%1.1 CPU**, çizim yolunda malloc/exec
+> yok, harici sorgular cache'li (path cache 10-01, apply toplu yazma
+> 10-09, nvidia-smi 2 s cache 10-26). Bu faz cila seviyesinde; tek
+> güçlü aday 13.
+
+| Ölçüm (FA608PP, 160×50, 250 ms poll) | Sonuç |
+| --- | --- |
+| TUI boşta | %1.10 CPU |
+| telemetri tam ekran ('t') | %1.13 CPU (çizim maliyeti önemsiz) |
+| tuş basılı tutma (~30 Hz tekrar) | %8.7 CPU — **tuş başına 2.6 ms** |
+| nvidia-smi geniş sorgu | 20–30 ms, 2 s'de bir, UI thread'inde |
+| `--status` uçtan uca | 0.21 s (harici araçlar 10–30 ms'şer) |
+| `hw_refresh_fast` | ~69 dosya aç/oku/kapat / tick |
+| binary | 285 KB, strip'siz |
+
+13. **Tuş → tam yenileme eşlemesinin kesilmesi (en büyük ölçülmüş
+    kazanç).** `ui_run` ana döngüsü her tuş olayından sonra koşulsuz
+    `hw_refresh_fast` + `telem_poll` çalıştırıyor; her tuş = ~69 dosya
+    okuma + tam yeniden çizim + render → basılı tutulan tuşta %8.7
+    CPU. İki yol (tek başına ya da birlikte):
+    (a) yenilemeyi rate-limit'le: son yenilemeden beri <100–150 ms
+    olduysa atla — yazma etkisi olan eylem, apply bitişi (finalize) ve
+    overlay aç/kapa muaf (anında yansıma gerekir);
+    (b) input batching: `notcurses_get_nblock` ile bekleyen tuşları
+    topla, hepsini işle, TEK yenileme+çizim yap.
+    Doğrulama: aynı probe ile tuş-burst tekrar ölçüm (hedef
+    %8.7 → ~%1–2), tuitest akışları yeşil kalmalı.
+14. **`cpu_limits_sweep` ayrıştırması.** `scaling_max_freq` gerçekten
+    salınıyor (amd-pstate; sweep'in varlık nedeni) ama
+    `cpuinfo_min/max_freq` statik-dirençli. cpuinfo_* kolonunu 5–10
+    s'de bir oku, scaling_max her tick kalsın → sweep 48 → 17 dosya
+    okuması; poll yolundaki syscall'ların ~yarısı gider (laptop
+    C-state'leri için de iyi). Dikkat: cpuinfo_max raise-only kuralı
+    (2401 tuzağı, hw.c yorumu) aynen korunur — yalnızca
+    `cpu_mhz_min/max` alanının güncellenmesi gecikir (pratikte
+    değişmezler).
+15. **Kurulumda strip + isteğe bağlı LTO.** `install` hedefi binary'yi
+    olduğu gibi kopyalıyor; `install -s` (veya `STRIP ?= strip` +
+    `$(STRIP)`) ile 285 KB → ~150–180 KB beklenen. LTO
+    (`CFLAGS += -flto`, link aşamasına da) gcc 16'da sorunsuz ve
+    taşınabilir — küçük boyut/hız kazancı; `make` uyarısız + `make
+    test` şart. `-march=native` PARK: taşınabilirlik şartıyla çelişir.
+16. **nvidia-smi arka plan thread'ine (KOŞULLU — şimdilik dokunma).**
+    Burada ölçülen 25 ms / 2 s: 250 ms poll'da 8 framede 1'i yavaş,
+    gözle görünmez. Yük altında nvidia-smi uzarsa (sürücü çekişmesi)
+    apply-worker deseniyle arka plan örnekleme + UI'ya atomik sonuç
+    geçişi; yalnızca saha gözlemi varsa yapılır.
+
+Ölçüm gerekçesi zayıf — denetim kaydı (default hayır, istenirse):
+
+- sysfs fd'lerini açık tutup `pread` ile yeniden okuma: open/close
+  kalkar ama suspend/resume path-düşürme modeliyle çelişir; idle %1.1
+  iken gerekçe yok.
+- `statvfs("/")` 2–5 s cache: yerelde önemsiz; ağ FS'sinde pahalı
+  olabilir (o duruma özel düşünülür).
+- `ui_box` putchar-dolgusu → `ncplane_erase_region`: ölçülen fark yok
+  (boşta ile tam ekran telemetri aynı CPU).
+- `read_telem_extras`'ın 't' kapalıyken de örneklendirmesi TASARIM
+  KARARI (ringler dolu tutulur → 't' açılınca 60 s geçmiş hazır) —
+  bilinçli, değişmesin.
+
 ## Bilinçli park (tek liste — README Roadmap ile eş güncellenir)
 
 - Waybar renk senkronu (v1 özelliği, v2'de bilinçli yok)

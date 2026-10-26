@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-10-26 — docs: performance audit → NEXT.md FAZ 4 (measured)
+
+- Comprehensive optimization sweep of the hot paths (main loop, fast
+  poll, telemetry sampling, draw helpers) with live measurements
+  (pty harness + /proc/<pid>/stat sampling; throwaway probe, not
+  committed): idle 1.10% CPU, telemetry fullscreen 1.13% (draw cost
+  negligible — no malloc/exec anywhere in the draw path), key-held
+  burst ~30 Hz 8.7% (2.6 ms per keypress — every key runs a full
+  hw_refresh_fast + redraw, ~69 file reads/tick), nvidia-smi extended
+  query 20–30 ms every 2 s on the UI thread, --status 0.21 s, binary
+  285 KB unstripped.
+- NEXT.md gains FAZ 4 (items 13–16, ranked by measured impact): key→
+  refresh decoupling (rate-limit or input batching), cpu_limits_sweep
+  split (static cpuinfo_* throttled, scaling_max every tick), install
+  strip + optional LTO, conditional nvidia-smi worker thread; plus a
+  weak-justification record (fd/pread cache, statvfs cache,
+  erase_region, march=native — with reasons to leave them by default).
+  README Roadmap untouched (its parked list mirrors the feature-parked
+  list, not audit notes). No code changes.
+
 ## 2026-10-26 — ui: 'T' opens fullscreen telemetry everywhere (telemetry "would not open" report)
 
 - User reported the telemetry screen would not open. Root cause was a
