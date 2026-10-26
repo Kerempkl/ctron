@@ -955,7 +955,7 @@ static void draw_help(struct ncplane *n, const rect_t *r)
         "  q            quit (saves settings)",
         "  1..4 / Tab   focus: profiles, controls, workspace, telemetry",
         "  5..8         workspace view: 5 fan · 6 power · 7 light · 8 help",
-        "  t            fullscreen telemetry (not while typing)",
+        "  t / T        fullscreen telemetry (T works everywhere)",
         "  esc / s      settings overlay · ? this help",
         "  applies run in the background — keys pause, q waits for them",
         "",
@@ -1109,7 +1109,7 @@ void panel_workspace_key(uint32_t key)
             return;
         case 'r': case 'R': pw_sync_from_hw(); return; /* revert staged */
         case 'c': case 'C': editor_corefreq_open(); return;
-        case 't': case 'T':
+        case 't': /* lowercase only: 'T' is the global telemetry key */
             if (pw_row_numeric(g_ui.pw_sel)) {
                 char seed[16];
                 snprintf(seed, sizeof seed, "%d", pw_staged_value(g_ui.pw_sel));

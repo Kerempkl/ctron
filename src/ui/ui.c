@@ -813,15 +813,16 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
         return;
     }
 
-    /* contextual 't': fullscreen telemetry — everywhere except where
-     * 't' already starts exact-value typing (FAN/POWER views; the
-     * overlays above have returned by now, so their own 't' is safe) */
-    if (key == 't' || key == 'T') {
-        if (!(g_ui.focus == FOC_WORKSPACE &&
-              (g_ui.ws_view == WSV_FAN || g_ui.ws_view == WSV_POWER))) {
-            g_ui.telem_full = true;
-            return;
-        }
+    /* 'T' opens fullscreen telemetry EVERYWHERE. Lowercase 't' does
+     * too, except where it already starts exact-value typing
+     * (FAN/POWER views); the overlays above have returned by now, so
+     * their own key handlers are untouched. */
+    if (key == 'T' ||
+        (key == 't' &&
+         !(g_ui.focus == FOC_WORKSPACE &&
+           (g_ui.ws_view == WSV_FAN || g_ui.ws_view == WSV_POWER)))) {
+        g_ui.telem_full = true;
+        return;
     }
 
     switch (key) {

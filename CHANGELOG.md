@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-10-26 — ui: 'T' opens fullscreen telemetry everywhere (telemetry "would not open" report)
+
+- User reported the telemetry screen would not open. Root cause was a
+  stale install: ~/.local/bin/ctron still reported 0.2.1 — no release
+  since had run `make install` (the running binary in the repo has had
+  the feature since 6beee01). Reinstalled; verified 0.4.0 live.
+- While diagnosing, one real trap was tightened: lowercase 't' kept
+  its settled exact-value meaning when the workspace is focused in the
+  FAN/POWER views, so 'T' (shift) now opens the telemetry from
+  ANYWHERE (the POWER typing starter dropped its uppercase alias; the
+  fan editor only ever bound lowercase). At startup — focus on the
+  profiles panel — plain 't' already opened it.
+- tuitest flow_telem_full now pins all three paths: 't' at startup
+  (no editor owns it), lowercase 't' left to the fan editor while the
+  workspace is focused, 'T' opening from exactly that state. make 0
+  warnings, unit + tuitest green, installed fresh.
+
 ## 2026-10-26 — release: v0.4.0 (MINOR — fullscreen telemetry)
 
 - MINOR per the agent-managed semver policy: the new user-facing

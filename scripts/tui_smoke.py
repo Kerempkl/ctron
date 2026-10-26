@@ -578,14 +578,47 @@ def flow_telem_full():
     try:
         s = Session("telem_full")
         s.wait_render()
-        s.key(b"7")                # LIGHT view: 't' is not owned there
+        # startup (focus = profiles): lowercase 't' has no editor owner
+        # and opens telemetry directly
+        m0 = s.mark()
+        s.key(b"t")
+        if not s.wait_for(b"TELEMETRY", since=m0, timeout=6.0):
+            fail("telem_full", "'t' does not open TELEMETRY at startup")
+            return
+        ok("telem_full", "'t' opens at startup (no editor owns it)")
+        s.key(b"t")                # close
+        time.sleep(0.4)
+        # workspace FOCUSED in the default FAN view: lowercase 't' is
+        # the fan editor's exact-value key — the settled keymap must win
+        s.key(b"3")
+        time.sleep(0.3)
+        m1 = s.mark()
+        s.key(b"t")
+        time.sleep(0.4)
+        if b"TELEMETRY" in s.bytes_since(m1):
+            fail("telem_full", "lowercase 't' must not open telemetry in FAN view")
+            return
+        ok("telem_full", "fan-view lowercase 't' left to the editor")
+        s.key(b"\x1b")               # leave the typing prompt
+        time.sleep(0.2)
+        # 'T' opens from that same state (works everywhere)
+        m2 = s.mark()
+        s.key(b"T")
+        if not s.wait_for(b"TELEMETRY", since=m2, timeout=6.0):
+            fail("telem_full", "'T' did not open TELEMETRY from the FAN editor focus")
+            return
+        ok("telem_full", "'T' opens from the FAN editor focus")
+        m3 = s.mark()
+        s.key(b"t")                # close
+        time.sleep(0.4)
+        s.key(b"7")                # LIGHT view: lowercase 't' is free there
         time.sleep(0.4)
         m = s.mark()
         s.key(b"t")                # open fullscreen telemetry
         if not s.wait_for(b"TELEMETRY", since=m, timeout=6.0):
             fail("telem_full", "'t' did not open the fullscreen TELEMETRY")
             return
-        ok("telem_full", "fullscreen opened on contextual 't'")
+        ok("telem_full", "fullscreen opened on lowercase 't' (non-typing view)")
         for sec in (b"CPU", b"GPU", b"RAM", b"STORAGE", b"POWER"):
             if not s.wait_for(sec, since=m, timeout=6.0):
                 fail("telem_full", f"section {sec!r} missing")

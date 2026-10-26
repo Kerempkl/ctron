@@ -90,6 +90,21 @@ prioritized todo list and the distilled session lessons.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
 
+## Session 2026-10-26 — telemetry open fix: stale install + 'T' everywhere (GLM / Kerempkl / FA608PP)
+
+- User: "telemetry açılmıyor". Root cause: ~/.local/bin/ctron was
+  still 0.2.1 — nobody ran `make install` after the telemetry landed
+  (LESSON: after landing a user-facing feature, `make install` in the
+  same breath; the user launches the installed binary). Reinstalled →
+  0.4.0 verified.
+- Real UX trap tightened while there: lowercase 't' stays the fan/
+  power exact-value key when the workspace is focused in those views;
+  'T' now opens telemetry from anywhere (POWER dropped its uppercase
+  typing alias; fan editor only ever bound lowercase). At startup
+  (focus=profiles) plain 't' already worked.
+- tuitest pins all three open paths. Note: the v0.4.0 tag (954fcb1)
+  predates this tweak by one commit — it rides the next release.
+
 ## Session 2026-10-26 — fullscreen sectioned telemetry 't' + v0.4.0 (GLM / Kerempkl / FA608PP)
 
 - User request evolved the parked mini-graph decision into: "telemetry
