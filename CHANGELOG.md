@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-10-26 — build: flake.nix added (nix build + nix develop)
+
+- v1 had a flake, v2 never did; Arcioth built via `nix-shell -p gcc
+  pkg-config notcurses gnumake --run make`. The flake makes that
+  permanent: `packages.<sys>.ctron` (+ `default`) as a plain-Makefile
+  stdenv derivation installing build/ctron, and a devShell carrying
+  exactly the documented toolchain for `make` inside `nix develop`.
+- The in-flake `version` rides the release commit from now on
+  (policy line added to NEXT.md: VERSION + README badge + flake
+  version move together).
+- Honest limit: this machine has no nix — the flake is NOT
+  build-verified here (and the retired v1 copies no longer carry one
+  to copy from). FA507NVR checklist (Arcioth): `nix build`,
+  `nix develop` + `make`, generate + commit `flake.lock` on first
+  run. NEXT.md FAZ 1 item 3 stays open until then.
+
 ## 2026-10-26 — display: multi-monitor parsing — the panel's own modes, not the first monitor's
 
 - kde backend: output blocks are now picked (the eDP* laptop panel

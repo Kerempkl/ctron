@@ -17,6 +17,8 @@ Kullanıcı sürüm numaralandırmasını agent'a devretti. Şema: semver.
   kalır (her push gibi).
 - README'deki `version` badge'i de aynı release commit'inde güncellenir
   (10-25 README yeniden tasarımıyla geldi).
+- flake.nix'teki `version` da aynı release commit'inde güncellenir
+  (VERSION + README badge + flake version üçlüsü).
 - İlk kesim **v0.3.0** — 0.2.1'den (09-27) bu yana birikim MINOR
   seviyesinde: fan presets modali, M4 toggle + tek-örnek guard,
   PPT/ryzenadj yazma yolu, GPU clock lock, daeboard control + editör,
@@ -36,10 +38,11 @@ Kullanıcı sürüm numaralandırmasını agent'a devretti. Şema: semver.
    referans). HARDWARE.md'nin EN + TR bölümlerine
    `asusctl fan-curve --default` footgun uyarısı (generic kurar, fabrika
    değil).
-3. **flake.nix** — v1'de vardı, v2'ye gelmedi. Taşı; Arcioth bugün
-   `nix-shell -p gcc pkg-config notcurses gnumake --run make` ile elle
-   derliyor, flake bunu kalıcı hale getirir. Doğrulama FA507NVR
-   tarafında (Arcioth).
+3. **flake.nix [YAZILDI 10-26 — Arcioth doğrulaması bekliyor]** —
+   `nix build` (packages.ctron + default) + `nix develop` (devShell =
+   dokümante edilen toolchain). Bu makinede nix YOK → derleme
+   doğrulaması FA507NVR'da (Arcioth): `nix build`, `nix develop`
+   içinde `make`, ilk koşuda `flake.lock` üretilip commit edilmeli.
 
 ## FAZ 2 — Saha & doğrulama borcu (makineli, paralel yürür)
 
