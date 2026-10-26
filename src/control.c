@@ -70,26 +70,36 @@ static bool use_asusctl_first(void)
  * where a 20 s apply came from. Paths are built explicitly from
  * hw->cpu_ids (the real present list — numbering is not contiguous on
  * every machine), not from a cpu* glob, so every tee argument matches
- * the path-scoped sudoers rule exactly. */
+ * the path-scoped sudoers rule exactly. The whole invocation is a pure
+ * argv vector — the value rides the pipe, no shell parses anything
+ * (the old printf|sudo pipeline was the last privileged write through
+ * /bin/sh, and its 4 KB command string refused machines beyond a few
+ * dozen cpus). */
 static int cpufreq_write_all(const hw_state_t *hw, const char *leaf,
                              const char *val)
 {
     if (!hw || hw->cpu_n <= 0)
         return -1;
 
-    /* "sudo -n tee p1 p2 ... pn" — one invocation, explicit paths */
-    char cmd[4096];
-    size_t off = (size_t)snprintf(cmd, sizeof(cmd),
-                                  "printf '%%s' '%s' | sudo -n tee", val);
+    /* "timeout 3 sudo -n tee p1 p2 ... pn" — one invocation, explicit
+     * paths as argv words, value fed through the pipe */
+    char pathv[HW_CPU_MAX][96];
+    const char *av[HW_CPU_MAX + 6];
+    int n = 0;
+
+    av[n++] = "timeout";
+    av[n++] = "3";
+    av[n++] = "sudo";
+    av[n++] = "-n";
+    av[n++] = "tee";
     for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
-        size_t w = (size_t)snprintf(cmd + off, sizeof(cmd) - off,
-                                    " /sys/devices/system/cpu/cpu%d/cpufreq/%s",
-                                    hw->cpu_ids[c], leaf);
-        if (w >= sizeof(cmd) - off)
-            return -1; /* absurd cpu counts: refuse rather than truncate */
-        off += w;
+        snprintf(pathv[c], sizeof pathv[c],
+                 "/sys/devices/system/cpu/cpu%d/cpufreq/%s",
+                 hw->cpu_ids[c], leaf);
+        av[n++] = pathv[c];
     }
-    int rc = ut_exec(cmd, NULL, 0);
+    av[n] = NULL;
+    int rc = ut_write_via_argv(av, val);
     if (rc != 0) {
         /* fallback for the no-sudo path: per-node ut_priv_write (also
          * covers a sudoers rule that somehow rejects multi-arg tee) */
@@ -406,20 +416,40 @@ int ctrl_set_cpu_boost(hw_state_t *hw, bool on)
 
 /* ---- power ------------------------------------------------------------ */
 
-void ctrl_ppt_ryzen_cmd(const char *path, int spl, int sppt, int fppt,
-                        char *out, size_t n)
+/* Pure argv builders (no shell): the three integer words point into
+ * bufs, which the caller supplies; the NULL-terminated vectors are
+ * exec'd verbatim by ut_exec_argv under its 3 s timeout. */
+void ctrl_ppt_ryzen_argv(const char *path, int spl, int sppt, int fppt,
+                         const char *av[10], char bufs[3][16])
 {
-    snprintf(out, n, "sudo -n %s -a %d -c %d -b %d",
-             path && path[0] ? path : "ryzenadj",
-             spl * 1000, sppt * 1000, fppt * 1000);
+    snprintf(bufs[0], sizeof bufs[0], "%d", spl * 1000);
+    snprintf(bufs[1], sizeof bufs[1], "%d", sppt * 1000);
+    snprintf(bufs[2], sizeof bufs[2], "%d", fppt * 1000);
+    av[0] = "sudo";
+    av[1] = "-n";
+    av[2] = path && path[0] ? path : "ryzenadj";
+    av[3] = "-a";
+    av[4] = bufs[0];
+    av[5] = "-c";
+    av[6] = bufs[1];
+    av[7] = "-b";
+    av[8] = bufs[2];
+    av[9] = NULL;
 }
 
-void ctrl_ppt_wrapper_cmd(const char *path, int spl, int sppt, int fppt,
-                          char *out, size_t n)
+void ctrl_ppt_wrapper_argv(const char *path, int spl, int sppt, int fppt,
+                           const char *av[7], char bufs[3][16])
 {
-    snprintf(out, n, "sudo -n %s %d %d %d",
-             path && path[0] ? path : CTRON_PPT_WRAPPER,
-             spl * 1000, sppt * 1000, fppt * 1000);
+    snprintf(bufs[0], sizeof bufs[0], "%d", spl * 1000);
+    snprintf(bufs[1], sizeof bufs[1], "%d", sppt * 1000);
+    snprintf(bufs[2], sizeof bufs[2], "%d", fppt * 1000);
+    av[0] = "sudo";
+    av[1] = "-n";
+    av[2] = path && path[0] ? path : CTRON_PPT_WRAPPER;
+    av[3] = bufs[0];
+    av[4] = bufs[1];
+    av[5] = bufs[2];
+    av[6] = NULL;
 }
 
 /* one PPT write through the resolved interface (hw->ppt_mode). Values
@@ -453,19 +483,21 @@ static int ppt_write(hw_state_t *hw, int spl, int sppt, int fppt)
          * ryzenadj flag. Missing wrapper or a denied sudo rule falls
          * through to the direct candidates below. */
         if (access(CTRON_PPT_WRAPPER, X_OK) == 0) {
-            char cmd[160];
-            ctrl_ppt_wrapper_cmd(CTRON_PPT_WRAPPER, spl, sppt, fppt,
-                                 cmd, sizeof(cmd));
-            if (ut_exec(cmd, NULL, 0) == 0)
+            const char *av[7];
+            char bufs[3][16];
+            ctrl_ppt_wrapper_argv(CTRON_PPT_WRAPPER, spl, sppt, fppt,
+                                  av, bufs);
+            if (ut_exec_argv(av, NULL, 0) == 0)
                 return 0;
         }
         static const char *const paths[] = {
             "/usr/bin/ryzenadj", "/usr/sbin/ryzenadj", "ryzenadj",
         };
         for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
-            char cmd[160];
-            ctrl_ppt_ryzen_cmd(paths[i], spl, sppt, fppt, cmd, sizeof(cmd));
-            if (ut_exec(cmd, NULL, 0) == 0)
+            const char *av[10];
+            char bufs[3][16];
+            ctrl_ppt_ryzen_argv(paths[i], spl, sppt, fppt, av, bufs);
+            if (ut_exec_argv(av, NULL, 0) == 0)
                 return 0;
         }
         return -1;

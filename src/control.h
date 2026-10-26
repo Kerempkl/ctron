@@ -40,19 +40,21 @@ int ctrl_set_ppt(hw_state_t *hw, int spl, int sppt, int fppt);
  * current values) and put them back afterwards. */
 int ctrl_ppt_off(hw_state_t *hw);
 int ctrl_ppt_restore(hw_state_t *hw);
-/* Pure: the ryzenadj invocation for a watt triple (W in, mW out).
- * SECURITY INVARIANT: fixed flag order, integers only — SPL→STAPM
- * (-a), SPPT→SLOW (-c), FPPT→FAST (-b); ctron never passes any other
- * ryzenadj flag. Unit-tested. */
-void ctrl_ppt_ryzen_cmd(const char *path, int spl, int sppt, int fppt,
-                        char *out, size_t n);
+/* Pure: the ryzenadj invocation for a watt triple (W in, mW out) as an
+ * argv vector — no shell string anywhere. SECURITY INVARIANT: fixed
+ * flag order, integers only — SPL→STAPM (-a), SPPT→SLOW (-c),
+ * FPPT→FAST (-b); ctron never passes any other ryzenadj flag. The
+ * three integer words live in bufs; av comes back NULL-terminated.
+ * Unit-tested. */
+void ctrl_ppt_ryzen_argv(const char *path, int spl, int sppt, int fppt,
+                         const char *av[10], char bufs[3][16]);
 /* The stricter sudoers path (SECURITY.md §4.3): a root-owned wrapper
  * that only ever takes three mW integers. Probed FIRST when present
  * and executable, so an installed wrapper hides ryzenadj from ctron
- * entirely. Unit-tested. */
+ * entirely. Same argv contract. Unit-tested. */
 #define CTRON_PPT_WRAPPER "/usr/local/bin/ctron-ppt"
-void ctrl_ppt_wrapper_cmd(const char *path, int spl, int sppt, int fppt,
-                          char *out, size_t n);
+void ctrl_ppt_wrapper_argv(const char *path, int spl, int sppt, int fppt,
+                           const char *av[7], char bufs[3][16]);
 int ctrl_set_nv_boost(hw_state_t *hw, int watts);
 int ctrl_set_nv_temp(hw_state_t *hw, int celsius);
 int ctrl_set_panel_od(hw_state_t *hw, bool on);

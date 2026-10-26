@@ -960,31 +960,43 @@ static void check_gpu_clock(void)
     CHECK(ctrl_gpu_clock_ok(1400, "garbage") == 0, "garbage samples");
 }
 
-static void check_ppt_ryzen_cmd(void)
+static void check_ppt_ryzen_argv(void)
 {
-    char cmd[160];
+    const char *av[10];
+    const char *wv[7];
+    char bufs[3][16];
 
     /* name-based mapping: SPL->STAPM(-a), SPPT->SLOW(-c), FPPT->FAST(-b),
-     * W in -> mW out, fixed flag order */
-    ctrl_ppt_ryzen_cmd("/usr/bin/ryzenadj", 30, 50, 40, cmd, sizeof(cmd));
-    CHECK(!strcmp(cmd, "sudo -n /usr/bin/ryzenadj -a 30000 -c 50000 -b 40000"),
-          "ryzen cmd mapping + mW");
+     * W in -> mW out, fixed flag order — argv words, no shell string */
+    ctrl_ppt_ryzen_argv("/usr/bin/ryzenadj", 30, 50, 40, av, bufs);
+    CHECK(!strcmp(av[0], "sudo") && !strcmp(av[1], "-n") &&
+          !strcmp(av[2], "/usr/bin/ryzenadj") && !strcmp(av[3], "-a") &&
+          !strcmp(av[4], "30000") && !strcmp(av[5], "-c") &&
+          !strcmp(av[6], "50000") && !strcmp(av[7], "-b") &&
+          !strcmp(av[8], "40000") && av[9] == NULL,
+          "ryzen argv mapping + mW");
 
-    ctrl_ppt_ryzen_cmd(NULL, 45, 55, 55, cmd, sizeof(cmd));
-    CHECK(!strcmp(cmd, "sudo -n ryzenadj -a 45000 -c 55000 -b 55000"),
-          "ryzen cmd bare fallback");
+    ctrl_ppt_ryzen_argv(NULL, 45, 55, 55, av, bufs);
+    CHECK(!strcmp(av[2], "ryzenadj") && !strcmp(av[4], "45000") &&
+          !strcmp(av[6], "55000") && !strcmp(av[8], "55000") && !av[9],
+          "ryzen argv bare fallback");
 
-    /* only integers ever enter the string — no injection surface */
-    ctrl_ppt_ryzen_cmd("/x/r", 0, 0, 0, cmd, sizeof(cmd));
-    CHECK(!strcmp(cmd, "sudo -n /x/r -a 0 -c 0 -b 0"), "ryzen cmd zero");
+    /* only integers ever enter the words — no injection surface */
+    ctrl_ppt_ryzen_argv("/x/r", 0, 0, 0, av, bufs);
+    CHECK(!strcmp(av[2], "/x/r") && !strcmp(av[4], "0") &&
+          !strcmp(av[6], "0") && !strcmp(av[8], "0"), "ryzen argv zero");
 
     /* wrapper variant (SECURITY.md §4.3): bare mW integers, no flags */
-    ctrl_ppt_wrapper_cmd(CTRON_PPT_WRAPPER, 30, 50, 40, cmd, sizeof(cmd));
-    CHECK(!strcmp(cmd, "sudo -n /usr/local/bin/ctron-ppt 30000 50000 40000"),
-          "wrapper cmd bare ints");
-    ctrl_ppt_wrapper_cmd(NULL, 1, 2, 3, cmd, sizeof(cmd));
-    CHECK(!strcmp(cmd, "sudo -n /usr/local/bin/ctron-ppt 1000 2000 3000"),
-          "wrapper cmd default path");
+    ctrl_ppt_wrapper_argv(CTRON_PPT_WRAPPER, 30, 50, 40, wv, bufs);
+    CHECK(!strcmp(wv[0], "sudo") && !strcmp(wv[1], "-n") &&
+          !strcmp(wv[2], CTRON_PPT_WRAPPER) && !strcmp(wv[3], "30000") &&
+          !strcmp(wv[4], "50000") && !strcmp(wv[5], "40000") &&
+          wv[6] == NULL,
+          "wrapper argv bare ints");
+    ctrl_ppt_wrapper_argv(NULL, 1, 2, 3, wv, bufs);
+    CHECK(!strcmp(wv[2], CTRON_PPT_WRAPPER) && !strcmp(wv[3], "1000") &&
+          !strcmp(wv[4], "2000") && !strcmp(wv[5], "3000"),
+          "wrapper argv default path");
 }
 
 static void check_snapshots(void)
@@ -1312,7 +1324,7 @@ int main(void)
     check_mode_touch_mask();
     check_mode_drift();
     check_ppt_order();
-    check_ppt_ryzen_cmd();
+    check_ppt_ryzen_argv();
     check_gpu_clock();
     check_snapshots();
     check_progress_and_log();
