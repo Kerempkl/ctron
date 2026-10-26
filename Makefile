@@ -10,7 +10,7 @@ LDLIBS += $(shell pkg-config --libs notcurses 2>/dev/null \
            || echo -lnotcurses -lnotcurses-core)
 
 SRC = src/main.c src/util.c src/hw.c src/control.c src/daeboard.c src/fan.c src/cmds.c \
-      src/modes.c src/profile.c src/settings.c \
+      src/modes.c src/profile.c src/settings.c src/telem.c \
       src/ui/ui.c src/ui/panel_profiles.c src/ui/panel_controls.c \
       src/ui/panel_workspace.c src/ui/panel_telemetry.c src/ui/panel_settings.c \
       src/ui/editor_fan.c src/ui/editor_daeboard.c src/ui/editor_corefreq.c \
@@ -19,7 +19,7 @@ OBJ = $(SRC:src/%.c=build/%.o)
 TARGET = build/ctron
 
 TEST_SRC = tests/test_core.c
-TEST_OBJ = util hw control daeboard fan cmds modes profile settings \
+TEST_OBJ = util hw control daeboard fan cmds modes profile settings telem \
            display/display display/display_kde display/display_hypr
 TEST_LIBOBJ = $(addprefix build/,$(addsuffix .o,$(TEST_OBJ)))
 TEST_BIN = build/test_core

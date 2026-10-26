@@ -17,6 +17,7 @@
 #include "modes.h"
 #include "profile.h"
 #include "settings.h"
+#include "telem.h"
 #include "util.h"
 #include "display/display.h"
 
@@ -599,6 +600,64 @@ static void check_argv_exec(void)
     char small[32];
     CHECK(ut_exec_argv_raw(av6, small, sizeof(small)) == 0, "argv drain rc");
     CHECK(strlen(small) == sizeof(small) - 1, "argv drain keeps first bytes");
+}
+
+static void check_telem(void)
+{
+    telem_reset();
+    CHECK(telem_tick(0) == 1, "telem first tick");
+    CHECK(telem_tick(100) == 0, "telem gate holds");
+    CHECK(telem_tick(250) == 1, "telem gate opens at 250ms");
+
+    telem_reset();
+    CHECK(telem_last(TS_CPU_TEMP) < 0, "telem empty last");
+    char sp[64];
+    telem_spark(TS_CPU_TEMP, sp, sizeof sp, 8);
+    CHECK(!strcmp(sp, "--"), "telem empty spark");
+
+    /* fixed range 0..100: 0 -> lowest block, 50 -> mid, 100 -> full */
+    telem_push(TS_CPU_TEMP, 0);
+    telem_push(TS_CPU_TEMP, 50);
+    telem_push(TS_CPU_TEMP, 100);
+    CHECK(telem_last(TS_CPU_TEMP) == 100, "telem last");
+    CHECK(telem_count(TS_CPU_TEMP) == 3, "telem count");
+    telem_spark(TS_CPU_TEMP, sp, sizeof sp, 3);
+    CHECK(!strcmp(sp, "\xE2\x96\x81\xE2\x96\x84\xE2\x96\x88"),
+          "telem spark 0/50/100 fixed scale");
+
+    telem_push(TS_CPU_TEMP, 150); /* above the fixed range: clipped */
+    telem_spark(TS_CPU_TEMP, sp, sizeof sp, 4);
+    CHECK(!strncmp(sp + strlen(sp) - 3, "\xE2\x96\x88", 3),
+          "telem spark clips above range");
+
+    telem_push(TS_CPU_TEMP, -1); /* unknown: skipped, ring unchanged */
+    CHECK(telem_count(TS_CPU_TEMP) == 4, "telem -1 skipped");
+
+    /* flat AUTO window draws the mid block everywhere */
+    telem_reset();
+    for (int i = 0; i < 5; i++)
+        telem_push(TS_CPU_MHZ, 4200);
+    telem_spark(TS_CPU_MHZ, sp, sizeof sp, 5);
+    CHECK(!strcmp(sp,
+                  "\xE2\x96\x84\xE2\x96\x84\xE2\x96\x84\xE2\x96\x84\xE2\x96\x84"),
+          "telem flat auto mid");
+
+    /* wrap: oldest samples drop, window min/max follow */
+    telem_reset();
+    for (int i = 0; i < TELEM_N + 10; i++)
+        telem_push(TS_FAN_CPU, i);
+    CHECK(telem_count(TS_FAN_CPU) == TELEM_N, "telem ring caps");
+    CHECK(telem_last(TS_FAN_CPU) == TELEM_N + 9, "telem newest after wrap");
+    double mn, mx;
+    telem_minmax(TS_FAN_CPU, &mn, &mx);
+    CHECK(mn == 10 && mx == TELEM_N + 9, "telem window minmax");
+    char big[TELEM_N * 3 + 2];
+    telem_spark(TS_FAN_CPU, big, sizeof big, TELEM_N);
+    CHECK(!strncmp(big, "\xE2\x96\x81", 3) &&
+              !strncmp(big + strlen(big) - 3, "\xE2\x96\x88", 3),
+          "telem auto endpoints oldest-low newest-high");
+
+    telem_reset();
 }
 
 static void check_mode_split(void)
@@ -1188,6 +1247,7 @@ int main(void)
     check_profiles();
     check_kde_parser();
     check_hypr_parser();
+    check_telem();
     check_power_fmt();
     check_cpu_list_parse();
     check_topology_group();
