@@ -577,6 +577,30 @@ static long mono_ms(void)
     return ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
 }
 
+/* Post-key refresh rate limit: every keypress used to run a full
+ * hw_refresh_fast (~70 file reads) plus telem sampling; navigation
+ * keys don't need data that fresh, and a held key ran it at the
+ * keyboard repeat rate. Timeout ticks, resizes and apply completion
+ * always refresh; a key-driven refresh is dropped when the last one
+ * is less than KEY_REFRESH_MIN_MS old. Writes are unaffected: applies
+ * refresh in the worker (reads paused anyway), POWER entry runs
+ * hw_refresh_live, kbd/battery rows update hw in place. */
+#define KEY_REFRESH_MIN_MS 120
+static long s_last_refresh_ms;
+
+static void maybe_refresh(hw_state_t *hw, bool force)
+{
+    if (atomic_load(&g_ui.apply_busy))
+        return;
+    long now = mono_ms();
+    if (!force && s_last_refresh_ms > 0 &&
+        now - s_last_refresh_ms < KEY_REFRESH_MIN_MS)
+        return;
+    hw_refresh_fast(hw);
+    telem_poll(hw, now);
+    s_last_refresh_ms = now;
+}
+
 /* the worker: WRITE phase only — hw + write layer + ut_log/ut_progress.
  * No notcurses, no g_ui mutation (reads of immutable-during-busy
  * staging/modes are fine). Results go to the plain fields the UI
@@ -708,6 +732,7 @@ static void finalize_apply(void)
     }
     ut_progress_clear();
     g_ui.apply_warned = false;
+    s_last_refresh_ms = 0; /* first frame after an apply refreshes data */
 }
 
 /* ---- main loop ------------------------------------------------------------ */
@@ -910,6 +935,7 @@ int ui_run(hw_state_t *hw)
     s_stdn = stdn;
 
     memset(&g_ui, 0, sizeof(g_ui));
+    s_last_refresh_ms = 0;
     atomic_init(&g_ui.apply_busy, false);
     atomic_init(&g_ui.quit_pending, false);
     g_ui.hw = hw;
@@ -1007,29 +1033,35 @@ int ui_run(hw_state_t *hw)
         if (key == (uint32_t)-1)
             continue;
         if (key == 0 || key == NCKEY_RESIZE) {
-            if (!atomic_load(&g_ui.apply_busy)) {
-                hw_refresh_fast(hw);
-                telem_poll(hw, mono_ms());
+            maybe_refresh(hw, true);
+            continue;
+        }
+
+        /* Dispatch everything already queued (input batching): keys
+         * that piled up while we drew are handled one by one — same
+         * per-key semantics — and a single rate-limited refresh covers
+         * the whole batch instead of one full refresh per key. */
+        bool force = false, any = false;
+        while (key != (uint32_t)-1 && key != 0) {
+            if (key == NCKEY_RESIZE) {
+                force = true;
+            } else if (key != '[' && key != ']') {
+                /* lone '[' / ']' are CSI leftovers from focus
+                 * reporting; a bare 0x1b here IS NCKEY_ESC (same
+                 * value) and must reach the overlay dispatch, so it
+                 * is deliberately not filtered. */
+                any = true;
+                if (nckey_mouse_p(key)) {
+                    if (ni.evtype != NCTYPE_RELEASE)
+                        handle_mouse(stdn, &ni, key);
+                } else if (ni.evtype != NCTYPE_RELEASE) {
+                    dispatch_key(key, &ni);
+                }
             }
-            continue;
+            key = notcurses_get_nblock(nc, &ni);
         }
-        /* lone '[' / ']' are CSI leftovers from focus reporting; a bare
-         * 0x1b here IS NCKEY_ESC (same value) and must reach the overlay
-         * dispatch, so it is deliberately not filtered. */
-        if (key == '[' || key == ']')
-            continue;
-
-        if (nckey_mouse_p(key)) {
-            if (ni.evtype != NCTYPE_RELEASE)
-                handle_mouse(stdn, &ni, key);
-        } else if (ni.evtype != NCTYPE_RELEASE) {
-            dispatch_key(key, &ni);
-        }
-
-        if (!atomic_load(&g_ui.apply_busy)) {
-            hw_refresh_fast(hw);
-            telem_poll(hw, mono_ms());
-        }
+        if (any || force)
+            maybe_refresh(hw, force);
     }
 
     /* the worker is never killed: wait it out (bounded by the freq
