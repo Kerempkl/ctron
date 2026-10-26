@@ -1,6 +1,7 @@
 #ifndef CTRON_TELEM_H
 #define CTRON_TELEM_H
 
+#include <stdbool.h>
 #include <stddef.h>
 
 /* Pure telemetry sample rings — no notcurses, no hardware. The UI
@@ -52,6 +53,10 @@ void telem_push(int idx, double v);
 
 double telem_last(int idx); /* last accepted value, -1 when empty */
 int telem_count(int idx);   /* samples stored */
+/* Sample `back` accepted ticks ago (0 = newest). False when the index
+ * or offset is outside the window; *v then stays -1. The detail charts
+ * walk the ring through this — the rings keep no second copy of data. */
+bool telem_at(int idx, int back, double *v);
 void telem_minmax(int idx, double *mn, double *mx); /* stored window */
 
 /* UTF-8 block sparkline (▁▂▃▄▅▆▇█), oldest → newest, last `cells`

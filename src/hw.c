@@ -586,6 +586,7 @@ static void read_telem_extras(hw_state_t *hw)
     }
 
     hw->igpu_temp = hw->igpu_mhz = hw->igpu_mw = -1;
+    hw->igpu_vddgfx_mv = hw->igpu_vddnb_mv = -1;
     int ig_ok = 0;
     if (cached_hwmon(hw->paths.amdgpu, "amdgpu", base, sizeof base) == 0) {
         if (hwmon_read_int(base, "temp1_input", &v) == 0 && v > 0 && v < 150000) {
@@ -596,6 +597,10 @@ static void read_telem_extras(hw_state_t *hw)
             hw->igpu_mhz = (int)(v / 1000000);
         if (hwmon_read_int(base, "power1_input", &v) == 0 && v >= 0)
             hw->igpu_mw = (int)(v / 1000);
+        if (hwmon_read_int(base, "in0_input", &v) == 0 && v > 0)
+            hw->igpu_vddgfx_mv = (int)v;
+        if (hwmon_read_int(base, "in1_input", &v) == 0 && v > 0)
+            hw->igpu_vddnb_mv = (int)v;
         if (!ig_ok && hw->igpu_mhz < 0 && hw->igpu_mw < 0)
             hw->paths.amdgpu[0] = '\0'; /* path gone: re-probe */
     }
@@ -1310,6 +1315,7 @@ void hw_refresh_live(hw_state_t *hw)
         hw->cpu_boost = (v != 0);
 
     char bat[256];
+    hw->bat_health = -1;
     if (cached_supply(hw->paths.battery, "Battery", bat, sizeof(bat)) == 0) {
         char p[340];
         if (ut_path_join(p, sizeof(p), bat, "charge_control_end_threshold") == 0) {
@@ -1317,6 +1323,21 @@ void hw_refresh_live(hw_state_t *hw)
             if (lim >= 20 && lim <= 100)
                 hw->bat_limit = lim;
         }
+        /* wear: full charge as a share of design (charge_* for this
+         * battery; energy_* is the same idea for watt-hour packs) */
+        int full = -1, design = -1;
+        if (ut_path_join(p, sizeof(p), bat, "charge_full") == 0)
+            full = ut_read_int(p);
+        if (ut_path_join(p, sizeof(p), bat, "charge_full_design") == 0)
+            design = ut_read_int(p);
+        if (full <= 0 || design <= 0) {
+            if (ut_path_join(p, sizeof(p), bat, "energy_full") == 0)
+                full = ut_read_int(p);
+            if (ut_path_join(p, sizeof(p), bat, "energy_full_design") == 0)
+                design = ut_read_int(p);
+        }
+        if (full > 0 && design > 0)
+            hw->bat_health = (int)((long long)full * 100 / design);
     }
 
     read_profile(hw);

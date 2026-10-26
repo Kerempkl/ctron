@@ -569,8 +569,9 @@ def flow_fan_grid():
 
 def flow_telem_full():
     """Fullscreen telemetry ('t'): contextual open from a non-typing view,
-    sections render, stray keys are swallowed, t closes, reopens, q quits
-    cleanly from the fullscreen."""
+    sections render, j/k cursor + enter opens a section detail page,
+    h/l flips sections, 1-6 jumps directly, esc backs out to the grid,
+    stray keys are swallowed, t closes, reopens, q quits cleanly."""
     tmpcfg = tempfile.mkdtemp(prefix="ctron-tui-")
     oldcfg = os.environ.get("CTRON_CONFIG")
     os.environ["CTRON_CONFIG"] = tmpcfg
@@ -624,8 +625,45 @@ def flow_telem_full():
                 fail("telem_full", f"section {sec!r} missing")
                 return
         ok("telem_full", "all sections render")
-        s.key(b"5")                # view keys are swallowed on this screen
+        # navigation: j/j walks the grid cursor (row-major), enter opens
+        # the selected section's detail page
+        m4 = s.mark()
+        s.key(b"j")
+        time.sleep(0.2)
+        s.key(b"j")                # CPU -> GPU -> iGPU
+        time.sleep(0.2)
+        s.key(b"\r")
+        # footer words, not phrases: the render diff skips unchanged
+        # space cells, so multi-word probes arrive fragmented
+        if not s.wait_for(b"h/l", since=m4, timeout=6.0):
+            fail("telem_full", "enter did not open the section detail")
+            return
+        ok("telem_full", "enter opens the selected detail page")
+        m5 = s.mark()
+        s.key(b"l")                # iGPU -> RAM without leaving detail mode
+        if not s.wait_for(b"swap", since=m5, timeout=6.0):
+            fail("telem_full", "h/l did not switch to the RAM detail")
+            return
+        ok("telem_full", "h/l switches detail sections")
+        m6 = s.mark()
+        s.key(b"1")                # direct digit jump to the CPU page
+        if not s.wait_for(b"ceilings", since=m6, timeout=6.0):
+            fail("telem_full", "digit jump did not open the CPU detail")
+            return
+        ok("telem_full", "1-6 jumps straight to a detail page")
+        m7 = s.mark()
+        s.key(b"\x1b")             # esc: detail -> grid (not closed)
+        if not s.wait_for(b"j/k", since=m7, timeout=6.0):
+            fail("telem_full", "esc did not return to the grid")
+            return
+        ok("telem_full", "esc backs out to the grid")
+        m8 = s.mark()
+        s.key(b"x")                # unbound key: still swallowed
         time.sleep(0.3)
+        if b"h/l" in s.bytes_since(m8):
+            fail("telem_full", "stray key 'x' must stay swallowed in the grid")
+            return
+        ok("telem_full", "stray keys still swallowed in the grid")
         s.key(b"t")                # close
         time.sleep(0.4)
         m3 = s.mark()

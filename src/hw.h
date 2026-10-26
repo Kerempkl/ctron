@@ -121,6 +121,7 @@ typedef struct hw_state {
     bool bat_mw_known;     /* bat_mw valid */
     int bat_mw;            /* mW, >0 discharging, <0 charging */
     int bat_limit;         /* charge_control_end_threshold, 0 unknown */
+    int bat_health;        /* charge_full / design, % (-1 unknown, live-only) */
     int ppt_spl, ppt_sppt, ppt_fppt;   /* W, 0 unknown/stale */
     int ppt_mode;                      /* hw_ppt_mode_t */
     bool ppt_off;                       /* limits removed (platform maxima) */
@@ -133,6 +134,7 @@ typedef struct hw_state {
     int mem_total_mb, mem_avail_mb, mem_used_mb;   /* /proc/meminfo */
     int swap_total_mb, swap_used_mb;
     int igpu_temp, igpu_mhz, igpu_mw;          /* amdgpu hwmon */
+    int igpu_vddgfx_mv, igpu_vddnb_mv;         /* amdgpu in0/in1_input */
     int ram_temp_n, ram_temp[2];               /* spd5118 modules, °C */
     int nvme_temp_n, nvme_temp[2];             /* nvme drives, °C */
     long long disk_rd_sectors, disk_wr_sectors; /* raw /proc/diskstats */

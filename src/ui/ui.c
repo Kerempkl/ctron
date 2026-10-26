@@ -479,6 +479,23 @@ static void handle_mouse(struct ncplane *stdn, const struct ncinput *ni, uint32_
     if (key != NCKEY_BUTTON1)
         return;
 
+    /* the fullscreen telemetry overlay is the top layer while open
+     * (it draws first, so it eats clicks first): a section-box click
+     * selects it / second click opens the detail; a click outside
+     * closes, like every other overlay (btop habit) */
+    if (g_ui.telem_full) {
+        const rect_t *w = &g_ui.rc_overlay;
+        if (mx < w->x || mx >= w->x + w->w || my < w->y || my >= w->y + w->h) {
+            g_ui.telem_full = false;
+            g_ui.telem_detail = -1;
+            return;
+        }
+        int t = tgt_find(mx, my);
+        if (((t >> 24) & 0x7f) == TGT_PANEL_TELEM)
+            panel_telem_full_act(t & TGT_ID_MASK);
+        return;
+    }
+
     /* while the settings window is open, it is the only clickable layer:
      * a click outside closes it (btop habit), inside only its rows act */
     if (g_ui.db_overlay) {
@@ -772,13 +789,18 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
         return;
     }
 
-    /* fullscreen telemetry is read-only: t/esc closes, q quits the
-     * app (rule 5), everything else is swallowed */
+    /* fullscreen telemetry is read-only: t/T closes from either mode,
+     * q quits the app (rule 5), everything else belongs to the
+     * section navigation / detail handler */
     if (g_ui.telem_full) {
-        if (key == 't' || key == 'T' || key == NCKEY_ESC)
+        if (key == 't' || key == 'T') {
             g_ui.telem_full = false;
-        else if (key == 'q' || key == 'Q')
+            g_ui.telem_detail = -1;
+        } else if (key == 'q' || key == 'Q') {
             try_quit();
+        } else {
+            panel_telem_full_key(key);
+        }
         return;
     }
 
@@ -943,6 +965,7 @@ int ui_run(hw_state_t *hw)
     g_ui.focus = FOC_CONTROLS;
     g_ui.ws_view = WSV_FAN;
     g_ui.md_field = -1;
+    g_ui.telem_detail = -1;
     g_ui.prof_n = profile_list(g_ui.profs, MAX_PROFILES);
     g_ui.mode_n = modes_load(g_ui.modes, MODES_MAX);
     tin_set(&g_ui.prof_name, "my-snapshot");

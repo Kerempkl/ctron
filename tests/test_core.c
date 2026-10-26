@@ -657,6 +657,20 @@ static void check_telem(void)
               !strncmp(big + strlen(big) - 3, "\xE2\x96\x88", 3),
           "telem auto endpoints oldest-low newest-high");
 
+    /* telem_at: back-indexed access used by the detail charts */
+    telem_reset();
+    double av;
+    CHECK(!telem_at(TS_CPU_TEMP, 0, &av) && av < 0, "telem_at empty false");
+    telem_push(TS_CPU_TEMP, 10);
+    telem_push(TS_CPU_TEMP, 20);
+    telem_push(TS_CPU_TEMP, -1); /* unknown tick: never stored */
+    telem_push(TS_CPU_TEMP, 30);
+    CHECK(telem_at(TS_CPU_TEMP, 0, &av) && av == 30, "telem_at newest");
+    CHECK(telem_at(TS_CPU_TEMP, 1, &av) && av == 20, "telem_at back 1");
+    CHECK(telem_at(TS_CPU_TEMP, 2, &av) && av == 10, "telem_at back 2");
+    CHECK(!telem_at(TS_CPU_TEMP, 3, &av), "telem_at beyond window false");
+    CHECK(!telem_at(-1, 0, &av) && !telem_at(TS_COUNT, 0, &av),
+          "telem_at bad index false");
     telem_reset();
 }
 

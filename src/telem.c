@@ -75,6 +75,20 @@ int telem_count(int idx)
     return (idx >= 0 && idx < TS_COUNT) ? s_rings[idx].count : 0;
 }
 
+bool telem_at(int idx, int back, double *v)
+{
+    if (v)
+        *v = -1;
+    if (idx < 0 || idx >= TS_COUNT || back < 0)
+        return false;
+    ring_t *r = &s_rings[idx];
+    if (back >= r->count)
+        return false;
+    if (v)
+        *v = r->v[(r->head + r->count - 1 - back) % TELEM_N];
+    return true;
+}
+
 void telem_minmax(int idx, double *mn, double *mx)
 {
     if (idx < 0 || idx >= TS_COUNT || s_rings[idx].count == 0) {

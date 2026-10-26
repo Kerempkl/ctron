@@ -69,6 +69,8 @@ typedef struct ui_ctx {
     ws_view_t ws_view;
     bool settings_overlay; /* ESC: fullscreen settings over everything */
     bool telem_full;       /* 't': fullscreen read-only telemetry */
+    int telem_sel;         /* grid cursor in the fullscreen (section idx) */
+    int telem_detail;      /* -1 grid, else section shown full-page */
     bool db_overlay;       /* dedicated daeboard editor / installer */
     rect_t rc_overlay;     /* settings overlay rectangle (below top bar) */
 
@@ -220,6 +222,7 @@ enum {
     TGT_PANEL_DAEBOARD,
     TGT_PANEL_COREFREQ,
     TGT_PANEL_FAN_PRESETS,
+    TGT_PANEL_TELEM,
 };
 
 
@@ -264,6 +267,11 @@ void pw_apply_writes(hw_state_t *hw, int *fails_out, char *sum, size_t sumn);
 void panel_telemetry_draw(struct ncplane *n, const rect_t *r);
 /* fullscreen sectioned telemetry ('t') + the poll-loop sampler */
 void panel_telem_full_draw(struct ncplane *n, const rect_t *r);
+/* grid navigation / detail-page keys; swallows everything but t/T/q,
+ * which dispatch_key keeps (rule 5). */
+void panel_telem_full_key(uint32_t key);
+/* section-box click: first click selects, second opens the detail. */
+void panel_telem_full_act(int id);
 void telem_poll(struct hw_state *hw, long now_ms);
 
 /* Settings overlay (ESC): fullscreen, covers all panels; the mode editor

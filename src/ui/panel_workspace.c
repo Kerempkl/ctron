@@ -956,6 +956,7 @@ static void draw_help(struct ncplane *n, const rect_t *r)
         "  1..4 / Tab   focus: profiles, controls, workspace, telemetry",
         "  5..8         workspace view: 5 fan · 6 power · 7 light · 8 help",
         "  t / T        fullscreen telemetry (T works everywhere)",
+        "               j/k select · enter detail · 1-6 jump · esc back",
         "  esc / s      settings overlay · ? this help",
         "  applies run in the background — keys pause, q waits for them",
         "",
