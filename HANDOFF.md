@@ -1,6 +1,9 @@
 # Ctron Handoff
 
 Latest session — **2026-10-26** **GLM / Kerempkl / FA608PP**
+(performance audit → FAZ 4 planned and LANDED: items 13/14/15 in
+three commits, key-burst CPU 8.7% → 3.3% — see below). Before that
+**2026-10-26** **GLM / Kerempkl / FA608PP**
 (comprehensive performance/optimization audit, measured → NEXT.md
 FAZ 4; no code changes — see below). Before that
 **2026-10-26** **GLM / Kerempkl / FA608PP** (roadmap
@@ -92,6 +95,43 @@ prioritized todo list and the distilled session lessons.
   pidfile removal, exit 0). Harness-proven: rc=0 + pidfile gone.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
+
+## Session 2026-10-26 — FAZ 4 executed: items 13/14/15 landed (GLM / Kerempkl / FA608PP)
+
+- Plan mode first (approved): one Explore pass pinned the safety
+  assumptions — no tuitest flow depends on a fresh post-key hardware
+  read (all UI-text/log asserts), write actions self-refresh (apply
+  worker hw_refresh_live, POWER entry, kbd/bat in-place updates, fan
+  Write verifies internally), notcurses 3.0.17 has get_nblock, and the
+  main link rule omits CFLAGS (LTO needed its own link flag).
+- **a7d82b5 hw: sweep split** — cpu_limits_sweep(hw, full): static
+  column (present + cpuinfo_min/max) only at init / refresh_live /
+  ≥5 s; per-tick pass = scaling_max only → 48 → 17 reads. refresh_live
+  zeroes the throttle (always full after actions). --status verified
+  byte-identical modulo the live iGPU MHz power-gating flap (5-run
+  proof that the flap predates the change).
+- **e2dd603 ui: rate-limit + batching** — notcurses_get_nblock drains
+  the queued input (each key/mouse dispatched individually, CSI
+  '['/']' filter and RESIZE handling preserved), then ONE
+  maybe_refresh: 120 ms floor for key-driven refreshes, force on
+  timeout/resize/apply-finalize (which also zeroes the timestamp).
+  Probes: key-held 8.73% → 3.33% (2.6 → 1.0 ms per key), idle 1.10 →
+  1.00%. The leftover ~1 ms/key is the draw phase (real feedback) —
+  panel-level dirty flags deliberately out of scope; stopped here.
+- **347e881 build: strip + LTO** — install -s on the binary only
+  (285 → 261 KB; the 150–180 KB estimate was WRONG — no -g in the
+  build, strip only drops the symtab; recorded honestly in NEXT).
+  LTO=1 → -flto=auto on compile+link via LDLTO (first try with plain
+  -flto printed an lto-wrapper serial-LTRANS note; =auto silences it);
+  0 warnings, tests green, LTO binary 276 KB. Default build untouched;
+  -march=native stays parked (portability rule).
+- Verified per commit: make 0 warnings, make test, make tuitest (the
+  back-to-back key flows stress the batching path), --status/--doctor,
+  make install (installed --version 0.4.0 live). Docs synced (NEXT
+  FAZ 4 items marked BITTI with post-change numbers, CHANGELOG,
+  HANDOFF). No release cut — internal perf rides the next MINOR.
+- Open in FAZ 4: item 16 (nvidia-smi worker) stays conditional on a
+  field observation of the query lengthening under load.
 
 ## Session 2026-10-26 — performance/optimization audit → NEXT.md FAZ 4 (GLM / Kerempkl / FA608PP)
 

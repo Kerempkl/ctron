@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-10-26 — perf: FAZ 4 items 13/14/15 landed (key-burst 8.7% → 3.3% CPU)
+
+- hw: cpu_limits_sweep split (a7d82b5) — the static column (present +
+  cpuinfo_min/max, 3 files per cpu) is re-read only at init, on
+  hw_refresh_live and every ≥5 s in the fast poll; the per-tick pass
+  reads scaling_max_freq only. Fast path 48 → 17 file reads; raise-only
+  cpuinfo_max rule untouched; --status output verified identical.
+- ui: post-key refresh rate-limit + input batching (e2dd603) — keys
+  that arrive while drawing are drained via notcurses_get_nblock and
+  dispatched individually, then ONE rate-limited refresh covers the
+  batch (120 ms floor); timeout/resize/apply-completion force. Writes
+  unaffected (worker refreshes itself, POWER entry runs refresh_live,
+  kbd/bat rows update hw in place). Measured with the same probe:
+  key-held 8.73% → 3.33% (2.6 → 1.0 ms per keypress); idle 1.10 →
+  1.00%. Remaining per-key cost is the draw phase (real feedback) —
+  deliberately stopped there.
+- build: stripped install + opt-in LTO=1 (347e881) — install -s
+  strips only the installed binary (285 → 261 KB; the earlier
+  150–180 KB estimate was wrong — no -g in the build, so strip only
+  drops the symtab); LTO=1 adds -flto=auto to compile and link (0
+  warnings, tests green); default build unchanged.
+- Verified per commit: make 0 warnings, make test, make tuitest (all
+  flows — the back-to-back key sequences stress the batching), live
+  --status/--doctor, make install + installed --version. No release
+  cut (internal performance; rides the next MINOR).
+
 ## 2026-10-26 — docs: performance audit → NEXT.md FAZ 4 (measured)
 
 - Comprehensive optimization sweep of the hot paths (main loop, fast

@@ -103,33 +103,33 @@ Kullanıcı sürüm numaralandırmasını agent'a devretti. Şema: semver.
 | `hw_refresh_fast` | ~69 dosya aç/oku/kapat / tick |
 | binary | 285 KB, strip'siz |
 
-13. **Tuş → tam yenileme eşlemesinin kesilmesi (en büyük ölçülmüş
-    kazanç).** `ui_run` ana döngüsü her tuş olayından sonra koşulsuz
-    `hw_refresh_fast` + `telem_poll` çalıştırıyor; her tuş = ~69 dosya
-    okuma + tam yeniden çizim + render → basılı tutulan tuşta %8.7
-    CPU. İki yol (tek başına ya da birlikte):
-    (a) yenilemeyi rate-limit'le: son yenilemeden beri <100–150 ms
-    olduysa atla — yazma etkisi olan eylem, apply bitişi (finalize) ve
-    overlay aç/kapa muaf (anında yansıma gerekir);
-    (b) input batching: `notcurses_get_nblock` ile bekleyen tuşları
-    topla, hepsini işle, TEK yenileme+çizim yap.
-    Doğrulama: aynı probe ile tuş-burst tekrar ölçüm (hedef
-    %8.7 → ~%1–2), tuitest akışları yeşil kalmalı.
-14. **`cpu_limits_sweep` ayrıştırması.** `scaling_max_freq` gerçekten
-    salınıyor (amd-pstate; sweep'in varlık nedeni) ama
-    `cpuinfo_min/max_freq` statik-dirençli. cpuinfo_* kolonunu 5–10
-    s'de bir oku, scaling_max her tick kalsın → sweep 48 → 17 dosya
-    okuması; poll yolundaki syscall'ların ~yarısı gider (laptop
-    C-state'leri için de iyi). Dikkat: cpuinfo_max raise-only kuralı
-    (2401 tuzağı, hw.c yorumu) aynen korunur — yalnızca
-    `cpu_mhz_min/max` alanının güncellenmesi gecikir (pratikte
-    değişmezler).
-15. **Kurulumda strip + isteğe bağlı LTO.** `install` hedefi binary'yi
-    olduğu gibi kopyalıyor; `install -s` (veya `STRIP ?= strip` +
-    `$(STRIP)`) ile 285 KB → ~150–180 KB beklenen. LTO
-    (`CFLAGS += -flto`, link aşamasına da) gcc 16'da sorunsuz ve
-    taşınabilir — küçük boyut/hız kazancı; `make` uyarısız + `make
-    test` şart. `-march=native` PARK: taşınabilirlik şartıyla çelişir.
+**10-26 uygulama sonrası (13/14/15 land edildi, aynı probe):** boşta
+%1.00 · telemetri %1.25 (gürültü bandı) · **tuş-burst %3.33 (tuş
+başına 1.0 ms — %62 düşüş)** · kurulu binary strip'li 261 KB.
+
+13. **[BİTTİ 10-26 — e2dd603]** Tuş → tam yenileme eşlemesinin kesilmesi.
+    `maybe_refresh()`: tuş kaynaklı yenileme son yenilemeden beri
+    <120 ms ise atlanır; timeout/resize/apply-bitişi zorlar (yazma
+    etkili eylemler zaten kendi tazelemesini yapıyor — işçi
+    `hw_refresh_live`, POWER geçişi, kbd/bat yerinde güncelleme).
+    Aynı anda input batching: `notcurses_get_nblock` kuyruğu boşaltır,
+    her tuş tek tek dispatch, TEK yenileme. Sonuç (aynı probe):
+    **%8.7 → %3.33, tuş başına 2.6 → 1.0 ms**. Kalan ~1 ms/tuş çizim
+    fazı (gerçek geri bildirim) — panel-bazlı kirli-bayrak kapsam
+    dışı bırakıldı, burada duruldu.
+14. **[BİTTİ 10-26 — a7d82b5]** `cpu_limits_sweep` ayrıştırması.
+    `cpu_limits_sweep(hw, full)`: statik kolon (`present` +
+    cpuinfo_min/max) yalnızca init, `hw_refresh_live` ve ≥5 s'de bir;
+    tick geçişi yalnız `scaling_max_freq` → 48 → 17 okuma. raise-only
+    (2401) kuralı korundu; `--status` çıktısı birebir aynı doğrulandı
+    (tek fark canlı iGPU MHz flap'i). Boşta %1.10 → %1.00.
+15. **[BİTTİ 10-26 — 347e881]** Kurulumda strip + LTO=1 opt-in.
+    `install -s` yalnız kurulu binary'yi söker (build/ctron sembolleri
+    durur): 285 → 261 KB — baştaki 150–180 KB tahmini yanlıştı,
+    binary -g'siz derlendiği için stripleşen tek şey sembol tablosu.
+    `make LTO=1` → `-flto=auto` derleme+link (0 uyarı, testler yeşil;
+    LTO binary 276 KB); default derleme dokunulmaz. `-march=native`
+    PARK: taşınabilirlik şartıyla çelişir.
 16. **nvidia-smi arka plan thread'ine (KOŞULLU — şimdilik dokunma).**
     Burada ölçülen 25 ms / 2 s: 250 ms poll'da 8 framede 1'i yavaş,
     gözle görünmez. Yük altında nvidia-smi uzarsa (sürücü çekişmesi)
