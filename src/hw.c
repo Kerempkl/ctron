@@ -6,12 +6,14 @@
 #include "settings.h"
 #include "display/display.h"
 
+#include <ctype.h>
 #include <dirent.h>
 #include <glob.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/statvfs.h>
 #include <time.h>
 
 #define NB_WMI "/sys/devices/platform/asus-nb-wmi"
@@ -85,19 +87,26 @@ int hw_kbd_from_name(const char *s)
 
 int hw_hwmon_path(const char *want, char *out, size_t n)
 {
+    return hw_hwmon_path_nth(want, 0, out, n);
+}
+
+int hw_hwmon_path_nth(const char *want, int nth, char *out, size_t n)
+{
     glob_t g;
     if (glob("/sys/class/hwmon/hwmon*", 0, NULL, &g) != 0)
         return -1;
-    int rc = -1;
+    int rc = -1, seen = 0;
     for (size_t i = 0; i < g.gl_pathc; i++) {
         char np[300], name[64] = {0};
         snprintf(np, sizeof(np), "%s/name", g.gl_pathv[i]);
         if (ut_read_file(np, name, sizeof(name)) != 0)
             continue;
         if (!strcmp(name, want)) {
-            snprintf(out, n, "%s", g.gl_pathv[i]);
-            rc = 0;
-            break;
+            if (seen++ == nth) {
+                snprintf(out, n, "%s", g.gl_pathv[i]);
+                rc = 0;
+                break;
+            }
         }
     }
     globfree(&g);
@@ -144,6 +153,16 @@ static int power_supply_find(const char *type, char *out, size_t n)
 static int cached_hwmon(char *cache, const char *want, char *out, size_t n)
 {
     if (!cache[0] && hw_hwmon_path(want, cache, 256) != 0)
+        return -1;
+    snprintf(out, n, "%s", cache);
+    return 0;
+}
+
+/* same, for the nth device of a name (two RAM modules, two NVMe) */
+static int cached_hwmon_nth(char *cache, const char *want, int nth,
+                            char *out, size_t n)
+{
+    if (!cache[0] && hw_hwmon_path_nth(want, nth, cache, 256) != 0)
         return -1;
     snprintf(out, n, "%s", cache);
     return 0;
@@ -365,9 +384,15 @@ static int gpu_runtime_status(char *out, size_t n)
     return ut_read_file(path, out, n);
 }
 
-static int gpu_temp_cached(void)
+/* One extended nvidia-smi query per 2 s: temperature, power draw,
+ * graphics clock, utilization, VRAM. Fields the driver reports as
+ * "[N/A]" stay -1; the whole thing goes dark when the temp toggle is
+ * off or the dGPU is suspended (same rule as the old temp-only cache,
+ * so nvidia-smi never wakes a sleeping GPU). */
+static void gpu_query_cached(hw_state_t *hw)
 {
-    static int cached = -1;
+    static int s_temp = -1, s_mw = -1, s_mhz = -1, s_util = -1;
+    static int s_vu = -1, s_vt = -1;
     static time_t last = 0;
     time_t now = time(NULL);
     char runtime[32];
@@ -376,27 +401,241 @@ static int gpu_temp_cached(void)
     if (gpu_runtime_status(runtime, sizeof(runtime)) == 0)
         st = runtime;
     if (!hw_gpu_temp_allowed(g_prefs.gpu_temp, st)) {
-        cached = -1;
+        s_temp = s_mw = s_mhz = s_util = s_vu = s_vt = -1;
         last = now;
-        return -1;
+    } else if (now - last >= 2) {
+        char out[192] = {0};
+        const char *q[] = {
+            "nvidia-smi",
+            "--query-gpu=temperature.gpu,power.draw,"
+            "clocks.current.graphics,utilization.gpu,memory.used,memory.total",
+            "--format=csv,noheader,nounits", NULL
+        };
+        if (ut_exec_argv(q, out, sizeof(out)) == 0) {
+            int t, mw, mhz, util, vu, vt;
+            hw_parse_gpu_csv(out, &t, &mw, &mhz, &util, &vu, &vt);
+            s_temp = t; s_mw = mw; s_mhz = mhz;
+            s_util = util; s_vu = vu; s_vt = vt;
+        } else {
+            s_temp = s_mw = s_mhz = s_util = s_vu = s_vt = -1;
+        }
+        last = now;
     }
-    if (now - last < 2)
-        return cached;
+    hw->gpu_temp = s_temp;
+    hw->gpu_mw = s_mw;
+    hw->gpu_mhz = s_mhz;
+    hw->gpu_util = s_util;
+    hw->gpu_vram_used_mb = s_vu;
+    hw->gpu_vram_total_mb = s_vt;
+}
 
-    char out[32] = {0};
-    const char *q[] = { "nvidia-smi", "--query-gpu=temperature.gpu",
-                        "--format=csv,noheader,nounits", NULL };
-    if (ut_exec_argv(q, out, sizeof(out)) == 0) {
-        int t = atoi(out);
-        if (t > 0 && t < 130)
-            cached = t;
-        else
-            cached = -1;
-    } else {
-        cached = -1;
+/* ---- telemetry source parsers (pure, unit-tested) -------------------- */
+
+int hw_parse_meminfo_kb(const char *text, const char *key, long *out_kb)
+{
+    if (!text || !key || !out_kb)
+        return -1;
+    size_t klen = strlen(key);
+    const char *p = text;
+    while (p && *p) {
+        if (strncmp(p, key, klen) == 0 && p[klen] == ':') {
+            *out_kb = strtol(p + klen + 1, NULL, 10);
+            return 0;
+        }
+        p = strchr(p, '\n');
+        if (p)
+            p++;
     }
-    last = now;
-    return cached;
+    return -1;
+}
+
+int hw_parse_gpu_csv(const char *line, int *temp, int *mw, int *mhz,
+                     int *util, int *vram_used, int *vram_total)
+{
+    if (temp) *temp = -1;
+    if (mw) *mw = -1;
+    if (mhz) *mhz = -1;
+    if (util) *util = -1;
+    if (vram_used) *vram_used = -1;
+    if (vram_total) *vram_total = -1;
+    if (!line)
+        return -1;
+    double f[6] = {0};
+    int got[6] = {0};
+    const char *p = line;
+    for (int i = 0; i < 6; i++) {
+        char *end = NULL;
+        double v = strtod(p, &end);
+        if (end != p) {
+            f[i] = v;
+            got[i] = 1;
+        }
+        const char *c = strchr(p, ',');
+        if (!c)
+            break;
+        p = c + 1;
+    }
+    if (got[0] && f[0] > 0 && f[0] < 130)
+        *temp = (int)f[0];
+    if (got[1] && f[1] >= 0)
+        *mw = (int)(f[1] * 1000.0 + 0.5);
+    if (got[2] && f[2] >= 0)
+        *mhz = (int)f[2];
+    if (got[3] && f[3] >= 0)
+        *util = (int)f[3];
+    if (got[4] && f[4] >= 0)
+        *vram_used = (int)f[4];
+    if (got[5] && f[5] >= 0)
+        *vram_total = (int)f[5];
+    return 0;
+}
+
+/* Whole-disk lines only: partitions (nvme0n1p2, mmcblk0p1, sda1) and
+ * loop/ram/dm/zram devices are excluded so bytes are not counted
+ * twice (partition totals roll up into their disk). */
+static bool diskstats_whole(const char *name)
+{
+    if (!strncmp(name, "loop", 4) || !strncmp(name, "ram", 3) ||
+        !strncmp(name, "dm-", 3) || !strncmp(name, "zram", 4))
+        return false;
+    if (!strncmp(name, "nvme", 4) || !strncmp(name, "mmcblk", 6))
+        return strchr(name, 'p') == NULL;
+    if (name[0] == 's' && name[1] == 'd') {
+        for (const char *p = name + 2; *p; p++)
+            if (!isalpha((unsigned char)*p))
+                return false; /* sda1 & friends are partitions */
+        return true;
+    }
+    return false;
+}
+
+int hw_parse_diskstats(const char *text, long long *rd_sectors,
+                       long long *wr_sectors)
+{
+    if (rd_sectors)
+        *rd_sectors = 0;
+    if (wr_sectors)
+        *wr_sectors = 0;
+    if (!text || !rd_sectors || !wr_sectors)
+        return -1;
+    const char *p = text;
+    while (p && *p) {
+        const char *e = strchr(p, '\n');
+        size_t len = e ? (size_t)(e - p) : strlen(p);
+        char line[512];
+        if (len > 0 && len < sizeof line) {
+            memcpy(line, p, len);
+            line[len] = '\0';
+            long long maj, min;
+            char name[64];
+            unsigned long long d1, d2, rds, d3, d4, d5, wrs, d6;
+            /* fields: major minor name reads rd_merged rd_sectors rd_ms
+             *         writes wr_merged wr_sectors wr_ms ... */
+            if (sscanf(line, "%lld %lld %63s %llu %llu %llu %llu %llu %llu %llu %llu",
+                       &maj, &min, name, &d1, &d2, &rds, &d3,
+                       &d4, &d5, &wrs, &d6) == 11 &&
+                diskstats_whole(name)) {
+                *rd_sectors += (long long)rds;
+                *wr_sectors += (long long)wrs;
+            }
+        }
+        p = e ? e + 1 : NULL;
+    }
+    return 0;
+}
+
+/* ---- telemetry extras: cheap procfs/sysfs reads, path-cached -------- */
+
+static int hwmon_read_int(const char *base, const char *leaf, long *out)
+{
+    char p[320];
+    if (!base || ut_path_join(p, sizeof(p), base, leaf) != 0)
+        return -1;
+    int v = ut_read_int(p);
+    if (v < 0)
+        return -1;
+    if (out)
+        *out = v;
+    return 0;
+}
+
+static void read_telem_extras(hw_state_t *hw)
+{
+    char base[256], buf[16384];
+    long v;
+
+    hw->load1 = -1;
+    if (ut_read_file("/proc/loadavg", buf, 32) == 0)
+        hw->load1 = strtod(buf, NULL);
+
+    hw->mem_total_mb = hw->mem_avail_mb = hw->mem_used_mb = -1;
+    hw->swap_total_mb = hw->swap_used_mb = -1;
+    if (ut_read_file_all("/proc/meminfo", buf, sizeof buf) == 0) {
+        long kb;
+        if (hw_parse_meminfo_kb(buf, "MemTotal", &kb) == 0)
+            hw->mem_total_mb = (int)(kb / 1024);
+        if (hw_parse_meminfo_kb(buf, "MemAvailable", &kb) == 0)
+            hw->mem_avail_mb = (int)(kb / 1024);
+        if (hw->mem_total_mb > 0 && hw->mem_avail_mb >= 0)
+            hw->mem_used_mb = hw->mem_total_mb - hw->mem_avail_mb;
+        if (hw_parse_meminfo_kb(buf, "SwapTotal", &kb) == 0)
+            hw->swap_total_mb = (int)(kb / 1024);
+        if (hw_parse_meminfo_kb(buf, "SwapFree", &kb) == 0 &&
+            hw->swap_total_mb >= 0)
+            hw->swap_used_mb = hw->swap_total_mb - (int)(kb / 1024);
+    }
+
+    hw->igpu_temp = hw->igpu_mhz = hw->igpu_mw = -1;
+    int ig_ok = 0;
+    if (cached_hwmon(hw->paths.amdgpu, "amdgpu", base, sizeof base) == 0) {
+        if (hwmon_read_int(base, "temp1_input", &v) == 0 && v > 0 && v < 150000) {
+            hw->igpu_temp = (int)(v / 1000);
+            ig_ok = 1;
+        }
+        if (hwmon_read_int(base, "freq1_input", &v) == 0 && v > 0)
+            hw->igpu_mhz = (int)(v / 1000000);
+        if (hwmon_read_int(base, "power1_input", &v) == 0 && v >= 0)
+            hw->igpu_mw = (int)(v / 1000);
+        if (!ig_ok && hw->igpu_mhz < 0 && hw->igpu_mw < 0)
+            hw->paths.amdgpu[0] = '\0'; /* path gone: re-probe */
+    }
+
+    hw->ram_temp_n = 0;
+    for (int i = 0; i < 2; i++) {
+        char *cache = i == 0 ? hw->paths.ram0 : hw->paths.ram1;
+        if (cached_hwmon_nth(cache, "spd5118", i, base, sizeof base) == 0 &&
+            hwmon_read_int(base, "temp1_input", &v) == 0 && v > 0 && v < 150000)
+            hw->ram_temp[hw->ram_temp_n++] = (int)(v / 1000);
+        else
+            cache[0] = '\0';
+    }
+
+    hw->nvme_temp_n = 0;
+    for (int i = 0; i < 2; i++) {
+        char *cache = i == 0 ? hw->paths.nvme0 : hw->paths.nvme1;
+        if (cached_hwmon_nth(cache, "nvme", i, base, sizeof base) == 0 &&
+            hwmon_read_int(base, "temp1_input", &v) == 0 && v > 0 && v < 150000)
+            hw->nvme_temp[hw->nvme_temp_n++] = (int)(v / 1000);
+        else
+            cache[0] = '\0';
+    }
+
+    hw->disk_rd_sectors = hw->disk_wr_sectors = -1;
+    if (ut_read_file_all("/proc/diskstats", buf, sizeof buf) == 0) {
+        long long rd, wr;
+        hw_parse_diskstats(buf, &rd, &wr);
+        hw->disk_rd_sectors = rd;
+        hw->disk_wr_sectors = wr;
+    }
+
+    hw->fs_used_mb = hw->fs_total_mb = -1;
+    struct statvfs st;
+    if (statvfs("/", &st) == 0 && st.f_frsize > 0 && st.f_blocks > 0) {
+        hw->fs_total_mb =
+            (int)((long long)st.f_blocks * st.f_frsize / (1024 * 1024));
+        hw->fs_used_mb = (int)((long long)(st.f_blocks - st.f_bfree) *
+                               st.f_frsize / (1024 * 1024));
+    }
 }
 
 /* ---- profile / epp / kbd reads --------------------------------------- */
@@ -448,6 +687,14 @@ void hw_init(hw_state_t *hw)
     hw->rpm_gpu = -1;
     hw->asusd_ac = -2;   /* unknown until asusd.ron is parsed */
     hw->asusd_bat = -2;
+    hw->load1 = -1;
+    hw->mem_total_mb = hw->mem_avail_mb = hw->mem_used_mb = -1;
+    hw->swap_total_mb = hw->swap_used_mb = -1;
+    hw->igpu_temp = hw->igpu_mhz = hw->igpu_mw = -1;
+    hw->gpu_mw = hw->gpu_mhz = hw->gpu_util = -1;
+    hw->gpu_vram_used_mb = hw->gpu_vram_total_mb = -1;
+    hw->disk_rd_sectors = hw->disk_wr_sectors = -1;
+    hw->fs_used_mb = hw->fs_total_mb = -1;
 
     char vendor[64] = {0}, prod[64] = {0};
     ut_read_file("/sys/devices/virtual/dmi/id/sys_vendor", vendor, sizeof(vendor));
@@ -815,7 +1062,7 @@ void hw_refresh_fast(hw_state_t *hw)
         hw->cpu_mhz_cur = cur / 1000;
 
     if (hw->has_nvidia_smi)
-        hw->gpu_temp = gpu_temp_cached();
+        gpu_query_cached(hw);
 
     char bat[256];
     if (cached_supply(hw->paths.battery, "Battery", bat, sizeof(bat)) == 0) {
@@ -858,6 +1105,8 @@ void hw_refresh_fast(hw_state_t *hw)
     } else {
         hw->has_fan_rpm = false;
     }
+
+    read_telem_extras(hw);
 }
 
 /* ---- full snapshot ---------------------------------------------------- */

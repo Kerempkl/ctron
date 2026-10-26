@@ -94,6 +94,28 @@ static int cmd_status(hw_state_t *hw)
     printf("  CPU temp       : %s °C (k10temp)\n", dash_if(v1, sizeof(v1), hw->cpu_temp));
     printf("  GPU temp       : %s °C (nvidia-smi)\n", dash_if(v2, sizeof(v2), hw->gpu_temp));
     printf("  CPU clock      : %d MHz (limit %d MHz)\n", hw->cpu_mhz_cur, hw->cpu_mhz_limit);
+    if (hw->gpu_mhz > 0 || hw->gpu_mw > 0 || hw->gpu_util >= 0)
+        printf("  GPU live       : %s MHz · %s.%03d W · util %s %%\n",
+               dash_if(v1, sizeof(v1), hw->gpu_mhz),
+               dash_if(v3, sizeof(v3), hw->gpu_mw / 1000),
+               hw->gpu_mw >= 0 ? hw->gpu_mw % 1000 : 0,
+               dash_if(v4, sizeof(v4), hw->gpu_util));
+    if (hw->igpu_temp > 0 || hw->igpu_mhz > 0)
+        printf("  iGPU           : %s °C · %s MHz (amdgpu)\n",
+               dash_if(v1, sizeof(v1), hw->igpu_temp),
+               dash_if(v3, sizeof(v3), hw->igpu_mhz));
+    if (hw->mem_total_mb > 0)
+        printf("  RAM            : %d/%d MB used · modules %s%s °C\n",
+               hw->mem_used_mb, hw->mem_total_mb,
+               hw->ram_temp_n > 0 ? dash_if(v1, sizeof(v1), hw->ram_temp[0]) : "--",
+               hw->ram_temp_n > 1 ? "/…" : "");
+    if (hw->nvme_temp_n > 0 || hw->fs_total_mb > 0)
+        printf("  Storage        : NVMe %s °C%s · / %d/%d MB\n",
+               hw->nvme_temp_n > 0 ? dash_if(v2, sizeof(v2), hw->nvme_temp[0]) : "--",
+               hw->nvme_temp_n > 1 ? "+1" : "",
+               hw->fs_used_mb, hw->fs_total_mb);
+    if (hw->load1 >= 0)
+        printf("  Load           : %.2f\n", hw->load1);
     printf("  Fan RPM        : %s / %s (cpu/gpu)\n",
            dash_if(v3, sizeof(v3), hw->rpm_cpu), dash_if(v4, sizeof(v4), hw->rpm_gpu));
     printf("  Profile        : %s\n", hw_profile_name(hw->profile));

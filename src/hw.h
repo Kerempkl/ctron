@@ -1,17 +1,20 @@
 #ifndef CTRON_HW_H
 #define CTRON_HW_H
 
+#include <stddef.h>
+
 /* hard cap for per-core arrays (largest realistic online CPU count) */
 #define HW_CPU_MAX 256
 
 /* parse "0-31" / "0-15,32-47" style cpu lists; pure, unit-tested */
 int hw_cpu_list_parse(const char *s, int *ids, int max);
 
-/* 1 when a GPU temperature query is allowed. pref_on is the Settings
- * toggle. runtime_status NULL means no runtime file (always-on GPU).
- * "suspended" and "suspending" are skipped so nvidia-smi does not
- * wake a sleeping dGPU. */
-int hw_gpu_temp_allowed(int pref_on, const char *runtime_status);
+/* telemetry source parsers — pure, unit-tested. */
+int hw_parse_meminfo_kb(const char *text, const char *key, long *out_kb);
+int hw_parse_gpu_csv(const char *line, int *temp, int *mw, int *mhz,
+                     int *util, int *vram_used, int *vram_total);
+int hw_parse_diskstats(const char *text, long long *rd_sectors,
+                       long long *wr_sectors);
 
 /* cached sysfs device paths: probed once, an empty entry means probe
  * on next use, a failed read drops the entry (suspend/resume can
@@ -22,7 +25,19 @@ typedef struct {
     char fan_rpm[256];     /* asus hwmon base (fan1/2_input) */
     char battery[256];
     char mains[256];
+    char amdgpu[256];      /* iGPU hwmon base (temp1/freq1/power1) */
+    char ram0[256], ram1[256];   /* spd5118 RAM module hwmon bases */
+    char nvme0[256], nvme1[256]; /* nvme hwmon bases */
 } hw_paths_t;
+
+/* nth (0-based) hwmon whose name matches; 0 = first */
+int hw_hwmon_path_nth(const char *want, int nth, char *out, size_t n);
+
+/* 1 when a GPU temperature query is allowed. pref_on is the Settings
+ * toggle. runtime_status NULL means no runtime file (always-on GPU).
+ * "suspended" and "suspending" are skipped so nvidia-smi does not
+ * wake a sleeping dGPU. */
+int hw_gpu_temp_allowed(int pref_on, const char *runtime_status);
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -112,6 +127,19 @@ typedef struct hw_state {
     int ppt_saved_spl, ppt_saved_sppt, ppt_saved_fppt; /* to restore */
     int nv_boost;          /* W, 0 unknown */
     int nv_temp;           /* °C, 0 unknown */
+
+    /* telemetry extras (refresh_fast reads; -1/0 = unknown) */
+    double load1;                              /* /proc/loadavg 1-min */
+    int mem_total_mb, mem_avail_mb, mem_used_mb;   /* /proc/meminfo */
+    int swap_total_mb, swap_used_mb;
+    int igpu_temp, igpu_mhz, igpu_mw;          /* amdgpu hwmon */
+    int ram_temp_n, ram_temp[2];               /* spd5118 modules, °C */
+    int nvme_temp_n, nvme_temp[2];             /* nvme drives, °C */
+    long long disk_rd_sectors, disk_wr_sectors; /* raw /proc/diskstats */
+    int fs_used_mb, fs_total_mb;               /* statvfs of / */
+    int gpu_mw, gpu_mhz, gpu_util;             /* extended nvidia-smi */
+    int gpu_vram_used_mb, gpu_vram_total_mb;
+
     bool panel_od;
     bool cpu_boost;
     hw_kbd_t kbd;

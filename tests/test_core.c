@@ -660,6 +660,52 @@ static void check_telem(void)
     telem_reset();
 }
 
+static void check_telem_hw(void)
+{
+    const char *mi =
+        "MemTotal:       32043180 kB\n"
+        "MemFree:        17549508 kB\n"
+        "MemAvailable:   24906408 kB\n"
+        "Buffers:            2992 kB\n"
+        "SwapTotal:       8388604 kB\n"
+        "SwapFree:        8388600 kB\n";
+    long kb;
+    CHECK(hw_parse_meminfo_kb(mi, "MemTotal", &kb) == 0 && kb == 32043180,
+          "meminfo total");
+    CHECK(hw_parse_meminfo_kb(mi, "MemAvailable", &kb) == 0 && kb == 24906408,
+          "meminfo available");
+    CHECK(hw_parse_meminfo_kb(mi, "SwapFree", &kb) == 0 && kb == 8388600,
+          "meminfo swapfree");
+    CHECK(hw_parse_meminfo_kb(mi, "SwapCached", &kb) == -1,
+          "meminfo missing key honest");
+    CHECK(hw_parse_meminfo_kb(mi, "Mem", &kb) == -1,
+          "meminfo needs full key+colon");
+
+    int t, mw, mhz, util, vu, vt;
+    hw_parse_gpu_csv("44, 12.55, 210, 0, 1228, 8192", &t, &mw, &mhz, &util,
+                     &vu, &vt);
+    CHECK(t == 44 && mw == 12550 && mhz == 210 && util == 0 && vu == 1228 &&
+              vt == 8192,
+          "gpu csv full row");
+    hw_parse_gpu_csv("44, [N/A], 210, [N/A], 1228, 8192", &t, &mw, &mhz,
+                     &util, &vu, &vt);
+    CHECK(t == 44 && mw == -1 && util == -1 && vu == 1228 && vt == 8192,
+          "gpu csv N/A fields stay -1");
+    hw_parse_gpu_csv("Failed to initialize NVML", &t, &mw, &mhz, &util, &vu,
+                     &vt);
+    CHECK(t == -1 && mw == -1, "gpu csv garbage honest");
+
+    const char *ds =
+        "   1       0 loop0 0 0 0 0 0 0 0 0 0 0\n"
+        " 259       0 nvme0c0n1 12345 5 100000 500 678 7 90000 400 0 0 0\n"
+        " 259       1 nvme0c0n1p1 12340 5 99500 498 670 7 89800 398 0 0 0\n"
+        "   8       0 sda 10 1 2000 30 5 2 3000 20 0 0 0\n"
+        "   8       1 sda1 10 1 2000 30 5 2 3000 20 0 0 0\n";
+    long long rd, wr;
+    CHECK(hw_parse_diskstats(ds, &rd, &wr) == 0 && rd == 102000 && wr == 93000,
+          "diskstats whole disks only (no parts/loops)");
+}
+
 static void check_mode_split(void)
 {
     char got[8][MODE_STEPS_MAX];
@@ -1248,6 +1294,7 @@ int main(void)
     check_kde_parser();
     check_hypr_parser();
     check_telem();
+    check_telem_hw();
     check_power_fmt();
     check_cpu_list_parse();
     check_topology_group();
