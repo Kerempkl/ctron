@@ -162,11 +162,12 @@ static void chart_scale(int sidx, int count, double *mnp, double *mxp)
     *mxp = s_rng_mx[sidx];
 }
 
-static void chart(struct ncplane *n, int x, int y, int w, int rows, int sidx)
+static void chart(struct ncplane *n, int x, int y, int w, int rows,
+                  int sidx, double mn, double mx)
 {
     const palette_t *pal = ui_palette(g_prefs.theme);
     int count = telem_count(sidx);
-    if (count < 1 || rows < 1)
+    if (count < 1 || rows < 1 || !(mx > mn))
         return;
     if (rows > CHART_ROWS_MAX)
         rows = CHART_ROWS_MAX;
@@ -175,11 +176,6 @@ static void chart(struct ncplane *n, int x, int y, int w, int rows, int sidx)
         cols = 4;
     if (cols > CHART_COLS_MAX)
         cols = CHART_COLS_MAX;
-
-    double mn, mx;
-    chart_scale(sidx, count, &mn, &mx);
-    if (!(mx > mn))
-        return;
 
     int drows = rows * 4; /* dot rows */
     int half = cols * 2;  /* one sample point per dot column */
@@ -241,7 +237,9 @@ static const chartdef_t CD_GPU[] = {
 };
 static const chartdef_t CD_IGPU[] = {
     { "temp", U_TEMP, TS_IGPU_TEMP },
-    { "power", U_W, TS_IGPU_MW },
+    /* amdgpu power1_input is the SoC PPT: the WHOLE APU package
+     * (CPU cores + iGPU + fabric), not the iGPU rail alone */
+    { "APU PPT", U_W, TS_IGPU_MW },
     { "clock", U_MHZ, TS_IGPU_MHZ },
 };
 static const chartdef_t CD_RAM[] = {
@@ -254,28 +252,62 @@ static const chartdef_t CD_DISK[] = {
 static const chartdef_t CD_POWER[] = {
     { "draw", U_W, TS_BAT_MW },
     { "charge", U_PCT, TS_BAT_PCT },
+    { "usb-c", U_W, TS_PD_MW },
 };
 #define CD_COUNT(a) ((int)(sizeof(a) / sizeof((a)[0])))
 
-/* one labelled block: value row, `rows` chart rows, optional stats */
+static int utf_cells(const char *s)
+{
+    int c = 0;
+    for (const char *p = s; *p; p++)
+        if ((*p & 0xC0) != 0x80)
+            c++;
+    return c;
+}
+
+/* one labelled block: value row, `rows` chart rows with a y-axis of
+ * the actual chart scale (top = max, bottom = min) so every graph
+ * says what its height means on its own, optional stats row */
 static void chart_block(struct ncplane *n, int x, int y, int w, int rows,
                         const chartdef_t *cd, bool stats)
 {
+    const palette_t *pal = ui_palette(g_prefs.theme);
     char v[40], line[160];
     double last = telem_last(cd->sidx);
     fmt_val(v, sizeof v, cd->u, last);
     snprintf(line, sizeof line, " %-10s %s", cd->label, v);
-    ui_putln(n, x, y, w, line, ui_palette(g_prefs.theme)->text, false);
+    ui_putln(n, x, y, w, line, pal->text, false);
 
-    chart(n, x, y + 1, w, rows, cd->sidx);
+    int count = telem_count(cd->sidx);
+    double mn, mx;
+    chart_scale(cd->sidx, count, &mn, &mx);
+    if (count < 1 || !(mx > mn))
+        return;
+
+    char bt[40], bb[40], pad[48];
+    fmt_val(bt, sizeof bt, cd->u, mx);
+    fmt_val(bb, sizeof bb, cd->u, mn);
+    int ax = utf_cells(bt);
+    if (utf_cells(bb) > ax)
+        ax = utf_cells(bb);
+    int cw = w - ax - 3; /* axis column + gap + right margin */
+    if (rows >= 2 && cw >= 8) {
+        snprintf(pad, sizeof pad, "%*s%s", ax - utf_cells(bt), "", bt);
+        ui_putln(n, x + 1, y + 1, ax, pad, pal->text, false);
+        snprintf(pad, sizeof pad, "%*s%s", ax - utf_cells(bb), "", bb);
+        ui_putln(n, x + 1, y + rows, ax, pad, pal->text, false);
+        chart(n, x + ax + 2, y, cw, rows, cd->sidx, mn, mx);
+    } else {
+        chart(n, x, y, w, rows, cd->sidx, mn, mx);
+    }
 
     if (!stats)
         return;
-    double mn, mx;
-    telem_minmax(cd->sidx, &mn, &mx);
+    double wmn, wmx;
+    telem_minmax(cd->sidx, &wmn, &wmx);
     char a[40], b[40], c2[40];
-    fmt_val(a, sizeof a, cd->u, mn);
-    fmt_val(b, sizeof b, cd->u, mx);
+    fmt_val(a, sizeof a, cd->u, wmn);
+    fmt_val(b, sizeof b, cd->u, wmx);
     fmt_val(c2, sizeof c2, cd->u, last);
     snprintf(line, sizeof line, " min %s · max %s · last %s", a, b, c2);
     info_line(n, x, y + 1 + rows, w, line);
@@ -349,12 +381,10 @@ static void sec_gpu(struct ncplane *n, const rect_t *r)
 static void sec_igpu(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    char line[160];
-    if (hw->igpu_mw >= 0)
-        snprintf(line, sizeof line, " power %.2f W · amdgpu",
-                 hw->igpu_mw / 1000.0);
-    else
-        snprintf(line, sizeof line, " power -- · amdgpu");
+    char vg[24], vn[24], line[96];
+    fmt_int(vg, sizeof vg, " mV", hw->igpu_vddgfx_mv);
+    fmt_int(vn, sizeof vn, " mV", hw->igpu_vddnb_mv);
+    snprintf(line, sizeof line, " vddgfx %s · vddnb %s", vg, vn);
     const char *info[1] = { line };
     stack_charts(n, r, CD_IGPU, CD_COUNT(CD_IGPU), false, 1, 4, info, 1);
 }
@@ -409,12 +439,16 @@ static void sec_disk(struct ncplane *n, const rect_t *r)
 static void sec_power(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    char line[160];
-    snprintf(line, sizeof line, " %s · %s · charge limit %d%%",
-             hw->bat_status, hw->ac_online ? "on AC" : "on battery",
-             hw->bat_limit);
+    char line[176];
+    int len = snprintf(line, sizeof line, " %s · %s · charge limit %d%%",
+                       hw->bat_status, hw->ac_online ? "on AC" : "on battery",
+                       hw->bat_limit);
+    if (len > 0 && (size_t)len < sizeof line && hw->pd_in_mw > 0)
+        snprintf(line + len, sizeof line - len, " · USB-C in %.1f W",
+                 hw->pd_in_mw / 1000.0);
     const char *info[1] = { line };
-    stack_charts(n, r, CD_POWER, CD_COUNT(CD_POWER), false, 1, 4, info, 1);
+    stack_charts(n, r, CD_POWER, hw->pd_n > 0 ? CD_COUNT(CD_POWER) : 2,
+                 false, 1, 4, info, 1);
 }
 
 /* ---- section detail pages (full page inside the overlay) ------------- */
@@ -486,13 +520,14 @@ static void detail_gpu(struct ncplane *n, const rect_t *r)
 static void detail_igpu(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    char vg[24], vn[24], l0[96];
+    char vg[24], vn[24], l0[96], l1[96];
     fmt_int(vg, sizeof vg, " mV", hw->igpu_vddgfx_mv);
     fmt_int(vn, sizeof vn, " mV", hw->igpu_vddnb_mv);
-    snprintf(l0, sizeof l0, " vddgfx %s · vddnb %s · amdgpu hwmon", vg, vn);
-    const char *info[1] = { l0 };
+    snprintf(l0, sizeof l0, " vddgfx %s · vddnb %s", vg, vn);
+    snprintf(l1, sizeof l1, " APU PPT = whole-package power (CPU+iGPU)");
+    const char *info[2] = { l0, l1 };
     stack_charts(n, r, CD_IGPU, CD_COUNT(CD_IGPU), true, 2, CHART_ROWS_MAX,
-                 info, 1);
+                 info, 2);
 }
 
 static void detail_ram(struct ncplane *n, const rect_t *r)
@@ -551,18 +586,30 @@ static void detail_disk(struct ncplane *n, const rect_t *r)
 static void detail_power(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    char l0[128], l1[96];
-    snprintf(l0, sizeof l0, " %s · %s · charge limit %d%%",
-             hw->bat_status, hw->ac_online ? "on AC" : "on battery",
-             hw->bat_limit);
+    char l0[176], l1[128], l2[96];
+    int len = snprintf(l0, sizeof l0, " %s · %s · charge limit %d%%",
+                       hw->bat_status, hw->ac_online ? "on AC" : "on battery",
+                       hw->bat_limit);
+    if (len > 0 && (size_t)len < sizeof l0 && hw->pd_in_mw > 0)
+        snprintf(l0 + len, sizeof l0 - len, " · USB-C in %.1f W",
+                 hw->pd_in_mw / 1000.0);
+    char hp[40];
     if (hw->bat_health >= 0)
-        snprintf(l1, sizeof l1, " battery health %d%% of design capacity",
-                 hw->bat_health);
+        snprintf(hp, sizeof hp, "%d%% of design", hw->bat_health);
     else
-        snprintf(l1, sizeof l1, " battery health -- (no full/design read)");
-    const char *info[2] = { l0, l1 };
-    stack_charts(n, r, CD_POWER, CD_COUNT(CD_POWER), true, 2, CHART_ROWS_MAX,
-                 info, 2);
+        snprintf(hp, sizeof hp, "--");
+    if (hw->bat_v_mv > 0 && hw->bat_a_ma > 0)
+        snprintf(l1, sizeof l1, " battery %d.%02d V · %d.%02d A · health %s",
+                 hw->bat_v_mv / 1000, (hw->bat_v_mv % 1000) / 10,
+                 hw->bat_a_ma / 1000, (hw->bat_a_ma % 1000) / 10, hp);
+    else
+        snprintf(l1, sizeof l1, " battery health %s", hp);
+    if (hw->pd_n > 0)
+        snprintf(l2, sizeof l2, " USB-C PD ports: %d (in: %s)", hw->pd_n,
+                 hw->pd_in_mw > 0 ? "live" : "--");
+    const char *info[3] = { l0, l1, l2 };
+    stack_charts(n, r, CD_POWER, hw->pd_n > 0 ? CD_COUNT(CD_POWER) : 2,
+                 true, 2, CHART_ROWS_MAX, info, hw->pd_n > 0 ? 3 : 2);
 }
 
 /* ---- the registry: order here is order on screen -------------------- */
@@ -765,4 +812,5 @@ void telem_poll(hw_state_t *hw, long now_ms)
                                                              : hw->bat_mw)
                                            : -1);
     telem_push(TS_BAT_PCT, hw->bat_pct);
+    telem_push(TS_PD_MW, hw->pd_in_mw > 0 ? hw->pd_in_mw : -1);
 }

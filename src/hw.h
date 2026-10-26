@@ -122,6 +122,10 @@ typedef struct hw_state {
     int bat_mw;            /* mW, >0 discharging, <0 charging */
     int bat_limit;         /* charge_control_end_threshold, 0 unknown */
     int bat_health;        /* charge_full / design, % (-1 unknown, live-only) */
+    int bat_v_mv;          /* voltage_now, mV (-1 unknown, fast poll) */
+    int bat_a_ma;          /* current_now magnitude, mA (-1 unknown) */
+    int pd_n;              /* USB-C PD source ports found (0..4) */
+    int pd_in_mw;          /* total PD input power, mW (0 = none attached) */
     int ppt_spl, ppt_sppt, ppt_fppt;   /* W, 0 unknown/stale */
     int ppt_mode;                      /* hw_ppt_mode_t */
     bool ppt_off;                       /* limits removed (platform maxima) */

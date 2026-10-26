@@ -30,7 +30,8 @@
     X(TS_DISK_RD, "disk_rd_bs", TELEM_AUTO, TELEM_AUTO)                    \
     X(TS_DISK_WR, "disk_wr_bs", TELEM_AUTO, TELEM_AUTO)                    \
     X(TS_BAT_MW, "bat_mw", TELEM_AUTO, TELEM_AUTO)                         \
-    X(TS_BAT_PCT, "bat_pct", 0, 100)
+    X(TS_BAT_PCT, "bat_pct", 0, 100)                                       \
+    X(TS_PD_MW, "pd_in_mw", TELEM_AUTO, TELEM_AUTO)
 
 typedef enum {
 #define TELEM_ENUM(id, key, mn, mx) id,

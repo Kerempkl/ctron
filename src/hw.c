@@ -559,6 +559,35 @@ static int hwmon_read_int(const char *base, const char *leaf, long *out)
     return 0;
 }
 
+/* USB-C PD source ports (ucsi power supplies, type "USB"): the
+ * voltage/current contract each port reports — the input watts when
+ * a PD adapter feeds the machine, 0 when nothing is attached. */
+static void read_pd_ports(hw_state_t *hw)
+{
+    hw->pd_n = 0;
+    hw->pd_in_mw = 0;
+    glob_t g;
+    if (glob("/sys/class/power_supply/*", GLOB_NOSORT, NULL, &g) != 0)
+        return;
+    char p[340], tbuf[32];
+    for (size_t i = 0; i < g.gl_pathc && hw->pd_n < 4; i++) {
+        if (ut_path_join(p, sizeof p, g.gl_pathv[i], "type") != 0)
+            continue;
+        if (ut_read_file(p, tbuf, sizeof tbuf) != 0 ||
+            strncmp(tbuf, "USB", 3) != 0)
+            continue;
+        hw->pd_n++;
+        int v = -1, a = -1;
+        if (ut_path_join(p, sizeof p, g.gl_pathv[i], "voltage_now") == 0)
+            v = ut_read_int(p);
+        if (ut_path_join(p, sizeof p, g.gl_pathv[i], "current_now") == 0)
+            a = ut_read_int(p);
+        if (v > 0 && a > 0) /* µV * µA = 1e-12 W -> mW */
+            hw->pd_in_mw += (int)((long long)v * a / 1000000000LL);
+    }
+    globfree(&g);
+}
+
 static void read_telem_extras(hw_state_t *hw)
 {
     char base[256], buf[16384];
@@ -641,6 +670,8 @@ static void read_telem_extras(hw_state_t *hw)
         hw->fs_used_mb = (int)((long long)(st.f_blocks - st.f_bfree) *
                                st.f_frsize / (1024 * 1024));
     }
+
+    read_pd_ports(hw);
 }
 
 /* ---- profile / epp / kbd reads --------------------------------------- */
@@ -1094,6 +1125,7 @@ void hw_refresh_fast(hw_state_t *hw)
         gpu_query_cached(hw);
 
     char bat[256];
+    hw->bat_v_mv = hw->bat_a_ma = -1;
     if (cached_supply(hw->paths.battery, "Battery", bat, sizeof(bat)) == 0) {
         if (ut_path_join(p, sizeof(p), bat, "capacity") == 0) {
             int pct = ut_read_int(p);
@@ -1107,6 +1139,16 @@ void hw_refresh_fast(hw_state_t *hw)
             ut_read_file(p, st, sizeof(st));
         if (st[0])
             snprintf(hw->bat_status, sizeof(hw->bat_status), "%s", st);
+        if (ut_path_join(p, sizeof(p), bat, "voltage_now") == 0) {
+            int uv = ut_read_int(p);
+            if (uv > 0)
+                hw->bat_v_mv = uv / 1000;
+        }
+        if (ut_path_join(p, sizeof(p), bat, "current_now") == 0) {
+            int ua = ut_read_int(p);
+            if (ua > 0)
+                hw->bat_a_ma = ua / 1000;
+        }
         read_bat_power(hw, bat);
     }
 

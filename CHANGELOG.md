@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-10-26 — telem: self-describing charts + APU PPT honesty + PD/battery reads
+
+- "Grafiklerin neyi temsil ettiğini anlayamıyorum": every chart now
+  carries a y-axis of its actual scale — top-left max, bottom-left
+  min, unit included (temp 100/0 °C, clock 2378/2212 MHz, ...) — so
+  each graph states what its height means without cross-referencing
+  anything; charts ≥2 rows get the axis, 1-row minis skip it.
+- iGPU power honesty (user spotted it): amdgpu power1_input is the
+  SoC PPT = whole-APU package power (CPU+iGPU), not the iGPU rail.
+  Chart relabelled "APU PPT" (grid + detail) with an explicit
+  "whole-package power (CPU+iGPU)" info line on the detail page;
+  iGPU grid box now shows the vddgfx/vddnb voltages instead.
+- POWER section gains the USB-C PD story: new TS_PD_MW series + usb-c
+  chart (honest empty "--" while nothing is attached — this machine
+  is on barrel AC, the two ucsi ports read 0), read_pd_ports()
+  scanning type="USB" supplies each fast poll (µV×µA→mW), grid info
+  appends "USB-C in W" when live, detail adds a PD-ports line.
+- Battery electricals: voltage_now/current_now stored (mV/mA) and
+  shown on the POWER detail ("battery 14.69 V · 2.76 A · health 89%
+  of design").
+- Verified: 0 warnings, make test, full tuitest, screenshots (axis
+  labels present on every multi-row chart, no overlap; POWER shows
+  3 charts + PD line), make install in the same breath.
+
 ## 2026-10-26 — ui: telemetry charts take 3 fixes (area fill, white info text, grid parity)
 
 - User follow-up on the braille line charts: (1) "ne gösterildiği

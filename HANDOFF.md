@@ -169,6 +169,16 @@ prioritized todo list and the distilled session lessons.
   2-row min). metric()/sparkline rows deleted from the grid;
   telem_spark itself survives (LIVE strip + tests). Installed in the
   same breath this time.
+- Same-day take 4 (user: "neyi temsil ettiğini anlayamıyorum" + iGPU
+  PPT observation + PD request): charts got a y-axis of their real
+  scale (max top-left / min bottom-left, unit included) — the graph
+  now self-describes; amdgpu power1_input honestly relabelled "APU
+  PPT" (whole-APU package power, CPU+iGPU — user spotted the
+  mislabel) with an explainer line; POWER gained TS_PD_MW + a usb-c
+  chart (read_pd_ports: type="USB" supplies, µV×µA→mW; honest "--"
+  while unplugged — this box is on barrel AC, ports read 0) and
+  battery electricals (voltage_now/current_now → "14.69 V · 2.76 A")
+  beside the health %. Series count now 18.
 
 ## Session 2026-10-26 — security: privileged writes fully shell-free (GLM / Kerempkl / FA608PP)
 
