@@ -821,6 +821,14 @@ static void check_ppt_ryzen_cmd(void)
     /* only integers ever enter the string — no injection surface */
     ctrl_ppt_ryzen_cmd("/x/r", 0, 0, 0, cmd, sizeof(cmd));
     CHECK(!strcmp(cmd, "sudo -n /x/r -a 0 -c 0 -b 0"), "ryzen cmd zero");
+
+    /* wrapper variant (SECURITY.md §4.3): bare mW integers, no flags */
+    ctrl_ppt_wrapper_cmd(CTRON_PPT_WRAPPER, 30, 50, 40, cmd, sizeof(cmd));
+    CHECK(!strcmp(cmd, "sudo -n /usr/local/bin/ctron-ppt 30000 50000 40000"),
+          "wrapper cmd bare ints");
+    ctrl_ppt_wrapper_cmd(NULL, 1, 2, 3, cmd, sizeof(cmd));
+    CHECK(!strcmp(cmd, "sudo -n /usr/local/bin/ctron-ppt 1000 2000 3000"),
+          "wrapper cmd default path");
 }
 
 static void check_snapshots(void)

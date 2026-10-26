@@ -2,7 +2,7 @@
 
 Latest session — **2026-10-26** **GLM / Kerempkl / FA608PP** (roadmap
 execution: FAZ 1 provenance fix + FAZ 3.10/3.8/3.9 security chain +
-FAZ 3.11 sudoers doc — see
+FAZ 3.11 sudoers doc + FAZ 3.12 wrapper probe + v0.3.1 cut — see
 below). Before that
 **2026-10-25** **GLM / Kerempkl / FA608PP** (README
 redesign: GitHub landing page + real TUI screenshots — see below;
@@ -88,6 +88,25 @@ prioritized todo list and the distilled session lessons.
   pidfile removal, exit 0). Harness-proven: rc=0 + pidfile gone.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
+
+## Session 2026-10-26 — FAZ 3.12 wrapper probe + v0.3.1 cut (GLM / Kerempkl / FA608PP)
+
+- ctrl_ppt_wrapper_cmd: PPT writes in ryzenadj-mode probe
+  /usr/local/bin/ctron-ppt (access X_OK) FIRST; installed + allowed
+  wrapper means ryzenadj is never invoked directly. Falls through to
+  the existing candidates on missing wrapper / denied rule — inert on
+  FA608PP (wrapper not installed there), zero behaviour change.
+- **v0.3.1 cut** (PATCH per the agent-managed semver policy): the
+  post-v0.3.0 accumulation is hardening/fixes/docs only — pidfile
+  O_EXCL claim, shell-free privileged writes, argv-vector exec with
+  the 2>&1 honesty fix, provenance wording, sudoers §4, wrapper
+  probe. VERSION + README badge bumped in the release commit;
+  annotated tag on it, push stays user-side.
+- With this, **FAZ 3 is fully closed** (items 8-12). Remaining
+  roadmap: FAZ 1 flake.nix (Arcioth), FAZ 2 field tests (Arcioth +
+  FA608PP by hand), mini-graph scope decision (user), parked list.
+- Verified: make 0 warnings, unit + tuitest green, wrapper cmd tests
+  pinned (bare ints, default path).
 
 ## Session 2026-10-26 — FAZ 3.11: code-verified sudoers documentation (GLM / Kerempkl / FA608PP)
 

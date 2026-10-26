@@ -46,6 +46,13 @@ int ctrl_ppt_restore(hw_state_t *hw);
  * ryzenadj flag. Unit-tested. */
 void ctrl_ppt_ryzen_cmd(const char *path, int spl, int sppt, int fppt,
                         char *out, size_t n);
+/* The stricter sudoers path (SECURITY.md §4.3): a root-owned wrapper
+ * that only ever takes three mW integers. Probed FIRST when present
+ * and executable, so an installed wrapper hides ryzenadj from ctron
+ * entirely. Unit-tested. */
+#define CTRON_PPT_WRAPPER "/usr/local/bin/ctron-ppt"
+void ctrl_ppt_wrapper_cmd(const char *path, int spl, int sppt, int fppt,
+                          char *out, size_t n);
 int ctrl_set_nv_boost(hw_state_t *hw, int watts);
 int ctrl_set_nv_temp(hw_state_t *hw, int celsius);
 int ctrl_set_panel_od(hw_state_t *hw, bool on);

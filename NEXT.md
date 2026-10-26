@@ -20,8 +20,8 @@ Kullanıcı sürüm numaralandırmasını agent'a devretti. Şema: semver.
 - İlk kesim **v0.3.0** — 0.2.1'den (09-27) bu yana birikim MINOR
   seviyesinde: fan presets modali, M4 toggle + tek-örnek guard,
   PPT/ryzenadj yazma yolu, GPU clock lock, daeboard control + editör,
-  apply worker. *(10-25'te atıldı; sıradaki kesim bir sonraki MINOR veya
-  PATCH birikiminde.)*
+  apply worker. *(v0.3.0 atıldı 10-25; **v0.3.1** atıldı 10-26 —
+  PATCH: FAZ 3 güvenlik zinciri + dürüstlük/doküman fixes.)*
 
 ## FAZ 1 — Bakım & dürüstlük (kısa vade)
 
@@ -70,7 +70,7 @@ Kullanıcı sürüm numaralandırmasını agent'a devretti. Şema: semver.
 11. **[BİTTİ 10-26]** Sudoers sertleştirme dokümanı — ctron-ppt wrapper
     betiği + yol-kapsamlı kurallar (kurulum tarafı; kod değişikliği
     değil). (Faz 1.2 → SECURITY.md §4.)
-12. **ctron-ppt wrapper probe (3.11'in kod yarısı)** — `ctrl_ppt_ryzen_cmd`
+12. **[BİTTİ 10-26]** ctron-ppt wrapper probe (3.11'in kod yarısı) — `ctrl_ppt_ryzen_cmd`
     çağrı zinciri önce `/usr/local/bin/ctron-ppt`'yi denesin (varsa
     `sudo -n /usr/local/bin/ctron-ppt SPL SPPT FPPT`); SECURITY.md §4.3'ü
     ctron'un kendisi için etkin kılar (~10 satır + test).

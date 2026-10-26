@@ -143,7 +143,7 @@ Everything here is derived from what the binary actually execs with
 | Purpose | Exact invocation | Where |
 |---|---|---|
 | sysfs writes: fan curve points + `pwmN_enable` (asus-nb-wmi hwmon), PPT/panel-OD via asus-armoury attributes, `platform_profile`, per-core cpufreq `scaling_*` + global `boost`, charge threshold, kbd brightness | `sudo -n tee <path>` | `ut_priv_write` (util.c) |
-| PPT fallback | `sudo -n /usr/bin/ryzenadj -a <mW> -c <mW> -b <mW>` — candidates tried in order `/usr/bin/ryzenadj`, `/usr/sbin/ryzenadj`, bare `ryzenadj`; values are integers validated in code | `ctrl_ppt_ryzen_cmd` (control.c) |
+| PPT fallback | if `/usr/local/bin/ctron-ppt` is installed and executable it is tried FIRST: `sudo -n /usr/local/bin/ctron-ppt <mW> <mW> <mW>`; otherwise `sudo -n <path> -a <mW> -c <mW> -b <mW>` — candidates in order `/usr/bin/ryzenadj`, `/usr/sbin/ryzenadj`, bare `ryzenadj`; values are integers validated in code | `ctrl_ppt_wrapper_cmd` / `ctrl_ppt_ryzen_cmd` (control.c) |
 | GPU clock lock / reset | `sudo -n /usr/sbin/nvidia-smi -lgc <m>,<m>` / `-rgc` — the absolute path comes from `command -v` at runtime | `ctrl_gpu_clock_*` (control.c) |
 | daeboard control (optional) | `sudo -n systemd-run --unit=daeboard --collect <bin>` and `sudo -n <install-script>` | daeboard.c |
 | capability probes | `sudo -n true` | `--doctor`, daeboard |
@@ -202,11 +202,11 @@ youruser ALL=(root) NOPASSWD: /usr/local/bin/ctron-ppt
 ```
 
 Replace the `ryzenadj *` line with this and the SMU surface shrinks
-to exactly three watt values. **Note:** ctron currently calls
-ryzenadj directly, so using the wrapper from ctron needs the small
-probe follow-up tracked in NEXT.md FAZ 3 (try
-`/usr/local/bin/ctron-ppt` first in `ctrl_ppt_ryzen_cmd`); until that
-lands, the wrapper only constrains other invokers on the machine.
+to exactly three watt values. Since 2026-10-26 ctron probes
+`/usr/local/bin/ctron-ppt` first (`access(X_OK)` at write time), so an
+installed + allowed wrapper means ryzenadj is never invoked directly
+by ctron. A missing wrapper or a denied sudo rule falls through to
+the direct candidates (§4.1) — no configuration needed.
 
 ### 4.4 NixOS (FA507NVR)
 

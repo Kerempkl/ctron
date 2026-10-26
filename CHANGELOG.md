@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-10-26 — power: ctron-ppt wrapper probed before ryzenadj (FAZ 3.12)
+
+- When `/usr/local/bin/ctron-ppt` exists and is executable, PPT writes
+  through ryzenadj-mode now invoke `sudo -n /usr/local/bin/ctron-ppt
+  <mW> <mW> <mW>` FIRST — with the wrapper installed and allowed
+  (SECURITY.md §4.3), ryzenadj is never invoked directly by ctron and
+  the SMU sudoers surface shrinks to three integers. A missing wrapper
+  or a denied sudo rule falls through to the existing candidates
+  (/usr/bin → /usr/sbin → bare), so there is no configuration and no
+  behaviour change on machines without the wrapper (inert on the
+  FA608PP today — the wrapper is not installed there yet).
+- `ctrl_ppt_wrapper_cmd` exported pure + unit-tested (bare-int mW
+  mapping, default path); SECURITY.md §4.1/§4.3 updated to the probe
+  reality. make 0 warnings, unit + tuitest green. **FAZ 3 is now
+  fully closed.**
+
 ## 2026-10-26 — security docs: code-verified /etc/sudoers.d/ctron (FAZ 3.11)
 
 - SECURITY.md gained section 4: exactly what ctron execs with sudo,

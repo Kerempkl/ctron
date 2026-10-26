@@ -414,6 +414,14 @@ void ctrl_ppt_ryzen_cmd(const char *path, int spl, int sppt, int fppt,
              spl * 1000, sppt * 1000, fppt * 1000);
 }
 
+void ctrl_ppt_wrapper_cmd(const char *path, int spl, int sppt, int fppt,
+                          char *out, size_t n)
+{
+    snprintf(out, n, "sudo -n %s %d %d %d",
+             path && path[0] ? path : CTRON_PPT_WRAPPER,
+             spl * 1000, sppt * 1000, fppt * 1000);
+}
+
 /* one PPT write through the resolved interface (hw->ppt_mode). Values
  * arrive already clamped and ordered. ryzenadj invocation paths are
  * tried in order: the sudoers rule must match the invoked path
@@ -439,6 +447,18 @@ static int ppt_write(hw_state_t *hw, int spl, int sppt, int fppt)
         return rc;
     }
     case HW_PPT_RYZENADJ: {
+        /* SECURITY.md §4.3: the three-integers wrapper is tried first
+         * when installed and executable — the sudoers surface then
+         * shrinks to exactly three watt values instead of every
+         * ryzenadj flag. Missing wrapper or a denied sudo rule falls
+         * through to the direct candidates below. */
+        if (access(CTRON_PPT_WRAPPER, X_OK) == 0) {
+            char cmd[160];
+            ctrl_ppt_wrapper_cmd(CTRON_PPT_WRAPPER, spl, sppt, fppt,
+                                 cmd, sizeof(cmd));
+            if (ut_exec(cmd, NULL, 0) == 0)
+                return 0;
+        }
         static const char *const paths[] = {
             "/usr/bin/ryzenadj", "/usr/sbin/ryzenadj", "ryzenadj",
         };
