@@ -676,7 +676,7 @@ static void read_kbd(hw_state_t *hw)
 
 /* ---- init ------------------------------------------------------------- */
 
-static void cpu_limits_sweep(hw_state_t *hw);
+static void cpu_limits_sweep(hw_state_t *hw, bool full);
 
 void hw_init(hw_state_t *hw)
 {
@@ -749,7 +749,7 @@ void hw_init(hw_state_t *hw)
     hw->cpu_mhz_limit = hw->cpu_mhz_max;
     /* all-cores sweep also fills cpu_n / cpu_mhz_core, which the CLI
      * flag path needs before any hw_refresh_* call */
-    cpu_limits_sweep(hw);
+    cpu_limits_sweep(hw, true);
     hw_topology_build(hw);
 
     fan_hwmon_read(hw);
@@ -832,33 +832,55 @@ static int cpu_present_ids(int *ids, int max)
     return hw_cpu_list_parse(buf, ids, max);
 }
 
-static void cpu_limits_sweep(hw_state_t *hw)
+/* The static column of the sweep (`present` + cpuinfo_min/max_freq)
+ * is effectively constant while running — cpuinfo_max moves only on
+ * profile transitions — and re-reading all of it every 250 ms poll
+ * was the bulk of the fast path (48 of ~69 reads). full=true re-reads
+ * it (init, hw_refresh_live, and every >=5 s in the fast poll); the
+ * per-tick dynamic pass touches only scaling_max_freq. */
+#define SWEEP_STATIC_MS 5000
+static long s_sweep_last_full_ms;
+
+static long hw_mono_ms(void)
 {
-    int ids[HW_CPU_MAX];
-    int n = cpu_present_ids(ids, HW_CPU_MAX);
-    int min_khz = 0, max_khz = 0, lim_khz = 0;
-    /* publish the id list for the write layer and the CORE LIMITS
-     * editor; ids beyond the array are dropped (bounded kernels only) */
-    int kept = 0;
-    for (int c = 0; c < n; c++) {
-        if (ids[c] >= 0 && ids[c] < HW_CPU_MAX)
-            hw->cpu_ids[kept++] = ids[c];
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
+}
+
+static void cpu_limits_sweep(hw_state_t *hw, bool full)
+{
+    if (full) {
+        int ids[HW_CPU_MAX];
+        int n = cpu_present_ids(ids, HW_CPU_MAX);
+        /* publish the id list for the write layer and the CORE LIMITS
+         * editor; ids beyond the array are dropped (bounded kernels
+         * only) */
+        int kept = 0;
+        for (int c = 0; c < n; c++) {
+            if (ids[c] >= 0 && ids[c] < HW_CPU_MAX)
+                hw->cpu_ids[kept++] = ids[c];
+        }
+        hw->cpu_n = kept > 0 ? kept : 1;
+        s_sweep_last_full_ms = hw_mono_ms();
     }
-    hw->cpu_n = kept > 0 ? kept : 1;
-    for (int c = 0; c < kept; c++) {
+    int min_khz = 0, max_khz = 0, lim_khz = 0;
+    for (int c = 0; c < hw->cpu_n; c++) {
         char p[96];
         int v;
         int i = hw->cpu_ids[c];
-        snprintf(p, sizeof p,
-                 "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_min_freq", i);
-        v = ut_read_int(p);
-        if (v > 0 && (min_khz == 0 || v < min_khz))
-            min_khz = v;
-        snprintf(p, sizeof p,
-                 "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", i);
-        v = ut_read_int(p);
-        if (v > max_khz)
-            max_khz = v;
+        if (full) {
+            snprintf(p, sizeof p,
+                     "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_min_freq", i);
+            v = ut_read_int(p);
+            if (v > 0 && (min_khz == 0 || v < min_khz))
+                min_khz = v;
+            snprintf(p, sizeof p,
+                     "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", i);
+            v = ut_read_int(p);
+            if (v > max_khz)
+                max_khz = v;
+        }
         snprintf(p, sizeof p,
                  "/sys/devices/system/cpu/cpu%d/cpufreq/scaling_max_freq", i);
         v = ut_read_int(p);
@@ -1046,7 +1068,9 @@ void hw_refresh_fast(hw_state_t *hw)
 {
     char p[320], q[320];
 
-    cpu_limits_sweep(hw);
+    /* dynamic-only pass between full sweeps (see SWEEP_STATIC_MS) */
+    cpu_limits_sweep(hw, hw_mono_ms() - s_sweep_last_full_ms >=
+                            SWEEP_STATIC_MS);
 
     if (cached_hwmon(hw->paths.k10temp, "k10temp", p, sizeof(p)) == 0 &&
         ut_path_join(q, sizeof(q), p, "temp1_input") == 0) {
@@ -1261,6 +1285,9 @@ int hw_asusd_enforced(const hw_state_t *hw)
 
 void hw_refresh_live(hw_state_t *hw)
 {
+    /* live snapshots follow user actions / view switches: always a
+     * full sweep, never the throttled dynamic-only pass */
+    s_sweep_last_full_ms = 0;
     hw_refresh_fast(hw);
 
     fan_hwmon_read(hw);
