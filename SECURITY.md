@@ -114,10 +114,16 @@ Other privileged operations:
 ### Phase 2: Execution & Subprocess Hardening
 
 1. **Direct Execution for All Helpers (`ut_exec_argv`):**
-   - Implement `ut_exec_argv(const char *const argv[], char *out, size_t n)`
-     using `posix_spawnp` or `fork` + `execvp`.
-   - Migrate `nvidia-smi`, `kscreen-doctor`, and `hyprctl` calls away from
-     string-built `ut_exec` commands.
+   - **Status: DONE 2026-10-26** — `ut_exec_argv` / `_raw` / `_both` in
+     src/util.c (fork + execvp under `timeout 3`, stdout captured with
+     full drain so a chatty child cannot fake a SIGPIPE failure). Every
+     `nvidia-smi` call (hw temp + max-clock reads, the lock verify
+     sampler, `sudo -n … -lgc/-rgc`), every `kscreen-doctor` call
+     (`-o` query + mode apply) and every `hyprctl` call (`monitors -j`,
+     `eval`, `keyword` fallback) now exec argv vectors. `ut_have_cmd`
+     and `nvidia_smi_bin` keep the shell only because `command -v` is a
+     builtin. Remaining `ut_exec` users (asusctl, ryzenadj with
+     ints-only args) are intentionally left to a later pass.
 
 2. **Environment Variable Hygiene:**
    - In `ctron-toggle.sh`, sanitize `$TERMINAL` to ensure it resolves to a valid

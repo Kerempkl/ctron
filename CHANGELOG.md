@@ -1,5 +1,35 @@
 # Changelog
 
+## 2026-10-26 — security: nvidia-smi / kscreen-doctor / hyprctl exec via argv, no shell (FAZ 3.9)
+
+- New ut_exec_argv family in util.c: fork + execvp of a plain argv
+  vector under `timeout 3`, stdout captured into out (first line /
+  whole-with-ANSI-stripped / stderr-merged variants: ut_exec_argv,
+  _raw, _both). Output beyond the buffer is fully drained — the same
+  SIGPIPE lesson as ut_exec's drain fix, now applied to the capture
+  path too: a chatty child can no longer fake rc=141 through a
+  truncated read.
+- Migrated every helper call the phase names: nvidia-smi temperature
+  and max-clock reads (hw.c), the clock-lock verify sampler and
+  `sudo -n <bin> -lgc/-rgc` (control.c), kscreen-doctor `-o` query +
+  mode apply (display_kde.c), hyprctl `monitors -j` + `eval` +
+  `keyword` fallback (display_hypr.c). Nothing builds shell strings
+  for these anymore.
+- Behaviour note: the old lock/reset commands carried `2>&1`, but
+  exec_run appended `2>/dev/null` AFTER it — stderr was effectively
+  dropped and "GPU clocks set to" always arrived via stdout. _both
+  now genuinely merges stderr, so FAILED logs also show sudo's own
+  complaint instead of "no output".
+- Not migrated (documented): ut_have_cmd and nvidia_smi_bin must keep
+  a shell because `command -v` is a builtin; asusctl and the
+  ints-only ryzenadj commands stay on ut_exec for a later pass.
+- Tests (check_argv_exec): echo capture + first-line trim, exit-status
+  passthrough (false, missing binary = 127), ANSI strip, stderr merge,
+  and a 100k-line child that must not SIGPIPE. Verified live:
+  --status reads GPU temp/max-clock (nvidia-smi) and 165 Hz + modes
+  (kscreen-doctor) through the new paths. make 0 warnings, unit +
+  tuitest green.
+
 ## 2026-10-26 — security: ut_priv_write no longer spawns a shell (fork+execve argv)
 
 - The sudo fallback used to build `printf '%s' '<val>' | sudo -n tee

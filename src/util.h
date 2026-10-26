@@ -49,6 +49,17 @@ int ut_exec(const char *cmd, char *out, size_t n);
  * escape sequences stripped). For multi-line tool output parsers. */
 int ut_exec_raw(const char *cmd, char *out, size_t n);
 
+/* Shell-free variants of the same contract: fork + execvp of a plain
+ * argv vector under `timeout 3`. Nothing parses the arguments, so
+ * quoting/metacharacters are never a concern. ut_exec_argv keeps the
+ * first line only; _raw keeps everything with ANSI stripped; _both
+ * additionally merges stderr into the capture (privileged driver calls
+ * whose verdict text may land on either stream). Output beyond the
+ * buffer is drained, so a chatty child cannot fake a SIGPIPE failure. */
+int ut_exec_argv(const char *const argv[], char *out, size_t n);
+int ut_exec_argv_raw(const char *const argv[], char *out, size_t n);
+int ut_exec_argv_both(const char *const argv[], char *out, size_t n);
+
 /* True when `name` resolves to an executable on PATH. */
 bool ut_have_cmd(const char *name);
 

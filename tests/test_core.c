@@ -519,6 +519,37 @@ static void check_util_write(void)
     rmdir(tmp);
 }
 
+static void check_argv_exec(void)
+{
+    char buf[64];
+    const char *av1[] = { "echo", "hello", "world", NULL };
+    CHECK(ut_exec_argv(av1, buf, sizeof(buf)) == 0, "argv echo rc");
+    CHECK(!strcmp(buf, "hello world"), "argv echo first line");
+
+    const char *av2[] = { "false", NULL };
+    CHECK(ut_exec_argv(av2, buf, sizeof(buf)) != 0, "argv false rc");
+
+    const char *av3[] = { "/no/such/binary", NULL };
+    CHECK(ut_exec_argv(av3, buf, sizeof(buf)) == 127, "argv missing 127");
+
+    /* raw mode keeps everything but strips ANSI escapes */
+    const char *av4[] = { "printf", "\033[31mhi\033[0m\n", NULL };
+    CHECK(ut_exec_argv_raw(av4, buf, sizeof(buf)) == 0, "argv raw rc");
+    CHECK(!strcmp(buf, "hi\n"), "argv raw strips ansi");
+
+    /* both mode merges stderr into the capture */
+    const char *av5[] = { "sh", "-c", "echo out; echo err >&2", NULL };
+    CHECK(ut_exec_argv_both(av5, buf, sizeof(buf)) == 0, "argv both rc");
+    CHECK(strstr(buf, "out") && strstr(buf, "err"), "argv both merges stderr");
+
+    /* a child writing far more than the buffer must not die on SIGPIPE
+     * (a truncated read would fake rc=141 = failed write) */
+    const char *av6[] = { "seq", "1", "100000", NULL };
+    char small[32];
+    CHECK(ut_exec_argv_raw(av6, small, sizeof(small)) == 0, "argv drain rc");
+    CHECK(strlen(small) == sizeof(small) - 1, "argv drain keeps first bytes");
+}
+
 static void check_mode_split(void)
 {
     char got[8][MODE_STEPS_MAX];
@@ -1104,6 +1135,7 @@ int main(void)
     check_asusd_ron_parse();
     check_read_file_all();
     check_util_write();
+    check_argv_exec();
     check_mode_split();
     check_fan_enable();
     check_fan_write_verdict();

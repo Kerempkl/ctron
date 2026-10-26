@@ -384,8 +384,9 @@ static int gpu_temp_cached(void)
         return cached;
 
     char out[32] = {0};
-    if (ut_exec("nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits",
-                out, sizeof(out)) == 0) {
+    const char *q[] = { "nvidia-smi", "--query-gpu=temperature.gpu",
+                        "--format=csv,noheader,nounits", NULL };
+    if (ut_exec_argv(q, out, sizeof(out)) == 0) {
         int t = atoi(out);
         if (t > 0 && t < 130)
             cached = t;
@@ -521,8 +522,9 @@ void hw_init(hw_state_t *hw)
     /* GPU hardware clock ceiling — read once, it is a fixed property */
     if (hw->has_nvidia_smi) {
         char out[64] = {0};
-        if (ut_exec("nvidia-smi --query-gpu=clocks.max.graphics "
-                    "--format=csv,noheader,nounits", out, sizeof(out)) == 0) {
+        const char *q[] = { "nvidia-smi", "--query-gpu=clocks.max.graphics",
+                            "--format=csv,noheader,nounits", NULL };
+        if (ut_exec_argv(q, out, sizeof(out)) == 0) {
             int m = atoi(out);
             if (m > 0 && m < 8192)
                 hw->gpu_mhz_max = m;

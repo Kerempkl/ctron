@@ -62,7 +62,7 @@ Kullanıcı sürüm numaralandırmasını agent'a devretti. Şema: semver.
 8. **[BİTTİ 10-26]** `ut_priv_write`: `/bin/sh -c` → fork + execve argv — shell
    enjeksiyon sınıfını tamamen kapatır; mevcut tırnak-red testleri
    korunur, yenileri argv vektörünü kanıtlar. (SECURITY.md Faz 1.1.)
-9. **`ut_exec_argv` + migrasyon** — nvidia-smi / kscreen-doctor /
+9. **[BİTTİ 10-26]** `ut_exec_argv` + migrasyon — nvidia-smi / kscreen-doctor /
    hyprctl çağrıları string-komuttan argv vektörüne. (Faz 2.1.)
 10. **[BİTTİ 10-26]** Pidfile/claim sertleştirme denetimi — O_CREAT|O_EXCL|O_NOFOLLOW
     + sahiplik doğrulaması, özellikle `/tmp` fallback'inde; zaten

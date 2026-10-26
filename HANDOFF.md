@@ -2,7 +2,7 @@
 
 Latest session — **2026-10-26** **GLM / Kerempkl / FA608PP** (roadmap
 execution: FAZ 1 provenance fix + FAZ 3.10 pidfile hardening + FAZ 3.8
-shell-free privileged writes — see
+shell-free privileged writes + FAZ 3.9 argv helpers — see
 below). Before that
 **2026-10-25** **GLM / Kerempkl / FA608PP** (README
 redesign: GitHub landing page + real TUI screenshots — see below;
@@ -88,6 +88,27 @@ prioritized todo list and the distilled session lessons.
   pidfile removal, exit 0). Harness-proven: rc=0 + pidfile gone.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
+
+## Session 2026-10-26 — FAZ 3.9: argv exec for nvidia-smi/kscreen-doctor/hyprctl (GLM / Kerempkl / FA608PP)
+
+- ut_exec_argv family added (line / raw-ANSI / both-stderr-merged;
+  fork+execvp under `timeout 3`; capture drains fully so a chatty
+  child cannot fake a SIGPIPE failure). All nvidia-smi (temp,
+  max-clock, verify sampler, sudo -lgc/-rgc), kscreen-doctor (-o,
+  mode apply) and hyprctl (monitors -j, eval, keyword fallback) calls
+  migrated off shell strings.
+- Found + fixed an honesty gap while migrating: the old lock/reset
+  `2>&1` was a no-op (exec_run appends `2>/dev/null` after it), so
+  stderr was silently dropped; _both genuinely merges now and FAILED
+  logs include sudo's own complaint.
+- Deliberately left on ut_exec: ut_have_cmd + nvidia_smi_bin (command
+  -v is a shell builtin) and asusctl/ryzenadj (ints-only args) —
+  documented in SECURITY.md Phase 2.1.
+- Tests: check_argv_exec (capture, first-line trim, rc passthrough,
+  127 on missing binary, ANSI strip, stderr merge, 100k-line drain).
+  Live: --status reads GPU temp/max-clock + 165 Hz/modes through the
+  new paths. make 0 warnings, unit + tuitest green. FAZ 3'te kalan:
+  3.11 sudoers doc (kod değil).
 
 ## Session 2026-10-26 — FAZ 3.8: ut_priv_write goes shell-free (GLM / Kerempkl / FA608PP)
 

@@ -104,7 +104,8 @@ static int kde_parse_modes(const char *text, kde_mode_t *out, int max)
 static int kde_query(char *buf, size_t n, char *name, size_t name_n,
                      kde_mode_t *modes, int *mode_count, int max_modes)
 {
-    if (ut_exec_raw("kscreen-doctor -o", buf, n) != 0)
+    const char *q[] = { "kscreen-doctor", "-o", NULL };
+    if (ut_exec_argv_raw(q, buf, n) != 0)
         return -1;
     if (kde_parse_output_name(buf, name, name_n) != 0)
         return -1;
@@ -237,12 +238,12 @@ static int kde_set_hz(int hz)
     /* kscreen-doctor wants an integer refresh ("mode.WxH@R"); it rejects
      * "R.00" with "Unable to parse arguments" — and still exits 0, so the
      * result is verified by reading the mode back. */
-    char cmd[512], out[256] = {0};
+    char modearg[160], out[256] = {0};
     int want_hz = (int)(modes[best].refresh + 0.5);
-    snprintf(cmd, sizeof(cmd),
-             "kscreen-doctor output.%s.mode.%dx%d@%d",
+    snprintf(modearg, sizeof(modearg), "output.%s.mode.%dx%d@%d",
              name, modes[best].w, modes[best].h, want_hz);
-    ut_exec(cmd, out, sizeof(out));
+    const char *av[] = { "kscreen-doctor", modearg, NULL };
+    ut_exec_argv(av, out, sizeof(out));
 
     int now = kde_current_hz();
     if (now == want_hz) {

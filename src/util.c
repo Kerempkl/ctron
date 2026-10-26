@@ -180,6 +180,20 @@ bool ut_have_cmd(const char *name)
     return st != -1 && WIFEXITED(st) && WEXITSTATUS(st) == 0;
 }
 
+static void strip_ansi_inplace(char *s)
+{
+    size_t r = strlen(s), w = 0;
+    for (size_t i = 0; i < r; i++) {
+        if (s[i] == 0x1b) {
+            while (i < r && !isalpha((unsigned char)s[i]))
+                i++;
+            continue;
+        }
+        s[w++] = s[i];
+    }
+    s[w] = '\0';
+}
+
 static int exec_run(const char *cmd, char *out, size_t n, bool raw)
 {
     char full[1024];
@@ -193,21 +207,10 @@ static int exec_run(const char *cmd, char *out, size_t n, bool raw)
     if (out && n > 0) {
         size_t r = fread(out, 1, n - 1, p);
         out[r] = '\0';
-        if (raw) {
-            /* strip ANSI escape sequences in place */
-            size_t w = 0;
-            for (size_t i = 0; i < r; i++) {
-                if (out[i] == 0x1b) {
-                    while (i < r && !isalpha((unsigned char)out[i]))
-                        i++;
-                    continue;
-                }
-                out[w++] = out[i];
-            }
-            out[w] = '\0';
-        } else {
+        if (raw)
+            strip_ansi_inplace(out);
+        else
             out[strcspn(out, "\r\n")] = '\0';
-        }
     } else {
         /* drain anyway: a child that prints (ryzenadj does) while the
          * caller wants no output races our pclose for the pipe — its
@@ -234,6 +237,112 @@ int ut_exec(const char *cmd, char *out, size_t n)
 int ut_exec_raw(const char *cmd, char *out, size_t n)
 {
     return exec_run(cmd, out, n, true);
+}
+
+/* ---- direct argv exec (no shell) ------------------------------------- */
+
+/* timeout'd fork + execvp of a plain argv vector. stdout is captured
+ * into out (first n-1 bytes kept); the rest is drained so a chatty
+ * child cannot die on SIGPIPE and fake a failure through a truncated
+ * read. stderr is dropped unless `both` merges it into the capture —
+ * for privileged driver calls whose verdict text may land on either
+ * stream. stdin is /dev/null. Returns the child's exit status, or -1
+ * when it could not be started/reaped. */
+static int argv_run(const char *const argv[], char *out, size_t n,
+                    bool raw, bool both)
+{
+    if (!argv || !argv[0])
+        return -1;
+    int argc = 0;
+    while (argc < 24 && argv[argc])
+        argc++;
+    if (argv[argc] || argc + 2 > 24)
+        return -1;
+    char *full[26];
+    full[0] = (char *)"timeout";
+    full[1] = (char *)"3";
+    for (int i = 0; i < argc; i++)
+        full[2 + i] = (char *)argv[i];
+    full[2 + argc] = NULL;
+
+    int fds[2];
+    if (pipe2(fds, O_CLOEXEC) != 0)
+        return -1;
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(fds[0]);
+        close(fds[1]);
+        return -1;
+    }
+    if (pid == 0) {
+        if (dup2(fds[1], STDOUT_FILENO) < 0)
+            _exit(127);
+        int devnull = open("/dev/null", O_RDONLY);
+        if (devnull >= 0)
+            dup2(devnull, STDIN_FILENO);
+        if (both) {
+            dup2(STDOUT_FILENO, STDERR_FILENO);
+        } else {
+            int dn = open("/dev/null", O_WRONLY);
+            if (dn >= 0)
+                dup2(dn, STDERR_FILENO);
+        }
+        execvp(full[0], full);
+        _exit(127);
+    }
+    close(fds[1]);
+
+    char sink[4096];
+    bool keep = out && n > 0;
+    size_t kept = 0;
+    if (keep)
+        out[0] = '\0';
+    for (;;) {
+        char *dst = (keep && kept < n - 1) ? out + kept : sink;
+        size_t cap = (keep && kept < n - 1) ? n - 1 - kept : sizeof sink;
+        ssize_t r = read(fds[0], dst, cap);
+        if (r < 0) {
+            if (errno == EINTR)
+                continue;
+            break;
+        }
+        if (r == 0)
+            break;
+        if (dst != sink)
+            kept += (size_t)r;
+    }
+    close(fds[0]);
+    if (keep) {
+        out[kept] = '\0';
+        if (raw)
+            strip_ansi_inplace(out);
+        else
+            out[strcspn(out, "\r\n")] = '\0';
+    }
+
+    int st;
+    pid_t w;
+    do {
+        w = waitpid(pid, &st, 0);
+    } while (w < 0 && errno == EINTR);
+    if (w != pid)
+        return -1;
+    return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
+}
+
+int ut_exec_argv(const char *const argv[], char *out, size_t n)
+{
+    return argv_run(argv, out, n, false, false);
+}
+
+int ut_exec_argv_raw(const char *const argv[], char *out, size_t n)
+{
+    return argv_run(argv, out, n, true, false);
+}
+
+int ut_exec_argv_both(const char *const argv[], char *out, size_t n)
+{
+    return argv_run(argv, out, n, true, true);
 }
 
 /* ---- single-instance guard ------------------------------------------- */

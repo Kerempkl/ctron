@@ -706,9 +706,10 @@ static int gpu_clock_verify(int mhz, char *samples, size_t n)
         samples[0] = '\0';
         for (int i = 0; i < 3; i++) {
             char one[32] = {0};
-            if (ut_exec("nvidia-smi --query-gpu=clocks.current.graphics "
-                        "--format=csv,noheader,nounits", one, sizeof(one)) == 0 &&
-                one[0])
+            const char *q[] = { "nvidia-smi",
+                                "--query-gpu=clocks.current.graphics",
+                                "--format=csv,noheader,nounits", NULL };
+            if (ut_exec_argv(q, one, sizeof(one)) == 0 && one[0])
                 off += (size_t)snprintf(samples + off, n - off, "%s%s",
                                         off ? "," : "", one);
             usleep(120000);
@@ -749,9 +750,11 @@ int ctrl_gpu_clock_lock(hw_state_t *hw, int mhz)
     int cap = hw->gpu_mhz_max > 0 ? hw->gpu_mhz_max : 4096;
     mhz = ut_clamp_i(mhz, 200, cap);
 
-    char cmd[512], out[256] = {0};
-    snprintf(cmd, sizeof(cmd), "sudo -n '%s' -lgc %d,%d 2>&1", bin, mhz, mhz);
-    int rc = ut_exec_raw(cmd, out, sizeof(out));
+    char out[256] = {0};
+    char pair[24];
+    snprintf(pair, sizeof(pair), "%d,%d", mhz, mhz);
+    const char *av[] = { "sudo", "-n", bin, "-lgc", pair, NULL };
+    int rc = ut_exec_argv_both(av, out, sizeof(out));
     if (rc != 0 || !strstr(out, "GPU clocks set to")) {
         ut_log("gpu clock: lock %d FAILED (sudo -n %s) %s",
                mhz, bin, out[0] ? out : "no output");
@@ -769,14 +772,14 @@ int ctrl_gpu_clock_lock(hw_state_t *hw, int mhz)
 
 int ctrl_gpu_clock_reset(hw_state_t *hw)
 {
-    char bin[256], cmd[512];
+    char bin[256];
     if (!hw->has_nvidia_smi || nvidia_smi_bin(bin, sizeof(bin)) != 0) {
         ut_log("gpu clock: nvidia-smi is not on PATH");
         return -1;
     }
     char out[256] = {0};
-    snprintf(cmd, sizeof(cmd), "sudo -n '%s' -rgc 2>&1", bin);
-    int rc = ut_exec_raw(cmd, out, sizeof(out));
+    const char *av[] = { "sudo", "-n", bin, "-rgc", NULL };
+    int rc = ut_exec_argv_both(av, out, sizeof(out));
     if (rc != 0) {
         ut_log("gpu clock: reset FAILED (sudo -n %s) %s",
                bin, out[0] ? out : "no output");

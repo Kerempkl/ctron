@@ -31,7 +31,8 @@ typedef struct {
 
 static int hypr_query(char *buf, size_t n)
 {
-    return ut_exec_raw("hyprctl monitors -j", buf, n);
+    const char *q[] = { "hyprctl", "monitors", "-j", NULL };
+    return ut_exec_argv_raw(q, buf, n);
 }
 
 static bool json_str(const char *obj, const char *key, char *out, size_t n)
@@ -249,22 +250,26 @@ static int hypr_set_hz(int hz)
     if (hypr_pick_mode_string(hz, m.w, m.h, mode, sizeof(mode)) != 0)
         snprintf(mode, sizeof(mode), "%dx%d@%d", m.w, m.h, hz);
 
-    char cmd[640];
     /* Hyprland 0.55+ Lua parser: `keyword monitor` is a no-op (exit 0,
      * "use eval"). hl.monitor() is the live API. Fall back to keyword
      * for 0.54 and older. */
-    snprintf(cmd, sizeof(cmd),
-             "hyprctl eval 'hl.monitor({ output = \"%s\", mode = \"%s\", "
-             "position = \"%dx%d\", scale = %g })'",
+    char eval_arg[320];
+    snprintf(eval_arg, sizeof(eval_arg),
+             "hl.monitor({ output = \"%s\", mode = \"%s\", "
+             "position = \"%dx%d\", scale = %g })",
              m.name, mode, m.x, m.y, m.scale);
-    int rc = ut_exec(cmd, NULL, 0);
+    const char *ev[] = { "hyprctl", "eval", eval_arg, NULL };
+    int rc = ut_exec_argv(ev, NULL, 0);
+    const char *ran = eval_arg;
     if (rc != 0) {
-        snprintf(cmd, sizeof(cmd),
-                 "hyprctl keyword monitor %s,%s,%dx%d,%.2f",
+        static char kw[256];
+        snprintf(kw, sizeof(kw), "%s,%s,%dx%d,%.2f",
                  m.name, mode, m.x, m.y, m.scale);
-        rc = ut_exec(cmd, NULL, 0);
+        const char *kb[] = { "hyprctl", "keyword", "monitor", kw, NULL };
+        rc = ut_exec_argv(kb, NULL, 0);
+        ran = kw;
     }
-    ut_log("display(hypr): %s -> rc=%d", cmd, rc);
+    ut_log("display(hypr): %s -> rc=%d", ran, rc);
     /* 0.55 `keyword` exits 0 without applying. Trust the compositor. */
     {
         const char *at = strchr(mode, '@');
