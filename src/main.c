@@ -263,7 +263,8 @@ static int cmd_doctor(hw_state_t *hw)
            : "legacy nb-wmi (unverifiable)");
     printf("  display       : %s\n", d ? d->name : "no backend detected");
     printf("  sudo -n       : %s\n",
-           system("sudo -n true >/dev/null 2>&1") == 0 ? "passwordless" : "unavailable");
+           ut_exec_argv((const char *[]){ "sudo", "-n", "true", NULL },
+                        NULL, 0) == 0 ? "passwordless" : "unavailable");
     printf("  config        : %s\n", dir);
     return 0;
 }

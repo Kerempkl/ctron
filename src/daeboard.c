@@ -199,26 +199,32 @@ static int pick_bin(char *out, int n)
 
 int db_start(void)
 {
-	char binds[512], cmd[1400], bin[512];
+	char binds[512], bin[512];
+	const char *probe[] = { "sudo", "-n", "true", NULL };
+	const char *av[10];
 
 	if (pick_bin(bin, (int)sizeof bin) != 0) {
 		ut_log("daeboard: binary not found (set DAEBOARD_BIN)");
 		return -1;
 	}
-	if (strchr(bin, '\'') || strchr(bin, '\n'))
-		return -1;
 	db_binds_path(binds, (int)sizeof binds);
-	if (strchr(binds, '\''))
-		return -1;
-	if (system("sudo -n true >/dev/null 2>&1") != 0) {
+	if (ut_exec_argv(probe, NULL, 0) != 0) {
 		ut_log("daeboard: start needs passwordless sudo");
 		return -1;
 	}
-	snprintf(cmd, sizeof cmd,
-		 "sudo -n systemd-run --unit=daeboard --collect "
-		 "--description=daeboard '%s' --binds '%s' >/dev/null 2>&1",
-		 bin, binds);
-	if (system(cmd) != 0) {
+	/* pure argv: the env-derived paths are exec'd as words, never
+	 * parsed by a shell (the old system() + quote-rejection is gone) */
+	av[0] = "sudo";
+	av[1] = "-n";
+	av[2] = "systemd-run";
+	av[3] = "--unit=daeboard";
+	av[4] = "--collect";
+	av[5] = "--description=daeboard";
+	av[6] = bin;
+	av[7] = "--binds";
+	av[8] = binds;
+	av[9] = NULL;
+	if (ut_exec_argv(av, NULL, 0) != 0) {
 		ut_log("daeboard: systemd-run failed");
 		return -1;
 	}
@@ -229,7 +235,7 @@ int db_start(void)
 int db_install(void)
 {
 	char path[512];
-	char cmd[640];
+	const char *probe[] = { "sudo", "-n", "true", NULL };
 	const char *src = getenv("DAEBOARD_SRC");
 	const char *home;
 
@@ -244,16 +250,18 @@ int db_install(void)
 		snprintf(path, sizeof path, "%s/Documents/daeboard/install.sh",
 			 home ? home : "");
 	}
-	if (strchr(path, '\'') || access(path, X_OK) != 0) {
+	if (access(path, X_OK) != 0) {
 		ut_log("daeboard: no installer at %s (AUR package daeboard)", path);
 		return -1;
 	}
-	if (system("sudo -n true >/dev/null 2>&1") != 0) {
+	if (ut_exec_argv(probe, NULL, 0) != 0) {
 		ut_log("daeboard: install needs passwordless sudo");
 		return -1;
 	}
-	snprintf(cmd, sizeof cmd, "sudo -n '%s'", path);
-	if (system(cmd) != 0) {
+	/* argv exec: the installer path runs as one word — nothing shells
+	 * out, so no quoting rules are needed (see db_start) */
+	const char *av[] = { "sudo", "-n", path, NULL };
+	if (ut_exec_argv(av, NULL, 0) != 0) {
 		ut_log("daeboard: install.sh failed");
 		return -1;
 	}
