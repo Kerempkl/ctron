@@ -163,6 +163,14 @@ prioritized todo list and the distilled session lessons.
   policy. Tag+main push stays with the user.
 - Verified: 0 warnings; `make test` (pp_dpm/metrics cases); full
   `make tuitest`; `make install` same breath (0.7.0 live).
+- Post-session incident report ("uygulama açılmıyor"): a ctron leaked
+  from the agent's 21:08 pty probe was still alive (dead pty + setsid
+  = no SIGHUP; spinning in R state, ignoring q and SIGTERM; SIGKILL
+  needed). ctron-toggle's `pgrep -x ctron` saw it and ran the CLOSE
+  branch on every M4 press instead of opening. Killed; fresh launch
+  verified; no ctron code involved (the real quit paths were proven
+  10-11). Agent discipline recorded: verify probe children are dead
+  after every Session (close() alone is not enough).
 
 ## Session 2026-10-27 — recommended-steps round: v0.5.0 push + MIT + NET/pstate (v0.6.0) (GLM / Kerempkl / FA608PP)
 
