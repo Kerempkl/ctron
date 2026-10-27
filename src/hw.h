@@ -2,9 +2,12 @@
 #define CTRON_HW_H
 
 #include <stddef.h>
+#include <stdbool.h>
 
 /* hard cap for per-core arrays (largest realistic online CPU count) */
 #define HW_CPU_MAX 256
+/* counted network interfaces (physical + wifi; a laptop has 2-3) */
+#define HW_NET_IF_MAX 4
 
 /* parse "0-31" / "0-15,32-47" style cpu lists; pure, unit-tested */
 int hw_cpu_list_parse(const char *s, int *ids, int max);
@@ -12,9 +15,22 @@ int hw_cpu_list_parse(const char *s, int *ids, int max);
 /* telemetry source parsers — pure, unit-tested. */
 int hw_parse_meminfo_kb(const char *text, const char *key, long *out_kb);
 int hw_parse_gpu_csv(const char *line, int *temp, int *mw, int *mhz,
-                     int *util, int *vram_used, int *vram_total);
+                     int *util, int *vram_used, int *vram_total,
+                     char *pstate, size_t pstate_n, unsigned *reasons);
 int hw_parse_diskstats(const char *text, long long *rd_sectors,
                        long long *wr_sectors);
+
+/* which /sys/class/net interfaces count as the machine's own network:
+ * loopback and container/VM/VPN plumbing are excluded so traffic is
+ * never double-counted (same spirit as the diskstats whole-disk rule) */
+bool hw_net_if_whole(const char *name);
+
+/* pstate/throttle-reason labels, bit i = 1u<<i in hw->gpu_throttle,
+ * in the same order as the nvidia-smi query field list */
+#define HW_GPU_REASON_N 10
+extern const char *const hw_gpu_reason_names[HW_GPU_REASON_N];
+/* join the labels of every set bit; "none" when reasons == 0 */
+void hw_gpu_throttle_str(unsigned reasons, char *out, size_t n);
 
 /* cached sysfs device paths: probed once, an empty entry means probe
  * on next use, a failed read drops the entry (suspend/resume can
@@ -145,6 +161,16 @@ typedef struct hw_state {
     int fs_used_mb, fs_total_mb;               /* statvfs of / */
     int gpu_mw, gpu_mhz, gpu_util;             /* extended nvidia-smi */
     int gpu_vram_used_mb, gpu_vram_total_mb;
+    char gpu_pstate[8];        /* "P0".."P12", "" unknown (ext query) */
+    unsigned gpu_throttle;     /* clocks_event_reasons bits, 0 = none */
+
+    /* network (fast poll, hw_net_if_whole-counted interfaces only);
+     * counters are cumulative bytes, rates live in the telem sampler */
+    int net_n;                                  /* 0 = none counted */
+    char net_if[HW_NET_IF_MAX][16];
+    bool net_up[HW_NET_IF_MAX];                 /* operstate == "up" */
+    long long net_rx[HW_NET_IF_MAX], net_tx[HW_NET_IF_MAX];
+    long long net_rx_tot, net_tx_tot;           /* sums, -1 unknown */
 
     bool panel_od;
     bool cpu_boost;
@@ -244,5 +270,7 @@ int hw_hwmon_path(const char *name, char *out, size_t n);
 
 /* "dis 31.6W", "chg 12.0W", "0.0W", or "--" when unknown. */
 void hw_fmt_power(char *out, size_t n, bool known, int mw);
+/* cumulative bytes: "30.2 GB" / "512 MB" / "--" unknown. */
+void hw_fmt_bytes(char *out, size_t n, long long bytes);
 
 #endif /* CTRON_HW_H */

@@ -29,7 +29,7 @@ piped output never opens the TUI.
 | **Display** | Refresh-rate control via compositor backends (KDE, Hyprland), panel overdrive |
 | **Lighting** | Keyboard backlight, AURA effects, optional daeboard LED daemon control + binds editor |
 | **Automation** | Shortcut modes (`modes.ini`), hardware snapshots (save / rename / note / apply / export) |
-| **Telemetry** | Temps, fan RPM, frequencies, watts, battery — live in the TUI, one line under `--watch` |
+| **Telemetry** | Temps, fan RPM, frequencies, watts, network rx/tx, battery — live in the TUI, one line under `--watch` |
 
 Working principles, enforced in code:
 
@@ -92,16 +92,17 @@ Rows are clickable (mouse is a known gap under Hyprland — see the
 Per-view keys (fan point editing, presets modal, core-limit overlay)
 are listed in the HELP view and the footer while you use them.
 
-`t` opens a **fullscreen read-only telemetry screen**: six live
-sections (CPU / GPU / iGPU / RAM / storage / power), each with rolling
-sparklines over a ~60 s window — CPU & GPU temperatures, clocks, load,
-fan RPMs, dGPU power/utilisation/VRAM, iGPU temp/clock/power, RAM use
-+ module temps, NVMe temps + disk I/O + fill bar, battery draw/charge.
-`j`/`k` walk the section grid and `Enter` (or `1`–`6`) opens a
-section's **detail page**: full-width multi-row charts with
-min/max/last stats plus info lines from a fresh live snapshot
-(PPT/EPP, per-core ceilings, VRAM/clock lock, battery health …);
-`h`/`l` flips sections, `esc` backs out to the grid.
+`t` opens a **fullscreen read-only telemetry screen**: seven live
+sections (CPU / GPU / iGPU / RAM / storage / network / power), each
+with rolling braille charts over a ~60 s window — CPU & GPU
+temperatures, clocks, load, fan RPMs, dGPU power/utilisation/VRAM,
+iGPU temp/clock/power, RAM use + module temps, NVMe temps + disk I/O +
+fill bar, per-interface network rx/tx, battery draw/charge.
+`j`/`k` walk the section grid and `Enter` (or `1`–`7`) opens a
+section's **detail page**: full-width multi-row charts with min/max/last
+stats plus info lines from a fresh live snapshot (PPT/EPP, per-core
+ceilings, GPU pstate & throttle reasons, VRAM/clock lock, battery
+health …); `h`/`l` flips sections, `esc` backs out to the grid.
 Unknown sensors stay `--`; the screen never writes hardware.
 
 ![ctron TUI — POWER view](docs/tui-power.png)

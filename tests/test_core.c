@@ -696,18 +696,64 @@ static void check_telem_hw(void)
           "meminfo needs full key+colon");
 
     int t, mw, mhz, util, vu, vt;
+    char ps[8];
+    unsigned rs;
     hw_parse_gpu_csv("44, 12.55, 210, 0, 1228, 8192", &t, &mw, &mhz, &util,
-                     &vu, &vt);
+                     &vu, &vt, NULL, 0, NULL);
     CHECK(t == 44 && mw == 12550 && mhz == 210 && util == 0 && vu == 1228 &&
               vt == 8192,
           "gpu csv full row");
     hw_parse_gpu_csv("44, [N/A], 210, [N/A], 1228, 8192", &t, &mw, &mhz,
-                     &util, &vu, &vt);
+                     &util, &vu, &vt, NULL, 0, NULL);
     CHECK(t == 44 && mw == -1 && util == -1 && vu == 1228 && vt == 8192,
           "gpu csv N/A fields stay -1");
     hw_parse_gpu_csv("Failed to initialize NVML", &t, &mw, &mhz, &util, &vu,
-                     &vt);
+                     &vt, NULL, 0, NULL);
     CHECK(t == -1 && mw == -1, "gpu csv garbage honest");
+    /* extended form: 6 numerics + "P2, Not Active, ..." reason flags —
+     * fields 8.. in query order: idle, app clocks, sw power cap, ... */
+    hw_parse_gpu_csv("45, 6.08, 210, 0, 8192, 16384, P2, Not Active, "
+                     "Not Active, Active, Not Active, Not Active, "
+                     "Not Active, Not Active, Not Active, Not Active",
+                     &t, &mw, &mhz, &util, &vu, &vt, ps, sizeof ps, &rs);
+    CHECK(t == 45 && mw == 6080 && util == 0 && vt == 16384,
+          "gpu csv extended numeric row");
+    CHECK(strcmp(ps, "P2") == 0, "gpu csv pstate token");
+    CHECK(rs == (1u << 2), "gpu csv active reason bit");
+    hw_parse_gpu_csv("44, 12.55, 210, 0, 1228, 8192", &t, &mw, &mhz, &util,
+                     &vu, &vt, ps, sizeof ps, &rs);
+    CHECK(ps[0] == '\0' && rs == 0,
+          "gpu csv plain query leaves ext unknown");
+    hw_parse_gpu_csv("46, 10.0, 2400, 99, 16000, 16384, P0, Active, "
+                     "Not Active, Not Active, Active, Not Active, "
+                     "Not Active, Active, Not Active, Not Active",
+                     &t, &mw, &mhz, &util, &vu, &vt, ps, sizeof ps, &rs);
+    CHECK(strcmp(ps, "P0") == 0 && rs == 0x49u,
+          "gpu csv multiple reason bits");
+
+    char th[128];
+    hw_gpu_throttle_str(0, th, sizeof th);
+    CHECK(strcmp(th, "none") == 0, "gpu throttle none wording");
+    hw_gpu_throttle_str((1u << 3) | (1u << 6), th, sizeof th);
+    CHECK(strcmp(th, "hw slowdown, hw thermal") == 0,
+          "gpu throttle label join");
+
+    CHECK(!hw_net_if_whole("lo") && !hw_net_if_whole("veth0") &&
+              !hw_net_if_whole("docker0") && !hw_net_if_whole("br-a1b2c3") &&
+              !hw_net_if_whole("virbr0") && !hw_net_if_whole("tap0") &&
+              !hw_net_if_whole("tun0") && !hw_net_if_whole("wg0"),
+          "net classifier skips plumbing");
+    CHECK(hw_net_if_whole("enp3s0") && hw_net_if_whole("wlan0") &&
+              hw_net_if_whole("eth0"),
+          "net classifier keeps physical");
+
+    char fb[24];
+    hw_fmt_bytes(fb, sizeof fb, -1);
+    CHECK(strcmp(fb, "--") == 0, "fmt bytes unknown");
+    hw_fmt_bytes(fb, sizeof fb, 512 * 1024 * 1024);
+    CHECK(strcmp(fb, "512 MB") == 0, "fmt bytes MB");
+    hw_fmt_bytes(fb, sizeof fb, 32LL * 1024 * 1024 * 1024 + 300 * 1000 * 1000);
+    CHECK(strcmp(fb, "32.3 GB") == 0, "fmt bytes GB");
 
     const char *ds =
         "   1       0 loop0 0 0 0 0 0 0 0 0 0 0\n"

@@ -15,7 +15,7 @@
  * screen never writes hardware; sampling happens in telem_poll(),
  * which ui.c calls after every fast refresh.
  *
- * Two modes: the section grid (j/k cursor, enter/1-6 opens) and one
+ * Two modes: the section grid (j/k cursor, enter/1-7 opens) and one
  * section's detail page — full-width multi-row charts over the same
  * rings plus info lines from the live hw snapshot. */
 
@@ -249,6 +249,10 @@ static const chartdef_t CD_DISK[] = {
     { "read", U_MBPS, TS_DISK_RD },
     { "write", U_MBPS, TS_DISK_WR },
 };
+static const chartdef_t CD_NET[] = {
+    { "rx", U_MBPS, TS_NET_RX },
+    { "tx", U_MBPS, TS_NET_TX },
+};
 static const chartdef_t CD_POWER[] = {
     { "draw", U_W, TS_BAT_MW },
     { "charge", U_PCT, TS_BAT_PCT },
@@ -369,9 +373,10 @@ static void sec_gpu(struct ncplane *n, const rect_t *r)
     hw_state_t *hw = g_ui.hw;
     char line[160];
     if (hw->gpu_vram_total_mb > 0)
-        snprintf(line, sizeof line, " util %d%% · VRAM %d/%d MB · %d MHz max",
-                 hw->gpu_util, hw->gpu_vram_used_mb, hw->gpu_vram_total_mb,
-                 hw->gpu_mhz_max);
+        snprintf(line, sizeof line, " util %d%% · pstate %s · VRAM %d/%d MB",
+                 hw->gpu_util,
+                 hw->gpu_pstate[0] ? hw->gpu_pstate : "--",
+                 hw->gpu_vram_used_mb, hw->gpu_vram_total_mb);
     else
         snprintf(line, sizeof line, " util %d%%", hw->gpu_util);
     const char *info[1] = { line };
@@ -434,6 +439,28 @@ static void sec_disk(struct ncplane *n, const rect_t *r)
     }
     const char *info[1] = { line };
     stack_charts(n, r, CD_DISK, CD_COUNT(CD_DISK), false, 1, 4, info, 1);
+}
+
+static void sec_net(struct ncplane *n, const rect_t *r)
+{
+    hw_state_t *hw = g_ui.hw;
+    char line[160];
+    size_t w = 0;
+    int len = snprintf(line, sizeof line, " ");
+    if (len > 0)
+        w = (size_t)len;
+    for (int i = 0; i < hw->net_n && w < sizeof line; i++) {
+        len = snprintf(line + w, sizeof line - w, "%s%s %s",
+                       i ? " · " : "", hw->net_if[i],
+                       hw->net_up[i] ? "up" : "down");
+        if (len < 0 || (size_t)len >= sizeof line - w)
+            break;
+        w += (size_t)len;
+    }
+    if (hw->net_n == 0)
+        snprintf(line, sizeof line, " no counted interfaces");
+    const char *info[1] = { line };
+    stack_charts(n, r, CD_NET, CD_COUNT(CD_NET), false, 1, 4, info, 1);
 }
 
 static void sec_power(struct ncplane *n, const rect_t *r)
@@ -499,7 +526,7 @@ static void detail_cpu(struct ncplane *n, const rect_t *r)
 static void detail_gpu(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    char l0[160], l1[128];
+    char l0[160], l1[128], l2[128];
     if (hw->gpu_vram_total_mb > 0)
         snprintf(l0, sizeof l0, " VRAM %d / %d MB · clock max %d MHz",
                  hw->gpu_vram_used_mb, hw->gpu_vram_total_mb,
@@ -512,6 +539,18 @@ static void detail_gpu(struct ncplane *n, const rect_t *r)
     snprintf(l1, sizeof l1, " NV dynamic boost %s · temp target %s",
              hw->nv_boost > 0 ? "on" : "--",
              hw->nv_temp >= 70 ? "on" : "--");
+    /* pstate is the driver's own performance level (P0 top .. P12
+     * idle); throttle names come straight from the query, 0 = none */
+    if (hw->gpu_pstate[0]) {
+        char th[96];
+        hw_gpu_throttle_str(hw->gpu_throttle, th, sizeof th);
+        snprintf(l2, sizeof l2, " pstate %s · throttle: %s",
+                 hw->gpu_pstate, th);
+        const char *info[3] = { l0, l1, l2 };
+        stack_charts(n, r, CD_GPU, CD_COUNT(CD_GPU), true, 2, CHART_ROWS_MAX,
+                     info, 3);
+        return;
+    }
     const char *info[2] = { l0, l1 };
     stack_charts(n, r, CD_GPU, CD_COUNT(CD_GPU), true, 2, CHART_ROWS_MAX,
                  info, 2);
@@ -583,6 +622,36 @@ static void detail_disk(struct ncplane *n, const rect_t *r)
                  info, 2);
 }
 
+static void detail_net(struct ncplane *n, const rect_t *r)
+{
+    hw_state_t *hw = g_ui.hw;
+    char l[HW_NET_IF_MAX + 1][96];
+    const char *info[HW_NET_IF_MAX + 1];
+    int ni = 0;
+    for (int i = 0; i < hw->net_n && ni < HW_NET_IF_MAX; i++) {
+        char rb[20], tb[20];
+        hw_fmt_bytes(rb, sizeof rb, hw->net_rx[i]);
+        hw_fmt_bytes(tb, sizeof tb, hw->net_tx[i]);
+        snprintf(l[ni], sizeof l[ni], " %s %s: rx %s · tx %s",
+                 hw->net_if[i], hw->net_up[i] ? "up" : "down", rb, tb);
+        info[ni] = l[ni];
+        ni++;
+    }
+    if (ni == 0)
+        snprintf(l[ni], sizeof l[ni],
+                 " no counted interfaces (lo/veth/docker excluded)");
+    else {
+        char rb[20], tb[20];
+        hw_fmt_bytes(rb, sizeof rb, hw->net_rx_tot);
+        hw_fmt_bytes(tb, sizeof tb, hw->net_tx_tot);
+        snprintf(l[ni], sizeof l[ni], " total rx %s · tx %s", rb, tb);
+    }
+    info[ni] = l[ni];
+    ni++;
+    stack_charts(n, r, CD_NET, CD_COUNT(CD_NET), true, 2, CHART_ROWS_MAX,
+                 info, ni);
+}
+
 static void detail_power(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
@@ -620,6 +689,7 @@ static const telem_section_t SECTIONS[] = {
     { "iGPU", sec_igpu, detail_igpu },
     { "RAM", sec_ram, detail_ram },
     { "STORAGE", sec_disk, detail_disk },
+    { "NET", sec_net, detail_net },
     { "POWER", sec_power, detail_power },
 };
 
@@ -643,7 +713,7 @@ void panel_telem_full_draw(struct ncplane *n, const rect_t *r)
         if (ir.w > 4 && ir.h > 2)
             SECTIONS[det].detail(n, &ir);
         ui_putln(n, r->x + 2, r->y + r->h - 2, r->w - 4,
-                 " esc grid · h/l section · 1-6 jump · t close · q quit · read-only",
+                 " esc grid · h/l section · 1-7 jump · t close · q quit · read-only",
                  pal->muted, false);
         return;
     }
@@ -673,7 +743,7 @@ void panel_telem_full_draw(struct ncplane *n, const rect_t *r)
     }
 
     ui_putln(n, r->x + 2, r->y + r->h - 2, r->w - 4,
-             " j/k select · enter detail · 1-6 jump · t close · q quit · read-only",
+             " j/k select · enter detail · 1-7 jump · t close · q quit · read-only",
              pal->muted, false);
 }
 
@@ -787,12 +857,13 @@ void panel_telem_full_act(int id)
 /* ---- sampling -------------------------------------------------------- */
 
 /* Called from the poll loop after each fast refresh (never a write).
- * Disk throughput is a delta between accepted ticks, so the rate is
- * honest even when the tick gap stretches past 250 ms. */
+ * Disk and network throughput are deltas between accepted ticks, so
+ * the rates stay honest even when the tick gap stretches past 250 ms. */
 void telem_poll(hw_state_t *hw, long now_ms)
 {
     static long prev_ms = -1;
     static long long prev_rd = -1, prev_wr = -1;
+    static long long prev_rx = -1, prev_tx = -1;
 
     if (!telem_tick(now_ms))
         return;
@@ -810,6 +881,22 @@ void telem_poll(hw_state_t *hw, long now_ms)
     }
     prev_rd = hw->disk_rd_sectors;
     prev_wr = hw->disk_wr_sectors;
+
+    /* same delta rule over the summed interface counters; a counter
+     * reset (interface gone) reads as one unknown tick, not a spike */
+    double rx_bs = -1, tx_bs = -1;
+    if (hw->net_rx_tot >= 0 && prev_rx >= 0 && prev_ms > 0 &&
+        now_ms > prev_ms) {
+        double dt = (double)(now_ms - prev_ms) / 1000.0;
+        long long d = hw->net_rx_tot - prev_rx;
+        if (d >= 0)
+            rx_bs = (double)d / dt;
+        d = hw->net_tx_tot - prev_tx;
+        if (d >= 0)
+            tx_bs = (double)d / dt;
+    }
+    prev_rx = hw->net_rx_tot;
+    prev_tx = hw->net_tx_tot;
     prev_ms = now_ms;
 
     telem_push(TS_CPU_TEMP, hw->cpu_temp);
@@ -832,4 +919,6 @@ void telem_poll(hw_state_t *hw, long now_ms)
                                            : -1);
     telem_push(TS_BAT_PCT, hw->bat_pct);
     telem_push(TS_PD_MW, hw->pd_in_mw > 0 ? hw->pd_in_mw : -1);
+    telem_push(TS_NET_RX, rx_bs);
+    telem_push(TS_NET_TX, tx_bs);
 }

@@ -95,11 +95,17 @@ static int cmd_status(hw_state_t *hw)
     printf("  GPU temp       : %s °C (nvidia-smi)\n", dash_if(v2, sizeof(v2), hw->gpu_temp));
     printf("  CPU clock      : %d MHz (limit %d MHz)\n", hw->cpu_mhz_cur, hw->cpu_mhz_limit);
     if (hw->gpu_mhz > 0 || hw->gpu_mw > 0 || hw->gpu_util >= 0)
-        printf("  GPU live       : %s MHz · %s.%03d W · util %s %%\n",
+        printf("  GPU live       : %s MHz · %s.%03d W · util %s %% · pstate %s\n",
                dash_if(v1, sizeof(v1), hw->gpu_mhz),
                dash_if(v3, sizeof(v3), hw->gpu_mw / 1000),
                hw->gpu_mw >= 0 ? hw->gpu_mw % 1000 : 0,
-               dash_if(v4, sizeof(v4), hw->gpu_util));
+               dash_if(v4, sizeof(v4), hw->gpu_util),
+               hw->gpu_pstate[0] ? hw->gpu_pstate : "--");
+    if (hw->gpu_pstate[0] && hw->gpu_throttle) {
+        char th[128];
+        hw_gpu_throttle_str(hw->gpu_throttle, th, sizeof th);
+        printf("  GPU throttle   : %s\n", th);
+    }
     if (hw->igpu_temp > 0 || hw->igpu_mhz > 0)
         printf("  iGPU           : %s °C · %s MHz (amdgpu)\n",
                dash_if(v1, sizeof(v1), hw->igpu_temp),
@@ -114,6 +120,24 @@ static int cmd_status(hw_state_t *hw)
                hw->nvme_temp_n > 0 ? dash_if(v2, sizeof(v2), hw->nvme_temp[0]) : "--",
                hw->nvme_temp_n > 1 ? "+1" : "",
                hw->fs_used_mb, hw->fs_total_mb);
+    if (hw->net_n > 0) {
+        char line[128];
+        int len = snprintf(line, sizeof line, " ");
+        for (int i = 0; i < hw->net_n; i++) {
+            if (len < 0 || (size_t)len >= sizeof line)
+                break;
+            len += snprintf(line + len, sizeof line - len, "%s%s %s",
+                            i ? " · " : "", hw->net_if[i],
+                            hw->net_up[i] ? "up" : "down");
+        }
+        char rb[20], tb[20];
+        hw_fmt_bytes(rb, sizeof rb, hw->net_rx_tot);
+        hw_fmt_bytes(tb, sizeof tb, hw->net_tx_tot);
+        if (len > 0 && (size_t)len < sizeof line)
+            snprintf(line + len, sizeof line - len,
+                     " · rx %s · tx %s total", rb, tb);
+        printf("  NET            : %s\n", line);
+    }
     if (hw->load1 >= 0)
         printf("  Load           : %.2f\n", hw->load1);
     printf("  Fan RPM        : %s / %s (cpu/gpu)\n",

@@ -243,6 +243,20 @@ static void read_bat_power(hw_state_t *hw, const char *bat)
     hw->bat_mw_known = true;
 }
 
+/* cumulative byte total for --status / telemetry: GB with one
+ * decimal, MB below, "--" when unknown */
+void hw_fmt_bytes(char *out, size_t n, long long bytes)
+{
+    if (!out || n == 0)
+        return;
+    if (bytes < 0)
+        snprintf(out, n, "--");
+    else if (bytes >= (1LL << 30))
+        snprintf(out, n, "%.1f GB", (double)bytes / (1LL << 30));
+    else
+        snprintf(out, n, "%.0f MB", (double)bytes / (1LL << 20));
+}
+
 void hw_fmt_power(char *out, size_t n, bool known, int mw)
 {
     if (!out || n == 0)
@@ -385,14 +399,21 @@ static int gpu_runtime_status(char *out, size_t n)
 }
 
 /* One extended nvidia-smi query per 2 s: temperature, power draw,
- * graphics clock, utilization, VRAM. Fields the driver reports as
- * "[N/A]" stay -1; the whole thing goes dark when the temp toggle is
- * off or the dGPU is suspended (same rule as the old temp-only cache,
- * so nvidia-smi never wakes a sleeping GPU). */
+ * graphics clock, utilization, VRAM, plus pstate and the named
+ * clocks_event_reasons flags (underscore spelling — the dashed names
+ * in --help are not valid query fields). Fields the driver reports as
+ * "[N/A]" stay -1/empty; the whole thing goes dark when the temp
+ * toggle is off or the dGPU is suspended (same rule as the old
+ * temp-only cache, so nvidia-smi never wakes a sleeping GPU).
+ * A driver without the event-reason fields rejects the WHOLE query,
+ * so one failure latches a fallback to the six-field form. */
 static void gpu_query_cached(hw_state_t *hw)
 {
     static int s_temp = -1, s_mw = -1, s_mhz = -1, s_util = -1;
     static int s_vu = -1, s_vt = -1;
+    static char s_pstate[8];
+    static unsigned s_reasons;
+    static bool s_ext_bad; /* this driver lacks an ext field: plain 6 */
     static time_t last = 0;
     time_t now = time(NULL);
     char runtime[32];
@@ -402,22 +423,58 @@ static void gpu_query_cached(hw_state_t *hw)
         st = runtime;
     if (!hw_gpu_temp_allowed(g_prefs.gpu_temp, st)) {
         s_temp = s_mw = s_mhz = s_util = s_vu = s_vt = -1;
+        s_pstate[0] = '\0';
+        s_reasons = 0;
         last = now;
     } else if (now - last >= 2) {
-        char out[192] = {0};
-        const char *q[] = {
-            "nvidia-smi",
-            "--query-gpu=temperature.gpu,power.draw,"
-            "clocks.current.graphics,utilization.gpu,memory.used,memory.total",
-            "--format=csv,noheader,nounits", NULL
-        };
-        if (ut_exec_argv(q, out, sizeof(out)) == 0) {
+        char out[384] = {0};
+        int rc = -1;
+        if (!s_ext_bad) {
+            const char *q[] = {
+                "nvidia-smi",
+                "--query-gpu=temperature.gpu,power.draw,"
+                "clocks.current.graphics,utilization.gpu,memory.used,"
+                "memory.total,pstate,"
+                "clocks_event_reasons.gpu_idle,"
+                "clocks_event_reasons.applications_clocks_setting,"
+                "clocks_event_reasons.sw_power_cap,"
+                "clocks_event_reasons.hw_slowdown,"
+                "clocks_event_reasons.sync_boost,"
+                "clocks_event_reasons.sw_thermal_slowdown,"
+                "clocks_event_reasons.hw_thermal_slowdown,"
+                "clocks_event_reasons.hw_power_brake_slowdown,"
+                "clocks_event_reasons.board_limit,"
+                "clocks_event_reasons.reliability",
+                "--format=csv,noheader,nounits", NULL
+            };
+            rc = ut_exec_argv(q, out, sizeof(out));
+            if (rc != 0)
+                s_ext_bad = true;
+        }
+        if (s_ext_bad) {
+            const char *q[] = {
+                "nvidia-smi",
+                "--query-gpu=temperature.gpu,power.draw,"
+                "clocks.current.graphics,utilization.gpu,"
+                "memory.used,memory.total",
+                "--format=csv,noheader,nounits", NULL
+            };
+            rc = ut_exec_argv(q, out, sizeof(out));
+        }
+        if (rc == 0) {
             int t, mw, mhz, util, vu, vt;
-            hw_parse_gpu_csv(out, &t, &mw, &mhz, &util, &vu, &vt);
+            unsigned rs = 0;
+            char ps[8] = {0};
+            hw_parse_gpu_csv(out, &t, &mw, &mhz, &util, &vu, &vt,
+                             ps, sizeof ps, &rs);
             s_temp = t; s_mw = mw; s_mhz = mhz;
             s_util = util; s_vu = vu; s_vt = vt;
+            snprintf(s_pstate, sizeof s_pstate, "%s", ps);
+            s_reasons = s_pstate[0] ? rs : 0;
         } else {
             s_temp = s_mw = s_mhz = s_util = s_vu = s_vt = -1;
+            s_pstate[0] = '\0';
+            s_reasons = 0;
         }
         last = now;
     }
@@ -427,6 +484,8 @@ static void gpu_query_cached(hw_state_t *hw)
     hw->gpu_util = s_util;
     hw->gpu_vram_used_mb = s_vu;
     hw->gpu_vram_total_mb = s_vt;
+    snprintf(hw->gpu_pstate, sizeof hw->gpu_pstate, "%s", s_pstate);
+    hw->gpu_throttle = s_reasons;
 }
 
 /* ---- telemetry source parsers (pure, unit-tested) -------------------- */
@@ -450,7 +509,8 @@ int hw_parse_meminfo_kb(const char *text, const char *key, long *out_kb)
 }
 
 int hw_parse_gpu_csv(const char *line, int *temp, int *mw, int *mhz,
-                     int *util, int *vram_used, int *vram_total)
+                     int *util, int *vram_used, int *vram_total,
+                     char *pstate, size_t pstate_n, unsigned *reasons)
 {
     if (temp) *temp = -1;
     if (mw) *mw = -1;
@@ -458,6 +518,10 @@ int hw_parse_gpu_csv(const char *line, int *temp, int *mw, int *mhz,
     if (util) *util = -1;
     if (vram_used) *vram_used = -1;
     if (vram_total) *vram_total = -1;
+    if (pstate && pstate_n)
+        pstate[0] = '\0';
+    if (reasons)
+        *reasons = 0;
     if (!line)
         return -1;
     double f[6] = {0};
@@ -487,7 +551,62 @@ int hw_parse_gpu_csv(const char *line, int *temp, int *mw, int *mhz,
         *vram_used = (int)f[4];
     if (got[5] && f[5] >= 0)
         *vram_total = (int)f[5];
+
+    /* fields 7+: "P2, Not Active, Active, ..." — pstate is a Pn token,
+     * each later field an "Active"/"Not Active" (anything else, e.g.
+     * "[N/A]", simply does not set the bit) */
+    if (pstate && pstate_n && p && *p) {
+        size_t w = 0;
+        while (*p == ' ')
+            p++;
+        while (p[w] && p[w] != ',' && w + 1 < pstate_n)
+            w++;
+        if (p[0] == 'P' && p[1] >= '0' && p[1] <= '9') {
+            memcpy(pstate, p, w);
+            pstate[w] = '\0';
+        }
+        const char *c = strchr(p, ',');
+        p = c ? c + 1 : NULL;
+    }
+    if (reasons && p) {
+        for (int r = 0; p && r < HW_GPU_REASON_N; r++) {
+            while (*p == ' ')
+                p++;
+            const char *c = strchr(p, ',');
+            size_t len = c ? (size_t)(c - p) : strlen(p);
+            while (len > 0 && p[len - 1] == ' ')
+                len--;
+            if (len == 6 && strncmp(p, "Active", 6) == 0)
+                *reasons |= 1u << r;
+            p = c ? c + 1 : NULL;
+        }
+    }
     return 0;
+}
+
+const char *const hw_gpu_reason_names[HW_GPU_REASON_N] = {
+    "idle", "app clocks", "sw power cap", "hw slowdown", "sync boost",
+    "sw thermal", "hw thermal", "hw brake", "board limit", "reliability",
+};
+
+void hw_gpu_throttle_str(unsigned reasons, char *out, size_t n)
+{
+    if (!out || n == 0)
+        return;
+    size_t w = 0;
+    if (!reasons) {
+        snprintf(out, n, "none");
+        return;
+    }
+    for (int i = 0; i < HW_GPU_REASON_N; i++) {
+        if (!(reasons & (1u << i)))
+            continue;
+        int k = snprintf(out + w, n - w, "%s%s", w ? ", " : "",
+                         hw_gpu_reason_names[i]);
+        if (k < 0 || (size_t)k >= n - w)
+            break;
+        w += (size_t)k;
+    }
 }
 
 /* Whole-disk lines only: partitions (nvme0n1p2, mmcblk0p1, sda1) and
@@ -588,6 +707,67 @@ static void read_pd_ports(hw_state_t *hw)
     globfree(&g);
 }
 
+bool hw_net_if_whole(const char *name)
+{
+    if (!name || !name[0])
+        return false;
+    static const char *const skip[] = {
+        "lo", "veth", "docker", "br-", "virbr", "tap", "tun", "wg",
+        "tailscale", NULL
+    };
+    for (int i = 0; skip[i]; i++) {
+        if (!strncmp(name, skip[i], strlen(skip[i])))
+            return false;
+    }
+    return true;
+}
+
+/* Counted network interfaces (hw_net_if_whole): cumulative byte
+ * counters + operstate from sysfs. Rates are derived in the telemetry
+ * sampler from the deltas — nothing is stored twice. */
+static void read_net_ifs(hw_state_t *hw)
+{
+    hw->net_n = 0;
+    hw->net_rx_tot = hw->net_tx_tot = -1;
+    glob_t g;
+    if (glob("/sys/class/net/*", GLOB_NOSORT, NULL, &g) != 0)
+        return;
+    char p[340], buf[32];
+    long long rx = 0, tx = 0;
+    for (size_t i = 0; i < g.gl_pathc && hw->net_n < HW_NET_IF_MAX; i++) {
+        const char *name = strrchr(g.gl_pathv[i], '/');
+        name = name ? name + 1 : g.gl_pathv[i];
+        if (!hw_net_if_whole(name))
+            continue;
+        long long r = -1, t = -1;
+        if (ut_path_join(p, sizeof p, g.gl_pathv[i],
+                         "statistics/rx_bytes") == 0 &&
+            ut_read_file(p, buf, sizeof buf) == 0)
+            r = strtoll(buf, NULL, 10);
+        if (ut_path_join(p, sizeof p, g.gl_pathv[i],
+                         "statistics/tx_bytes") == 0 &&
+            ut_read_file(p, buf, sizeof buf) == 0)
+            t = strtoll(buf, NULL, 10);
+        if (r < 0 || t < 0)
+            continue;
+        snprintf(hw->net_if[hw->net_n], sizeof hw->net_if[0], "%s", name);
+        hw->net_up[hw->net_n] = false;
+        if (ut_path_join(p, sizeof p, g.gl_pathv[i], "operstate") == 0 &&
+            ut_read_file(p, buf, sizeof buf) == 0)
+            hw->net_up[hw->net_n] = !strncmp(buf, "up", 2);
+        hw->net_rx[hw->net_n] = r;
+        hw->net_tx[hw->net_n] = t;
+        rx += r;
+        tx += t;
+        hw->net_n++;
+    }
+    globfree(&g);
+    if (hw->net_n > 0) {
+        hw->net_rx_tot = rx;
+        hw->net_tx_tot = tx;
+    }
+}
+
 static void read_telem_extras(hw_state_t *hw)
 {
     char base[256], buf[16384];
@@ -672,6 +852,7 @@ static void read_telem_extras(hw_state_t *hw)
     }
 
     read_pd_ports(hw);
+    read_net_ifs(hw);
 }
 
 /* ---- profile / epp / kbd reads --------------------------------------- */

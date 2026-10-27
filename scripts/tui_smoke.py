@@ -570,7 +570,7 @@ def flow_fan_grid():
 def flow_telem_full():
     """Fullscreen telemetry ('t'): contextual open from a non-typing view,
     sections render, j/k cursor + enter opens a section detail page,
-    h/l flips sections, 1-6 jumps directly, esc backs out to the grid,
+    h/l flips sections, 1-7 jumps directly, esc backs out to the grid,
     stray keys are swallowed, t closes, reopens, q quits cleanly."""
     tmpcfg = tempfile.mkdtemp(prefix="ctron-tui-")
     oldcfg = os.environ.get("CTRON_CONFIG")
@@ -620,14 +620,14 @@ def flow_telem_full():
             fail("telem_full", "'t' did not open the fullscreen TELEMETRY")
             return
         ok("telem_full", "fullscreen opened on lowercase 't' (non-typing view)")
-        for sec in (b"CPU", b"GPU", b"RAM", b"STORAGE", b"POWER"):
+        for sec in (b"CPU", b"GPU", b"RAM", b"STORAGE", b"NET", b"POWER"):
             if not s.wait_for(sec, since=m, timeout=6.0):
                 fail("telem_full", f"section {sec!r} missing")
                 return
         ok("telem_full", "all sections render")
-        # navigation is SPATIAL on the 2x3 grid: j = one row down,
-        # l = one column right. CPU -> iGPU -> RAM proves it (linear
-        # j/j/l would have landed elsewhere)
+        # navigation is SPATIAL on the 2-column grid (7 sections = 4
+        # rows): j = one row down, l = one column right. CPU -> iGPU ->
+        # RAM proves it (linear j/j/l would have landed elsewhere)
         m4 = s.mark()
         s.key(b"j")
         time.sleep(0.2)
@@ -651,11 +651,14 @@ def flow_telem_full():
             return
         ok("telem_full", "h/l switches detail sections")
         m6 = s.mark()
-        s.key(b"1")                # direct digit jump to the CPU page
-        if not s.wait_for(b"ceilings", since=m6, timeout=6.0):
-            fail("telem_full", "digit jump did not open the CPU detail")
+        s.key(b"6")                # direct digit jump to the NET page
+        # "total" comes from the NET totals info line; "rx" itself is
+        # fragment-prone: the 'r' cell does not change coming from the
+        # STORAGE page whose chart label is "read" (diff skips it)
+        if not s.wait_for(b"total", since=m6, timeout=6.0):
+            fail("telem_full", "digit jump did not open the NET detail")
             return
-        ok("telem_full", "1-6 jumps straight to a detail page")
+        ok("telem_full", "1-7 digits jump straight to a detail page")
         m7 = s.mark()
         s.key(b"\x1b")             # esc: detail -> grid (not closed)
         if not s.wait_for(b"j/k", since=m7, timeout=6.0):
