@@ -91,7 +91,16 @@ static int cmd_status(hw_state_t *hw)
     char v1[16], v2[16], v3[16], v4[16], v5[16];
     printf("ctron — %s\n", hw->model);
     printf("  CPU            : %s\n", hw->cpu);
-    printf("  CPU temp       : %s °C (k10temp)\n", dash_if(v1, sizeof(v1), hw->cpu_temp));
+    if (hw->cpu_temp_ccd1 > 0 && hw->cpu_temp_ccd2 > 0)
+        printf("  CPU temp       : %s °C (k10temp) · Tccd %d/%d °C\n",
+               dash_if(v1, sizeof(v1), hw->cpu_temp),
+               hw->cpu_temp_ccd1, hw->cpu_temp_ccd2);
+    else if (hw->cpu_temp_ccd1 > 0)
+        printf("  CPU temp       : %s °C (k10temp) · Tccd %d °C\n",
+               dash_if(v1, sizeof(v1), hw->cpu_temp), hw->cpu_temp_ccd1);
+    else
+        printf("  CPU temp       : %s °C (k10temp)\n",
+               dash_if(v1, sizeof(v1), hw->cpu_temp));
     printf("  GPU temp       : %s °C (nvidia-smi)\n", dash_if(v2, sizeof(v2), hw->gpu_temp));
     printf("  CPU clock      : %d MHz (limit %d MHz)\n", hw->cpu_mhz_cur, hw->cpu_mhz_limit);
     if (hw->gpu_mhz > 0 || hw->gpu_mw > 0 || hw->gpu_util >= 0)
@@ -106,15 +115,25 @@ static int cmd_status(hw_state_t *hw)
         hw_gpu_throttle_str(hw->gpu_throttle, th, sizeof th);
         printf("  GPU throttle   : %s\n", th);
     }
-    if (hw->igpu_temp > 0 || hw->igpu_mhz > 0)
-        printf("  iGPU           : %s °C · %s MHz (amdgpu)\n",
-               dash_if(v1, sizeof(v1), hw->igpu_temp),
-               dash_if(v3, sizeof(v3), hw->igpu_mhz));
+    if (hw->igpu_temp > 0 || hw->igpu_mhz > 0) {
+        int len = printf("  iGPU           : %s °C · %s MHz (amdgpu)\n",
+                         dash_if(v1, sizeof(v1), hw->igpu_temp),
+                         dash_if(v3, sizeof(v3), hw->igpu_mhz));
+        (void)len;
+        if (hw->igpu_busy >= 0)
+            printf("  iGPU busy      : %d %%", hw->igpu_busy);
+        if (hw->igpu_busy >= 0 && hw->igpu_dpm >= 0)
+            printf(" · sclk DPM %d/%d @ %d MHz", hw->igpu_dpm + 1,
+                   hw->igpu_dpm_n, hw->igpu_dpm_mhz);
+        if (hw->igpu_busy >= 0)
+            printf("\n");
+    }
     if (hw->mem_total_mb > 0)
-        printf("  RAM            : %d/%d MB used · modules %s%s °C\n",
+        printf("  RAM            : %d/%d MB used · modules %s%s °C%s\n",
                hw->mem_used_mb, hw->mem_total_mb,
                hw->ram_temp_n > 0 ? dash_if(v1, sizeof(v1), hw->ram_temp[0]) : "--",
-               hw->ram_temp_n > 1 ? "/…" : "");
+               hw->ram_temp_n > 1 ? "/…" : "",
+               hw->ram_alarm ? " !over max" : "");
     if (hw->nvme_temp_n > 0 || hw->fs_total_mb > 0)
         printf("  Storage        : NVMe %s °C%s · / %d/%d MB\n",
                hw->nvme_temp_n > 0 ? dash_if(v2, sizeof(v2), hw->nvme_temp[0]) : "--",

@@ -23,16 +23,23 @@ session: a signed HANDOFF section + one CHANGELOG entry per change.
 ## Architecture map
 
 ```
-src/util.c     sysfs/exec/log helpers; ut_priv_write() = the only write door
-src/hw.c       read layer: hw_refresh_fast (poll) / hw_refresh_live (snapshot)
+src/main.c     CLI parsing + VERSION; any arg = headless, none = TUI
+src/util.c     sysfs/exec/log helpers; ut_priv_write/ut_write_via_argv
+               = the write doors (fork+execve argv, no shell)
+src/hw.c       read layer: hw_refresh_fast (poll) / hw_refresh_live
+               (snapshot); telemetry sources incl. gpu_metrics gfx slice
 src/control.c  write layer (asusctl -> direct sysfs -> sudo -n)
 src/cmds.c     key/value command table shared by CLI, modes and .ctr profiles
 src/fan.c      8-point fan curve model (pure, unit-tested)
 src/modes.c    user shortcut bundles (~/.config/ctron/modes.ini)
 src/profile.c  .ctr profiles (free-form names)
+src/telem.c    pure sample rings + sparkline (no nc, no hw; unit-tested)
+src/daeboard.c optional LED daemon client (AF_UNIX seqpacket socket)
 src/display/   compositor backends behind display_ops_t (kde done,
                hyprland handed to Arcioth); add one = one file + registry line
-tests/         make test
+src/ui/        panels + editors; panel_telem_full.c = the 't' overlay
+               (SECTIONS[] registry: section add/move = one line there)
+tests/         make test; scripts/tui_smoke.py = make tuitest
 ```
 
 ## Hard-won rules (do not regress)

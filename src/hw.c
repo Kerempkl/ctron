@@ -584,6 +584,54 @@ int hw_parse_gpu_csv(const char *line, int *temp, int *mw, int *mhz,
     return 0;
 }
 
+int hw_parse_pp_dpm(const char *text, int *count, int *active,
+                    int *active_mhz)
+{
+    if (count) *count = 0;
+    if (active) *active = -1;
+    if (active_mhz) *active_mhz = -1;
+    if (!text)
+        return -1;
+    const char *p = text;
+    while (p && *p) {
+        const char *e = strchr(p, '\n');
+        size_t len = e ? (size_t)(e - p) : strlen(p);
+        char line[96];
+        if (len > 0 && len < sizeof line) {
+            memcpy(line, p, len);
+            line[len] = '\0';
+            int lvl, mhz;
+            if (sscanf(line, "%d: %dMHz", &lvl, &mhz) >= 2 && mhz > 0) {
+                if (count)
+                    (*count)++;
+                if (active && strchr(line, '*')) {
+                    *active = lvl;
+                    if (active_mhz)
+                        *active_mhz = mhz;
+                }
+            }
+        }
+        p = e ? e + 1 : NULL;
+    }
+    return 0;
+}
+
+/* Dragon Range gpu_metrics: verified live on FA608PP (kernel 7.2,
+ * blob signature 78 00 02 01) — the CPU blocks stay 0xFF forever, the
+ * only live power field is gfx. Any other blob layout reads unknown:
+ * the four signature bytes gate every access. */
+int hw_metrics_gfx_mw(const unsigned char *buf, size_t n)
+{
+    static const unsigned char SIG[4] = { 120, 0, 2, 1 };
+    if (!buf || n < 32 || memcmp(buf, SIG, 4) != 0)
+        return -1;
+    unsigned v = (unsigned)buf[28] | ((unsigned)buf[29] << 8) |
+                 ((unsigned)buf[30] << 16) | ((unsigned)buf[31] << 24);
+    if (v > 200000u) /* sanity: no GPU rail beyond 200 W */
+        return -1;
+    return (int)v;
+}
+
 const char *const hw_gpu_reason_names[HW_GPU_REASON_N] = {
     "idle", "app clocks", "sw power cap", "hw slowdown", "sync boost",
     "sw thermal", "hw thermal", "hw brake", "board limit", "reliability",
@@ -725,6 +773,29 @@ bool hw_net_if_whole(const char *name)
 /* Counted network interfaces (hw_net_if_whole): cumulative byte
  * counters + operstate from sysfs. Rates are derived in the telemetry
  * sampler from the deltas — nothing is stored twice. */
+/* amdgpu DRM device dir (the one exposing gpu_busy_percent) — found
+ * once, then cached; card numbering can differ per boot */
+static const char *amdgpu_dev_dir(void)
+{
+    static char s_dev[256];
+    if (s_dev[0])
+        return s_dev;
+    glob_t g;
+    if (glob("/sys/class/drm/card*/device/gpu_busy_percent",
+             GLOB_NOSORT, NULL, &g) != 0)
+        return NULL;
+    if (g.gl_pathc > 0) {
+        /* "<dir>/gpu_busy_percent" -> keep the device dir */
+        size_t len = strlen(g.gl_pathv[0]) - strlen("gpu_busy_percent");
+        if (len < sizeof s_dev) {
+            memcpy(s_dev, g.gl_pathv[0], len);
+            s_dev[len] = '\0';
+        }
+    }
+    globfree(&g);
+    return s_dev[0] ? s_dev : NULL;
+}
+
 static void read_net_ifs(hw_state_t *hw)
 {
     hw->net_n = 0;
@@ -796,6 +867,10 @@ static void read_telem_extras(hw_state_t *hw)
 
     hw->igpu_temp = hw->igpu_mhz = hw->igpu_mw = -1;
     hw->igpu_vddgfx_mv = hw->igpu_vddnb_mv = -1;
+    hw->igpu_busy = -1;
+    hw->igpu_dpm = hw->igpu_dpm_mhz = -1;
+    hw->igpu_dpm_n = 0;
+    hw->igpu_gfx_mw = -1;
     int ig_ok = 0;
     if (cached_hwmon(hw->paths.amdgpu, "amdgpu", base, sizeof base) == 0) {
         if (hwmon_read_int(base, "temp1_input", &v) == 0 && v > 0 && v < 150000) {
@@ -813,24 +888,106 @@ static void read_telem_extras(hw_state_t *hw)
         if (!ig_ok && hw->igpu_mhz < 0 && hw->igpu_mw < 0)
             hw->paths.amdgpu[0] = '\0'; /* path gone: re-probe */
     }
+    {
+        const char *dev = amdgpu_dev_dir();
+        if (dev) {
+            char leaf[340];
+            if (ut_path_join(leaf, sizeof leaf, dev, "gpu_busy_percent") == 0)
+                hw->igpu_busy = ut_read_int(leaf);
+            if (ut_path_join(leaf, sizeof leaf, dev, "pp_dpm_sclk") == 0) {
+                char dp[512];
+                if (ut_read_file(leaf, dp, sizeof dp) == 0)
+                    hw_parse_pp_dpm(dp, &hw->igpu_dpm_n, &hw->igpu_dpm,
+                                    &hw->igpu_dpm_mhz);
+            }
+            if (ut_path_join(leaf, sizeof leaf, dev, "gpu_metrics") == 0) {
+                /* binary blob: read raw, never as a string */
+                FILE *f = fopen(leaf, "rb");
+                if (f) {
+                    unsigned char gm[128];
+                    size_t got = fread(gm, 1, sizeof gm, f);
+                    fclose(f);
+                    hw->igpu_gfx_mw = hw_metrics_gfx_mw(gm, got);
+                }
+            }
+        }
+    }
+
+    /* Tccd sensors: k10temp temp3/temp4, verified once against their
+     * labels so a different chip layout never shows a wrong name */
+    hw->cpu_temp_ccd1 = hw->cpu_temp_ccd2 = -1;
+    static int s_ccd[2] = { -2, -2 }; /* -2 unchecked, -1 absent */
+    if (cached_hwmon(hw->paths.k10temp, "k10temp", base, sizeof base) == 0) {
+        char leaf[340], lbl[32];
+        for (int i = 0; i < 2; i++) {
+            if (s_ccd[i] == -2) {
+                s_ccd[i] = -1;
+                if (ut_path_join(leaf, sizeof leaf, base,
+                                 i == 0 ? "temp3_label" : "temp4_label") == 0 &&
+                    ut_read_file(leaf, lbl, sizeof lbl) == 0 &&
+                    strncmp(lbl, "Tccd", 4) == 0)
+                    s_ccd[i] = 3 + i;
+            }
+            if (s_ccd[i] > 0) {
+                char name[24];
+                snprintf(name, sizeof name, "temp%d_input", s_ccd[i]);
+                if (hwmon_read_int(base, name, &v) == 0 && v > 0 && v < 150000) {
+                    if (i == 0)
+                        hw->cpu_temp_ccd1 = (int)(v / 1000);
+                    else
+                        hw->cpu_temp_ccd2 = (int)(v / 1000);
+                }
+            }
+        }
+    }
 
     hw->ram_temp_n = 0;
+    hw->ram_thresh_max = hw->ram_thresh_crit = -1;
+    hw->ram_alarm = 0;
     for (int i = 0; i < 2; i++) {
         char *cache = i == 0 ? hw->paths.ram0 : hw->paths.ram1;
-        if (cached_hwmon_nth(cache, "spd5118", i, base, sizeof base) == 0 &&
-            hwmon_read_int(base, "temp1_input", &v) == 0 && v > 0 && v < 150000)
-            hw->ram_temp[hw->ram_temp_n++] = (int)(v / 1000);
-        else
+        if (cached_hwmon_nth(cache, "spd5118", i, base, sizeof base) == 0) {
+            if (hwmon_read_int(base, "temp1_input", &v) == 0 && v > 0 && v < 150000)
+                hw->ram_temp[hw->ram_temp_n++] = (int)(v / 1000);
+            else {
+                cache[0] = '\0';
+                continue;
+            }
+            long t;
+            if (hwmon_read_int(base, "temp1_max", &t) == 0 && t > 0)
+                hw->ram_thresh_max = (int)(t / 1000);
+            if (hwmon_read_int(base, "temp1_crit", &t) == 0 && t > 0)
+                hw->ram_thresh_crit = (int)(t / 1000);
+            /* alarm flags are 0/1 in sysfs; a failed read is "off" */
+            if (hwmon_read_int(base, "temp1_max_alarm", &t) == 0 && t == 1)
+                hw->ram_alarm |= 1 << i;
+        } else
             cache[0] = '\0';
     }
 
     hw->nvme_temp_n = 0;
+    hw->nvme_sensor_max[0] = hw->nvme_sensor_max[1] = -1;
     for (int i = 0; i < 2; i++) {
         char *cache = i == 0 ? hw->paths.nvme0 : hw->paths.nvme1;
-        if (cached_hwmon_nth(cache, "nvme", i, base, sizeof base) == 0 &&
-            hwmon_read_int(base, "temp1_input", &v) == 0 && v > 0 && v < 150000)
-            hw->nvme_temp[hw->nvme_temp_n++] = (int)(v / 1000);
-        else
+        if (cached_hwmon_nth(cache, "nvme", i, base, sizeof base) == 0) {
+            if (hwmon_read_int(base, "temp1_input", &v) == 0 && v > 0 && v < 150000)
+                hw->nvme_temp[hw->nvme_temp_n++] = (int)(v / 1000);
+            else {
+                cache[0] = '\0';
+                continue;
+            }
+            /* Sensor 1/2 (temp2/temp3): the components can run hotter
+             * than the composite — keep the hottest for the detail */
+            int mx = -1;
+            if (hwmon_read_int(base, "temp2_input", &v) == 0 && v > 0 && v < 150000)
+                mx = (int)(v / 1000);
+            if (hwmon_read_int(base, "temp3_input", &v) == 0 && v > 0 && v < 150000) {
+                int t3 = (int)(v / 1000);
+                if (t3 > mx)
+                    mx = t3;
+            }
+            hw->nvme_sensor_max[hw->nvme_temp_n - 1] = mx;
+        } else
             cache[0] = '\0';
     }
 

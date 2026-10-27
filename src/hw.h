@@ -19,6 +19,15 @@ int hw_parse_gpu_csv(const char *line, int *temp, int *mw, int *mhz,
                      char *pstate, size_t pstate_n, unsigned *reasons);
 int hw_parse_diskstats(const char *text, long long *rd_sectors,
                        long long *wr_sectors);
+/* amdgpu pp_dpm_sclk lines ("0: 400Mhz\n1: 2000Mhz *\n..."): level
+ * count, the "*" active level (-1 when none is marked) and its MHz */
+int hw_parse_pp_dpm(const char *text, int *count, int *active,
+                    int *active_mhz);
+/* gpu_metrics blob (Dragon Range layout, signature-gated): the gfx
+ * power field in mW, -1 when the blob is a different format. The CPU
+ * blocks of this table are permanently 0xFF on this silicon — there
+ * is no CPU power to read here (verified live 2026-10-27). */
+int hw_metrics_gfx_mw(const unsigned char *buf, size_t n);
 
 /* which /sys/class/net interfaces count as the machine's own network:
  * loopback and container/VM/VPN plumbing are excluded so traffic is
@@ -155,8 +164,15 @@ typedef struct hw_state {
     int swap_total_mb, swap_used_mb;
     int igpu_temp, igpu_mhz, igpu_mw;          /* amdgpu hwmon */
     int igpu_vddgfx_mv, igpu_vddnb_mv;         /* amdgpu in0/in1_input */
+    int igpu_busy;                             /* drm gpu_busy_percent */
+    int igpu_dpm, igpu_dpm_n, igpu_dpm_mhz;    /* active pp_dpm_sclk level */
+    int igpu_gfx_mw;                           /* gpu_metrics gfx field */
+    int cpu_temp_ccd1, cpu_temp_ccd2;          /* k10temp Tccd1/2, °C */
     int ram_temp_n, ram_temp[2];               /* spd5118 modules, °C */
+    int ram_thresh_max, ram_thresh_crit;       /* spd5118 limits, °C */
+    int ram_alarm;                             /* bit i = module i over max */
     int nvme_temp_n, nvme_temp[2];             /* nvme drives, °C */
+    int nvme_sensor_max[2];                    /* hottest Sensor 1/2 per drive */
     long long disk_rd_sectors, disk_wr_sectors; /* raw /proc/diskstats */
     int fs_used_mb, fs_total_mb;               /* statvfs of / */
     int gpu_mw, gpu_mhz, gpu_util;             /* extended nvidia-smi */

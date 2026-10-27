@@ -358,12 +358,28 @@ static void stack_charts(struct ncplane *n, const rect_t *r,
  * CD_* lists), compact: label + chart, no stats row. On short boxes
  * charts shrink to 1 row and then drop; the info line stays. */
 
+/* " · Tccd 85/88 °C" / " · Tccd 85 °C" / "" — both unknown says
+ * nothing (Tctl is already on screen) */
+static void fmt_tccd(char *out, size_t n, const hw_state_t *hw)
+{
+    if (hw->cpu_temp_ccd1 > 0 && hw->cpu_temp_ccd2 > 0)
+        snprintf(out, n, " · Tccd %d/%d °C",
+                 hw->cpu_temp_ccd1, hw->cpu_temp_ccd2);
+    else if (hw->cpu_temp_ccd1 > 0)
+        snprintf(out, n, " · Tccd %d °C", hw->cpu_temp_ccd1);
+    else
+        out[0] = '\0';
+}
+
 static void sec_cpu(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    char line[160];
-    snprintf(line, sizeof line, " fan %d/%d rpm · %d cores · EPP %s",
-             hw->rpm_cpu, hw->rpm_gpu, hw->cpu_n, hw_epp_name(hw->epp));
+    char line[192];
+    char cc[40];
+    fmt_tccd(cc, sizeof cc, hw);
+    snprintf(line, sizeof line,
+             " fan %d/%d rpm · %d cores · EPP %s%s",
+             hw->rpm_cpu, hw->rpm_gpu, hw->cpu_n, hw_epp_name(hw->epp), cc);
     const char *info[1] = { line };
     stack_charts(n, r, CD_CPU, CD_COUNT(CD_CPU), false, 1, 4, info, 1);
 }
@@ -397,14 +413,23 @@ static void sec_igpu(struct ncplane *n, const rect_t *r)
 static void sec_ram(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    char line[160];
+    char line[192];
+    /* kernel max_alarm flag: "modules 57/66 °C !>55" — a module is
+     * over its spd5118 limit */
+    char al[24] = "";
+    if (hw->ram_alarm) {
+        if (hw->ram_thresh_max > 0)
+            snprintf(al, sizeof al, " !>%d", hw->ram_thresh_max);
+        else
+            snprintf(al, sizeof al, " !");
+    }
     if (hw->ram_temp_n == 2)
-        snprintf(line, sizeof line, " modules %d/%d °C · swap %d/%d MB",
-                 hw->ram_temp[0], hw->ram_temp[1],
+        snprintf(line, sizeof line, " modules %d/%d °C%s · swap %d/%d MB",
+                 hw->ram_temp[0], hw->ram_temp[1], al,
                  hw->swap_used_mb, hw->swap_total_mb);
     else if (hw->ram_temp_n == 1)
-        snprintf(line, sizeof line, " module %d °C · swap %d/%d MB",
-                 hw->ram_temp[0], hw->swap_used_mb, hw->swap_total_mb);
+        snprintf(line, sizeof line, " module %d °C%s · swap %d/%d MB",
+                 hw->ram_temp[0], al, hw->swap_used_mb, hw->swap_total_mb);
     else
         snprintf(line, sizeof line, " swap %d/%d MB",
                  hw->swap_used_mb, hw->swap_total_mb);
@@ -483,18 +508,20 @@ static void sec_power(struct ncplane *n, const rect_t *r)
 static void detail_cpu(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    char l0[128], l1[160], l2[192];
+    char l0[128], l1[192], l2[192];
+    char cc[40];
+    fmt_tccd(cc, sizeof cc, hw);
 
     snprintf(l0, sizeof l0, " %d threads · %d cores · %d CCD · EPP %s · boost %s",
              hw->cpu_n, hw->core_n, hw->ccd_n, hw_epp_name(hw->epp),
              hw->cpu_boost ? "on" : "off");
     if (hw->ppt_spl > 0 || hw->ppt_sppt > 0 || hw->ppt_fppt > 0)
-        snprintf(l1, sizeof l1, " PPT %d / %d / %d W · fans %d / %d rpm",
+        snprintf(l1, sizeof l1, " PPT %d / %d / %d W · fans %d / %d rpm%s",
                  hw->ppt_spl, hw->ppt_sppt, hw->ppt_fppt,
-                 hw->rpm_cpu, hw->rpm_gpu);
+                 hw->rpm_cpu, hw->rpm_gpu, cc);
     else
-        snprintf(l1, sizeof l1, " PPT -- · fans %d / %d rpm",
-                 hw->rpm_cpu, hw->rpm_gpu);
+        snprintf(l1, sizeof l1, " PPT -- · fans %d / %d rpm%s",
+                 hw->rpm_cpu, hw->rpm_gpu, cc);
 
     /* per-core ceilings: one 8-level block per thread, scaled to the
      * hardware max (a pinned core reads its ceiling, not live clock) */
@@ -559,20 +586,35 @@ static void detail_gpu(struct ncplane *n, const rect_t *r)
 static void detail_igpu(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    char vg[24], vn[24], l0[96], l1[96];
+    char vg[24], vn[24], l0[96], l1[128], l2[96];
     fmt_int(vg, sizeof vg, " mV", hw->igpu_vddgfx_mv);
     fmt_int(vn, sizeof vn, " mV", hw->igpu_vddnb_mv);
     snprintf(l0, sizeof l0, " vddgfx %s · vddnb %s", vg, vn);
-    snprintf(l1, sizeof l1, " APU PPT = whole-package power (CPU+iGPU)");
-    const char *info[2] = { l0, l1 };
+    /* busy/DPM from the DRM device; gfx mW from gpu_metrics — the
+     * only live slice of the package power this silicon reports */
+    if (hw->igpu_busy >= 0)
+        snprintf(l1, sizeof l1, " busy %d%%", hw->igpu_busy);
+    else
+        snprintf(l1, sizeof l1, " busy --");
+    int blen = (int)strlen(l1);
+    if (hw->igpu_dpm >= 0 && (size_t)blen < sizeof l1)
+        snprintf(l1 + blen, sizeof l1 - blen, " · sclk DPM %d/%d @ %d MHz",
+                 hw->igpu_dpm + 1, hw->igpu_dpm_n, hw->igpu_dpm_mhz);
+    if (hw->igpu_gfx_mw >= 0)
+        snprintf(l2, sizeof l2,
+                 " APU PPT = whole-package (CPU+iGPU) · gfx rail %.1f W",
+                 hw->igpu_gfx_mw / 1000.0);
+    else
+        snprintf(l2, sizeof l2, " APU PPT = whole-package power (CPU+iGPU)");
+    const char *info[3] = { l0, l1, l2 };
     stack_charts(n, r, CD_IGPU, CD_COUNT(CD_IGPU), true, 2, CHART_ROWS_MAX,
-                 info, 2);
+                 info, 3);
 }
 
 static void detail_ram(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    char l0[128], l1[96];
+    char l0[128], l1[96], l2[128];
     if (hw->mem_total_mb > 0)
         snprintf(l0, sizeof l0, " %d / %d MB · swap %d / %d MB",
                  hw->mem_used_mb, hw->mem_total_mb,
@@ -585,22 +627,59 @@ static void detail_ram(struct ncplane *n, const rect_t *r)
                  hw->ram_temp[0], hw->ram_temp[1]);
     else if (hw->ram_temp_n == 1)
         snprintf(l1, sizeof l1, " module temp %d °C", hw->ram_temp[0]);
-    else
+    else {
         snprintf(l1, sizeof l1, " no spd5118 temp sensors");
-    const char *info[2] = { l0, l1 };
+        const char *info2[2] = { l0, l1 };
+        stack_charts(n, r, CD_RAM, CD_COUNT(CD_RAM), true, 2, CHART_ROWS_MAX,
+                     info2, 2);
+        return;
+    }
+    /* spd5118 limits + which modules are flagged over max right now */
+    char lim[96], mod[32] = "";
+    if (hw->ram_thresh_max > 0 && hw->ram_thresh_crit > 0)
+        snprintf(lim, sizeof lim, " limits max %d · crit %d °C",
+                 hw->ram_thresh_max, hw->ram_thresh_crit);
+    else
+        snprintf(lim, sizeof lim, " limits --");
+    if (hw->ram_alarm) {
+        char *p = mod;
+        size_t left = sizeof mod;
+        int n = 0;
+        for (int i = 0; i < hw->ram_temp_n; i++) {
+            if (!(hw->ram_alarm & (1 << i)))
+                continue;
+            int w = snprintf(p, left, "%s%d", n ? "," : "", i + 1);
+            if (w < 0 || (size_t)w >= left)
+                break;
+            p += w;
+            left -= (size_t)w;
+            n++;
+        }
+    }
+    snprintf(l2, sizeof l2, "%s%s%s", lim,
+             hw->ram_alarm ? " · over max: module " : "",
+             hw->ram_alarm ? mod : "");
+    const char *info[3] = { l0, l1, l2 };
     stack_charts(n, r, CD_RAM, CD_COUNT(CD_RAM), true, 2, CHART_ROWS_MAX,
-                 info, 2);
+                 info, 3);
 }
 
 static void detail_disk(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    char l0[96], l1[200];
+    char l0[128], l1[200];
     if (hw->nvme_temp_n == 2)
-        snprintf(l0, sizeof l0, " NVMe %d / %d °C",
-                 hw->nvme_temp[0], hw->nvme_temp[1]);
+        snprintf(l0, sizeof l0, " NVMe %d / %d °C · hottest %d / %d °C",
+                 hw->nvme_temp[0], hw->nvme_temp[1],
+                 hw->nvme_sensor_max[0] > 0 ? hw->nvme_sensor_max[0]
+                                            : hw->nvme_temp[0],
+                 hw->nvme_sensor_max[1] > 0 ? hw->nvme_sensor_max[1]
+                                            : hw->nvme_temp[1]);
     else if (hw->nvme_temp_n == 1)
-        snprintf(l0, sizeof l0, " NVMe %d °C", hw->nvme_temp[0]);
+        snprintf(l0, sizeof l0, " NVMe %d °C · hottest %d °C",
+                 hw->nvme_temp[0],
+                 hw->nvme_sensor_max[0] > 0 ? hw->nvme_sensor_max[0]
+                                            : hw->nvme_temp[0]);
     else
         snprintf(l0, sizeof l0, " no NVMe temp sensors");
     if (hw->fs_total_mb > 0) {

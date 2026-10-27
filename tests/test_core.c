@@ -747,6 +747,31 @@ static void check_telem_hw(void)
               hw_net_if_whole("eth0"),
           "net classifier keeps physical");
 
+    /* pp_dpm_sclk: real driver output shape, '*' marks the active level */
+    int dn, da, dm;
+    hw_parse_pp_dpm("0: 400Mhz \n1: 2000Mhz *\n2: 2200Mhz \n",
+                    &dn, &da, &dm);
+    CHECK(dn == 3 && da == 1 && dm == 2000, "pp_dpm three levels, active 1");
+    hw_parse_pp_dpm("0: 400Mhz \n1: 2000Mhz \n", &dn, &da, &dm);
+    CHECK(dn == 2 && da == -1, "pp_dpm no active marker honest");
+    hw_parse_pp_dpm("", &dn, &da, &dm);
+    CHECK(dn == 0 && da == -1 && dm == -1, "pp_dpm empty");
+    hw_parse_pp_dpm("garbage line\nstill not a level\n", &dn, &da, &dm);
+    CHECK(dn == 0, "pp_dpm garbage ignored");
+
+    /* gpu_metrics: signature-gated gfx-power read */
+    unsigned char gm[64];
+    memset(gm, 0xFF, sizeof gm);
+    CHECK(hw_metrics_gfx_mw(gm, sizeof gm) == -1,
+          "metrics wrong signature rejected");
+    gm[0] = 120; gm[1] = 0; gm[2] = 2; gm[3] = 1;
+    gm[28] = 0x58; gm[29] = 0x26; gm[30] = 0; gm[31] = 0; /* 0x2658 = 9816 mW */
+    CHECK(hw_metrics_gfx_mw(gm, sizeof gm) == 9816, "metrics gfx mW read");
+    gm[28] = 0xFF; gm[29] = 0xFF; gm[30] = 0xFF; gm[31] = 0x7F;
+    CHECK(hw_metrics_gfx_mw(gm, sizeof gm) == -1,
+          "metrics out-of-range value rejected");
+    CHECK(hw_metrics_gfx_mw(gm, 16) == -1, "metrics short buffer rejected");
+
     char fb[24];
     hw_fmt_bytes(fb, sizeof fb, -1);
     CHECK(strcmp(fb, "--") == 0, "fmt bytes unknown");
