@@ -1,6 +1,13 @@
 # Ctron Handoff
 
-Latest session — **2026-10-26** **GLM / Kerempkl / FA608PP**
+Latest session — **2026-10-27** **GLM / Kerempkl / FA608PP**
+(recommended-steps round: **v0.5.0 tag pushed to origin** — first
+agent-side push, explicitly approved; **LICENSE (MIT)** added per the
+user's "nothing to change, low cost" pick + README badge; telemetry
+sensor series items ①+③ shipped as **v0.6.0** — a NET section
+(per-interface rx/tx over the rings) and GPU pstate/throttle-reason
+reads from the extended nvidia-smi query; tui-telem.png re-shot;
+see below). Before that **2026-10-26** **GLM / Kerempkl / FA608PP**
 (telemetry detail pages: the 't' fullscreen gained a j/k grid cursor
 and Enter/1-6 section detail pages with full-width multi-row charts;
 two cheap reads — iGPU voltages + battery health; **v0.5.0** cut —
@@ -104,6 +111,55 @@ prioritized todo list and the distilled session lessons.
   pidfile removal, exit 0). Harness-proven: rc=0 + pidfile gone.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
+
+## Session 2026-10-27 — recommended-steps round: v0.5.0 push + MIT + NET/pstate (v0.6.0) (GLM / Kerempkl / FA608PP)
+
+- Started from the morning's comprehensive md/status audit (every
+  open item cross-checked against code/git — stale memories found and
+  corrected: the asusd probe RAN 10-18 and its provenance follow-up
+  landed 10-26; the P4 swatch x+40 was fixed 10-12; FAZ 1/3/4 fully
+  closed). The user then approved the three recommended steps.
+- **v0.5.0 tag pushed to origin** — first agent-side push, explicitly
+  approved ("önerilen adımları yapalım"); verified on the remote
+  (main itself was already synced by the user). v0.6.0's tag+main
+  push stays with the user per the usual flow.
+- **LICENSE = MIT** (user: "nothing to change, low cost"), plus the
+  README license badge. LICENSE item closed.
+- **NET telemetry section** (7th): `hw_net_if_whole` classifier
+  (physical+wifi only; lo/veth/docker/br-/virbr/tap/tun/wg/tailscale
+  excluded — double-count guard like diskstats_whole, unit-tested),
+  `read_net_ifs` cumulative counters + operstate each fast poll,
+  `TS_NET_RX/TX` series with the disk delta rule (counter reset = one
+  honest unknown tick). Grid: rx/tx charts + "wlan0 up · enp3s0
+  down"; detail: per-if totals + grand total; `--status` NET line;
+  shared `hw_fmt_bytes`.
+- **GPU pstate + throttle reasons**: the one nvidia-smi query grew
+  `pstate` + ten named `clocks_event_reasons` flags. Driver facts
+  learned by probing: dashed field names in `--help` are NOT valid
+  queries (must use underscores); `clocks_event_reasons.active`
+  returns a HEX bitmask on driver 580 (unknown bits like 0x400), so
+  the self-labeled "Active"/"Not Active" named fields are parsed
+  instead; an invalid field rejects the WHOLE query → one failure
+  latches a permanent fallback to the old 6-field form (a transient
+  failure would also latch — honest degradation, temps never lost).
+  Surfaces: GPU grid info, detail "pstate P4 · throttle: none/…"
+  (`hw_gpu_throttle_str`, unit-tested), `--status` pstate + throttle
+  line when active.
+- Smoke lessons added to the pile: the digit-jump probe initially
+  asserted `rx`, which is fragment-prone coming from STORAGE ("read"
+  shares the 'r' cell — the diff skips it) AND '7' opens POWER, not
+  NET (7 sections: NET is '6'); fixed with digit '6' + probe
+  `total`. Diagnosed by replaying the screenshot tool's Screen
+  emulator over the pty stream — that text-grid dump is the fastest
+  way to see what the TUI actually rendered.
+- Sensor shortlist status after this session: ② done earlier, ①+③
+  done now → remaining ④ half (gpu_busy_percent, pp_dpm levels), ⑤
+  Tccd1 + NVMe Sensor 1/2, ⑥ RAM thresholds, ⑦ CPU power (RAPL root /
+  gpu_metrics parse), ⑧ smartctl.
+- **v0.6.0 cut** (MINOR: new sections/reads): VERSION + README badge
+  + flake triple in the release commit, annotated tag on top.
+- Verified: 0 warnings; `make test`; full `make tuitest`; `make
+  install` in the same breath (0.6.0 live on ~/.local/bin).
 
 ## Session 2026-10-26 — telemetry: section detail pages + v0.5.0 (GLM / Kerempkl / FA608PP)
 

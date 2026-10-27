@@ -1,5 +1,40 @@
 # Changelog
 
+## 2026-10-27 — telem: NET section + GPU pstate/throttle reads (v0.6.0)
+
+- New **NET** section (7th; grid rows now STORAGE|NET, POWER last):
+  `hw_net_if_whole` counts physical+wifi interfaces only (lo, veth*,
+  docker*, br-*, virbr*, tap*, tun*, wg*, tailscale* excluded so
+  traffic is never double-counted — the diskstats whole-disk spirit),
+  `read_net_ifs` reads cumulative `statistics/rx_bytes`/`tx_bytes` +
+  `operstate` each fast poll, and the `TS_NET_RX`/`TS_NET_TX` series
+  ride the existing rings with the disk-style delta rule (an interface
+  disappearing resets the counter: one unknown tick, not a spike).
+  Grid box charts rx/tx with the interface list ("wlan0 up ·
+  enp3s0 down"); the detail page lists per-interface cumulative totals
+  plus the grand total; `--status` prints a NET line. New shared
+  `hw_fmt_bytes` (GB/MB/`--`), unit-tested.
+- nvidia-smi query grew `pstate` + the ten **named**
+  `clocks_event_reasons` flags (underscore spelling — the dashed names
+  in `--help` are NOT valid query fields; the `active` bitmask variant
+  returns hex like `0x400` on driver 580, so the self-labeled
+  "Active"/"Not Active" fields are parsed instead). A driver lacking a
+  field rejects the WHOLE query, so one failure latches a permanent
+  in-session fallback to the old 6-field form — nothing else degrades.
+  GPU grid info shows pstate, the detail page adds "pstate P4 ·
+  throttle: none/sw power cap, …" through `hw_gpu_throttle_str`, and
+  `--status` appends pstate plus a throttle line when any reason is
+  active. `hw_parse_gpu_csv` extended (pstate token + Active bits),
+  unit-tested with real driver output.
+- Footers/HELP say 1-7 now; the smoke flow jumps digit '6' into NET
+  (probe word `total` — `rx` itself is fragment-prone: coming from the
+  STORAGE page the 'r' cell does not change, the diff skips it).
+- tui-telem.png re-shot with the 7-section grid under live load.
+- **LICENSE added (MIT)** after the user's "nothing to change, low
+  cost" pick, with a matching README badge.
+- Verified: 0 warnings, `make test`, full `make tuitest`, `make
+  install` in the same breath (0.6.0 live).
+
 ## 2026-10-26 — ui: spatial grid navigation in the telemetry overlay
 
 - User request: arrows used to walk the sections linearly (1→2→3…);

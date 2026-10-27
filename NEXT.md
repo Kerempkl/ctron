@@ -27,7 +27,9 @@ Kullanıcı sürüm numaralandırmasını agent'a devretti. Şema: semver.
   atıldı 10-26 — MINOR: tam ekran bölümü telemetri ekranı 't';
   **v0.5.0** atıldı 10-26 — MINOR: telemetri bölüm detay sayfaları
   (j/k + Enter/1-6, tam genişlik grafikler) + iGPU gerilim ve batarya
-  sağlığı okumaları.)*
+  sağlığı okumaları; **v0.6.0** atıldı 10-27 — MINOR: NET telemetri
+  bölümü (arayüz başına rx/tx) + GPU pstate/throttle-reason okumaları +
+  MIT lisansı.)*
 
 ## FAZ 1 — Bakım & dürüstlük (kısa vade)
 
