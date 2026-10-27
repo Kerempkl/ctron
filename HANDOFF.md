@@ -1,6 +1,15 @@
 # Ctron Handoff
 
-Latest session — **2026-10-27** **GLM / Kerempkl / FA608PP**
+Latest session — **2026-10-27 (2nd round, "do everything doable")**
+**GLM / Kerempkl / FA608PP**: the sensor shortlist is now EXHAUSTED
+for this machine — ④⑤⑥ shipped, ⑦ proven NO-GO (Dragon Range
+gpu_metrics CPU blocks are permanently 0xFF; only the gfx-rail slice
+is live and now displayed), ⑧ parked (smartctl needs root beyond the
+sudoers ruleset). Also: Tccd1/2, RAM limits+alarm (kernel flag, caught
+live at 57/66 °C over 55), NVMe hottest-sensor, iGPU busy/DPM;
+AGENTS.md map synced; the FAZ 2 CCD "manual" verification closed by
+automated screen-dump vs sysfs proof; **v0.7.0** cut (see below).
+Before that **2026-10-27** **GLM / Kerempkl / FA608PP**
 (recommended-steps round: **v0.5.0 tag pushed to origin** — first
 agent-side push, explicitly approved; **LICENSE (MIT)** added per the
 user's "nothing to change, low cost" pick + README badge; telemetry
@@ -111,6 +120,49 @@ prioritized todo list and the distilled session lessons.
   pidfile removal, exit 0). Harness-proven: rc=0 + pidfile gone.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
+
+## Session 2026-10-27 (2) — sensor-fill round + CCD proof (GLM / Kerempkl / FA608PP)
+
+- User: "token bol — listelerdeki yapılabilir her şeyi yap". Scope:
+  everything doable on THIS machine; the FA507NVR/reboot/external-
+  monitor field items stay with their owners.
+- **④ shipped**: `amdgpu_dev_dir()` (glob, cached once) +
+  `gpu_busy_percent` + `pp_dpm_sclk` (new pure `hw_parse_pp_dpm`,
+  unit-tested incl. the no-active-marker case) → iGPU detail "busy N%
+  · sclk DPM 2/3 @ 2200 MHz"; `--status` iGPU busy line.
+- **⑤ shipped**: k10temp temp3/temp4 as Tccd1/Tccd2 — the label files
+  are read ONCE into a static cache (`-2` unchecked / `-1` absent) so
+  a different chip layout can never mislabel a sensor; surfaces: CPU
+  grid+detail (" · Tccd 80/95 °C", silent when absent) and --status.
+  NVMe temp2/temp3 → per-drive hottest on the STORAGE detail.
+- **⑥ shipped**: spd5118 temp1_max/crit + temp1_max_alarm. The kernel
+  flag was live during the user's stress run (modules 57/66 °C over
+  max 55): grid "modules 57/66 °C !>55", detail "limits max 55 · crit
+  85 °C · over max: module 1,2".
+- **⑦ CLOSED AS NO-GO, with proof**: gpu_metrics reverse-engineered
+  live (120-byte blob, signature `78 00 02 01`, kernel 7.2). Six
+  paired samples: the only moving power field (offset 28, u32) tracks
+  GPU busy 0→10 W while the whole-package PPT swings 7–27 W with CPU
+  load — it is average_gfx_power, and every CPU-scale block is
+  permanently 0xFF. So Dragon Range firmware never fills the CPU
+  fields; CPU power is not honestly readable without root (RAPL
+  energy_uj 0400). The ONE live slice (gfx rail) ships as
+  `hw_metrics_gfx_mw` (4-byte signature gate + 200 W range check,
+  unit-tested): iGPU detail "APU PPT = whole-package (CPU+iGPU) · gfx
+  rail 10.0 W".
+- **CCD field item closed by automated proof**: POWER → 'c' overlay
+  dumped through the screenshot-tool Screen emulator; columns CCD1
+  c0·16…c7·23 / CCD2 c8·24…c15·31 matched the sysfs L3 groups
+  (0-7,16-23 / 8-15,24-31) EXACTLY. Note: this boot has BOTH CCDs
+  online (32 present), unlike the 10-10 single-CCD observation —
+  present-mask is firmware/boot dependent, the ctron side is correct
+  either way (topology always from thread_siblings/L3).
+- AGENTS.md architecture map synced (main.c/telem.c/daeboard.c/ui
+  SECTIONS note/tuitest) — the map had drifted since v0.2.
+- **v0.7.0 cut** (MINOR: new reads/surfaces): triple + tag per
+  policy. Tag+main push stays with the user.
+- Verified: 0 warnings; `make test` (pp_dpm/metrics cases); full
+  `make tuitest`; `make install` same breath (0.7.0 live).
 
 ## Session 2026-10-27 — recommended-steps round: v0.5.0 push + MIT + NET/pstate (v0.6.0) (GLM / Kerempkl / FA608PP)
 

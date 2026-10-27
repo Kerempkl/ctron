@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-10-27 — telem: sensor-fill round (v0.7.0)
+
+- **Tccd1 / Tccd2** (k10temp temp3/temp4, label-verified once so a
+  different chip layout can never mislabel): CPU grid+detail lines and
+  `--status` gain " · Tccd 80/95 °C" — silent when absent, Tctl stays
+  the headline.
+- **RAM limits + alarm** (spd5118 temp1_max/crit + max_alarm): the
+  grid shows "!>55" when the kernel flags a module over its limit
+  (caught live during a stress run: modules 57/66 °C over max 55);
+  the detail adds "limits max 55 · crit 85 °C · over max: module 1,2";
+  `--status` appends "!over max".
+- **NVMe Sensor 1/2** (temp2/temp3) → per-drive hottest: STORAGE
+  detail "NVMe 51/49 °C · hottest 60/41 °C".
+- **iGPU busy + sclk DPM** from the DRM device (dir cached once by
+  glob): `gpu_busy_percent` + `pp_dpm_sclk` through the new pure
+  `hw_parse_pp_dpm` (count / active `*` level / MHz, unit-tested);
+  iGPU detail gains "busy 42% · sclk DPM 2/3 @ 2200 MHz", `--status`
+  an iGPU busy line.
+- **gpu_metrics verdict (live reverse-engineered)**: the 120-byte blob
+  (signature `78 00 02 01`, kernel 7.2) has its CPU blocks
+  permanently 0xFF on Dragon Range — proven by correlation: the only
+  live power field (offset 28) tracks gfx busy 0–10 W while the
+  package swings 7–27 W. **CPU power via gpu_metrics is a NO-GO on
+  FA608PP** (RAPL stays root-only; sensor item ⑦ closed as
+  not-honestly-readable). The one live slice is gfx power:
+  `hw_metrics_gfx_mw` (signature-gated, range-checked, unit-tested)
+  shows "gfx rail 10.0 W" beside the APU PPT explainer.
+- AGENTS.md architecture map synced (telem.c, daeboard.c, main.c,
+  ui/ SECTIONS note, tuitest pointer).
+- **CCD columns field-verified by automated proof**: the CORE LIMITS
+  overlay screen-dump matched sysfs L3 groups exactly (CCD1
+  c0·16…c7·23 / CCD2 c8·24…c15·31) — the FAZ 2 "elle doğrulama" item
+  closed without a human pass.
+- Verified: 0 warnings, `make test`, full `make tuitest`, `make
+  install` in the same breath (0.7.0 live).
+
 ## 2026-10-27 — telem: NET section + GPU pstate/throttle reads (v0.6.0)
 
 - New **NET** section (7th; grid rows now STORAGE|NET, POWER last):

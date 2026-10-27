@@ -29,7 +29,10 @@ Kullanıcı sürüm numaralandırmasını agent'a devretti. Şema: semver.
   (j/k + Enter/1-6, tam genişlik grafikler) + iGPU gerilim ve batarya
   sağlığı okumaları; **v0.6.0** atıldı 10-27 — MINOR: NET telemetri
   bölümü (arayüz başına rx/tx) + GPU pstate/throttle-reason okumaları +
-  MIT lisansı.)*
+  MIT lisansı; **v0.7.0** atıldı 10-27 — MINOR: sensör dolgu turu
+  (Tccd1/2, RAM eşik+alarm, NVMe en-sıcak-sensör, iGPU busy/DPM +
+  gpu_metrics gfx-rayı; CPU gücü gpu_metrics'te YOK — Dragon Range
+  blokları kalıcı 0xFF, kanıtlı NO-GO).)*
 
 ## FAZ 1 — Bakım & dürüstlük (kısa vade)
 
@@ -58,9 +61,11 @@ Kullanıcı sürüm numaralandırmasını agent'a devretti. Şema: semver.
    panel; hypr backend odaklı monitörün modlarını listeliyor)**.
    (HANDOFF 10-08 Grok oturumunun "not done live"
    listesi — bugüne dek hiçbir todo dosyasında değildi.)
-5. **FA608PP saha testleri:** CCD kolonlarını elle doğrulama; post-OCCT
-   kernel clamp → reboot → yeniden test; (fırsat çıkarsa) harici
-   monitör takılıyken kde çok-ekran listesi.
+5. **FA608PP saha testleri:** ~~CCD kolonlarını elle doğrulama~~
+   **[BİTTİ 10-27 — otomatik kanıt: TUI ekran dökümü ile sysfs L3
+   grupları birebir eşleşti (CCD1 c0·16…c7·23 / CCD2 c8·24…c15·31)]**;
+   post-OCCT kernel clamp → reboot → yeniden test; (fırsat çıkarsa)
+   harici monitör takılıyken kde çok-ekran listesi.
 6. **[BİTTİ 10-26 — kod tarafı]** Çok monitör: kde backend artık blok
    bazlı (eDP* panel tercih edilir, yoksa ilk blok; Mod satırı yalnız
    kendi bloğundan), hypr backend adı/geometriyi/mod listesini TEK
