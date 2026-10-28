@@ -160,6 +160,15 @@ prioritized todo list and the distilled session lessons.
 
 ## Session 2026-10-28 (5) — FAN section + toggle escalation + sensor map, v0.8.0 (GLM / Kerempkl / FA608PP)
 
+- Follow-up ("devam edelim"): the deferred item 4 ran — **FAZ 4/16
+  measured and CLOSED as evidence-backed no**. Exact-query latencies
+  (driver 615.71): baseline p50 20.6 / p95 30.3 ms; NVENC 4K60 real
+  encoder load (75 % · 77 W) p50 28.9 / p95 32.3 ms; GL graphics
+  stress via stress-ng DRI_PRIME=1 (86 % · 85 W) p50 21.2 / p95
+  24.4 ms — real load does not lengthen the query. Only artificial
+  8× parallel self-queries grew it (p95 79 ms; no real scenario,
+  still 37× under the 3 s timeout). Background sampler stays
+  unbuilt; NEXT.md item 16 now carries the numbers.
 - User picked 3 of the 4 offered items ("1 2 3 ü yapalım"); item 4
   (nvidia-smi load-latency measurement for the conditional FAZ 4/16
   background thread) deferred on purpose.

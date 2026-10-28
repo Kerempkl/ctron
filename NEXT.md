@@ -156,11 +156,16 @@ başına 1.0 ms — %62 düşüş)** · kurulu binary strip'li 261 KB.
     `make LTO=1` → `-flto=auto` derleme+link (0 uyarı, testler yeşil;
     LTO binary 276 KB); default derleme dokunulmaz. `-march=native`
     PARK: taşınabilirlik şartıyla çelişir.
-16. **nvidia-smi arka plan thread'ine (KOŞULLU — şimdilik dokunma).**
-    Burada ölçülen 25 ms / 2 s: 250 ms poll'da 8 framede 1'i yavaş,
-    gözle görünmez. Yük altında nvidia-smi uzarsa (sürücü çekişmesi)
-    apply-worker deseniyle arka plan örnekleme + UI'ya atomik sonuç
-    geçişi; yalnızca saha gözlemi varsa yapılır.
+16. **[KAPANDI 10-28 — kanıtlanmış dokunma]** nvidia-smi arka plan
+    thread'i. Saha ölçümü yapıldı (FA608PP, sürücü 615.71): taban
+    p50 20,6 / p95 30,3 ms; **NVENC 4K60 gerçek yük (%75 · 77 W)
+    altında p50 28,9 / p95 32,3 ms; GL grafik yükü (%86 · 85 W)
+    altında p50 21,2 / p95 24,4 ms** — gerçek yük sorguyu
+    uzatmıyor. Tek büyüme yapay 8-paralel-sorgu çekişmesinde
+    (p95 79 ms), hiçbir gerçek senaryo üretmez ve 3 s zaman
+    aşımının 37 katı altında. Senkron 25 ms / 2 s sorgu UI
+    ipliğinde zararsız; arka plan örneklemesi YAPILMAZ (artık
+    "koşullu" değil, kanıtlı hayır).
 
 Ölçüm gerekçesi zayıf — denetim kaydı (default hayır, istenirse):
 

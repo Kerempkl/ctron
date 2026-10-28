@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-10-28 — perf: FAZ 4/16 closed with evidence (no background thread)
+
+- The conditional "nvidia-smi background sampler" item is decided by
+  field measurement (FA608PP, driver 615.71, the exact query ctron
+  runs): baseline p50 20.6 / p95 30.3 ms; under REAL NVENC 4K60
+  encoder load (75 % util · 77 W) p50 28.9 / p95 32.3 ms; under GL
+  graphics stress (86 % util · 85 W) p50 21.2 / p95 24.4 ms —
+  genuine GPU load does not lengthen the query. The only growth was
+  artificial 8× parallel self-queries (p95 79 ms), which no real
+  scenario produces and which still sits 37× under the 3 s timeout.
+  The synchronous 25 ms / 2 s query on the UI thread is confirmed
+  harmless; the background thread stays unbuilt — now as an
+  evidence-backed decision instead of a "don't touch for now".
+
 ## 2026-10-28 — telem: professional monitoring pass (research-driven)
 
 - User asked "telemetry kısmı profesyonelce nasıl yapabiliriz,
