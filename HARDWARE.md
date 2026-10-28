@@ -110,6 +110,54 @@ Notes:
   scripting runtime offlining is NOT a substitute — a BIOS change +
   reboot is required.
 
+- **Telemetry sensor map (the 't' screen, v0.7.0)** — every source is
+  read-only sysfs/procfs except nvidia-smi (one query, 2 s cache);
+  absent sensors print `--`, never a guess:
+  - **CPU**: k10temp `temp1` (Tctl) + `temp3`/`temp4` (Tccd1/2 —
+    accepted only when their label files say `Tccd`, so a different
+    chip layout can never mislabel a sensor); per-core ceilings from
+    cpufreq `scaling_max_freq`.
+  - **Fans**: asus hwmon `fan1/2_input` RPM (0 is honest — the EC
+    stops the GPU fan at idle on many machines).
+  - **dGPU** (nvidia-smi, one query): temperature, power draw,
+    graphics clock, utilisation, VRAM, pstate and the ten named
+    `clocks_event_reasons.*` flags. Traps: the dashed names printed
+    by `--help` are NOT valid query fields (underscores only);
+    `clocks_event_reasons.active` returns a hex bitmask on current
+    drivers, so the self-labeled Active/Not Active fields are parsed
+    instead; one unknown field rejects the WHOLE query — ctron
+    latches a permanent in-session fallback to the old six-field
+    form so temperatures never go dark.
+  - **iGPU** (amdgpu hwmon): temperature, clock, `power1_input` =
+    **SoC PPT — the whole-APU package (CPU + iGPU)**, not an
+    iGPU-only rail; vddgfx/vddnb millivolts. DRM device adds
+    `gpu_busy_percent` and the active `pp_dpm_sclk` level.
+    `gpu_metrics`: the only live power slice on Dragon Range is the
+    gfx field (signature-gated read) — the CPU blocks of that blob
+    are permanently 0xFF (probed live 2026-10-27) and RAPL
+    `energy_uj` is root-only, so there is **no honest sudoless CPU
+    watt on FA608PP**.
+  - **RAM**: spd5118 module temps are uncommon hardware — most
+    laptops have none and show `--`. Where present, the limits
+    (`temp1_max`/`temp1_crit`) and the kernel `max_alarm` flag
+    surface too (a module over its limit marks the grid line
+    `!>55`).
+  - **Storage**: NVMe composite (`temp1`) plus Sensor 1/2
+    (`temp2/3` — the components run hotter than the composite),
+    `/` usage via statvfs, disk I/O from /proc/diskstats (whole
+    disks only — partitions/loops excluded so bytes are never
+    counted twice).
+  - **NET**: `/sys/class/net/*/statistics` for physical + wifi
+    interfaces only (lo, veth*, docker*, br-*, virbr*, tap*, tun*,
+    wg*, tailscale* excluded — the same double-count guard); rx/tx
+    are byte-counter deltas between ticks, so an interface
+    disappearing reads as one unknown tick, not a spike.
+  - **Power**: battery %/status/voltage/current, health from
+    `charge_full(_design)` (this pack has no battery temperature
+    sensor and `cycle_count` reports 0 — unsupported, never
+    displayed); USB-C PD input from ucsi `type=USB` supplies (reads
+    0 while the machine runs on barrel AC).
+
 ## Türkçe
 
 ctron dört ayrı katmana dayanır; bu yüzden donanım desteği **hepten
@@ -217,3 +265,47 @@ Notlar:
   (CCD'ler arası gecikme yok) oyun için makul bir yapı; runtime
   offline betiklemek yerine geçmez — BIOS değişikliği + reboot
   gerekir.
+- **Telemetri sensör haritası ('t' ekranı, v0.7.0)** — nvidia-smi
+  dışında (tek sorgu, 2 sn önbellek) her kaynak salt-okunur
+  sysfs/procfs; olmayan sensör `--` basar, asla tahmin etmez:
+  - **CPU**: k10temp `temp1` (Tctl) + `temp3`/`temp4` (Tccd1/2 —
+    yalnızca etiket dosyaları `Tccd` diyorsa kabul edilir, başka bir
+    çip düzeninde yanlış etiket imkânsız); çekirdek başına tavanlar
+    cpufreq `scaling_max_freq`'ten.
+  - **Fanlar**: asus hwmon `fan1/2_input` RPM (0 dürüst değerdir —
+    birçok makinede EC, GPU fanını boştayla tamamen durdurur).
+  - **dGPU** (nvidia-smi, tek sorgu): sıcaklık, güç, grafik saati,
+    kullanım, VRAM, pstate ve on adlandırılmış
+    `clocks_event_reasons.*` bayrağı. Tuzaklar: `--help`'in
+    yazdığı çizgili adlar GEÇERSİZ sorgu alanıdır (yalnız alt tire);
+    `clocks_event_reasons.active` güncel sürücülerde hex bitmaska
+    döner, bu yüzden kendi kendini etiketleyen Active/Not Active
+    alanları ayrıştırılır; tek bilinmeyen alan TÜM sorguyu reddeder
+    — ctron kalıcı oturum-içi eski altı-alan formuna düşer,
+    sıcaklıklar asla kararmaz.
+  - **iGPU** (amdgpu hwmon): sıcaklık, saat, `power1_input` = **SoC
+    PPT — APU'nun TAM paketi (CPU + iGPU)**, yalnız iGPU rayı değil;
+    vddgfx/vddnb milivoltları. DRM cihazı `gpu_busy_percent` ve
+    etkin `pp_dpm_sclk` kademesini ekler. `gpu_metrics`: Dragon
+    Range'de tek canlı güç dilimi gfx alanıdır (imza-kapılı okuma) —
+    o bloğun CPU kısımları kalıcı 0xFF (2026-10-27'de canlı
+    yoklandı) ve RAPL `energy_uj` root-only olduğundan FA608PP'de
+    **sudo'suz dürüst CPU watt yoktur**.
+  - **RAM**: spd5118 modül sıcaklıkları nadir donanımdır — çoğu
+    laptop'ta yoktur, `--` görünür. Varsa limitler
+    (`temp1_max`/`temp1_crit`) ve çekirdeğin `max_alarm` bayrağı da
+    yüzeye çıkar (limiti aşan modül grid satırını `!>55` işaretler).
+  - **Depolama**: NVMe bileşik (`temp1`) + Sensor 1/2 (`temp2/3` —
+    bileşenler bileşikten daha sıcak çalışır), statvfs ile `/`
+    doluluk, /proc/diskstats'tan disk I/O (yalnız bütün diskler —
+    bölüm/loop'lar hariç, baytlar iki kez sayılmaz).
+  - **NET**: `/sys/class/net/*/statistics` yalnız fiziksel + wifi
+    arayüzler için (lo, veth*, docker*, br-*, virbr*, tap*, tun*,
+    wg*, tailscale* hariç — aynı çift-sayım koruması); rx/tx tik
+    arası bayt-sayaç deltalarıdır, arayüz kaybolursa tek bilinmeyen
+    tik okunur, spayk değil.
+  - **Güç**: batarya %/durum/gerilim/akım, sağlık
+    `charge_full(_design)`'dan (bu pakette batarya sıcaklık sensörü
+    yok ve `cycle_count` 0 raporlar — desteklenmiyor, asla
+    gösterilmez); USB-C PD girişi ucsi `type=USB` kaynaklarından
+    (fişli-fıçı AC'de 0 okur).
