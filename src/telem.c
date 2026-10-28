@@ -75,6 +75,17 @@ int telem_count(int idx)
     return (idx >= 0 && idx < TS_COUNT) ? s_rings[idx].count : 0;
 }
 
+double telem_avg(int idx)
+{
+    if (idx < 0 || idx >= TS_COUNT || s_rings[idx].count == 0)
+        return -1;
+    ring_t *r = &s_rings[idx];
+    double sum = 0;
+    for (int i = 0; i < r->count; i++)
+        sum += r->v[(r->head + i) % TELEM_N];
+    return sum / r->count;
+}
+
 bool telem_at(int idx, int back, double *v)
 {
     if (v)

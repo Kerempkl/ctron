@@ -1,6 +1,19 @@
 # Ctron Handoff
 
-Latest session — **2026-10-28/29 (8th round, security pass 3 + --csv logger)**
+Latest session — **2026-10-29 (9th round, telemetry = numbers only)**
+**GLM / Kerempkl / FA608PP**: user ended the chart era ("grafikleri
+kaldıralım, sadece sayılar + min/avg/max") — ALL chart machinery
+deleted from the 't' screen (wash/curves/sparklines/minis/axis/
+dots); grid boxes are label + right-aligned zone-coloured value
+rows (+info line); detail pages are a plain numeric table
+(metric/now/min/avg/max, unit on "now", per-row MBPS scaling, pairs
+two rows) + live info + desc lines; new pure telem_avg() with unit
+tests; rings still collect (they feed the stats now). The 4-round
+chart design history (block→braille→wash→gone) is a lesson: this
+user wants NUMBERS, not visualisations — don't propose charts again.
+Process: two assistant turns this round degenerated into fake
+tool-call spam; recovery = re-run the unverified steps fresh and
+only claim real output. Before that **2026-10-28/29 (8th round, security pass 3 + --csv logger)**
 **GLM / Kerempkl / FA608PP**: user asked for a fresh full-tree sweep
 ("tüm kodu tararmısın açıkları kapatalım") on current HEAD — three
 parallel review agents (core/write-doors, parsers/socket, UI) plus the

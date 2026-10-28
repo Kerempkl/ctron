@@ -762,6 +762,16 @@ static void check_telem(void)
     CHECK(!telem_at(TS_CPU_TEMP, 3, &av), "telem_at beyond window false");
     CHECK(!telem_at(-1, 0, &av) && !telem_at(TS_COUNT, 0, &av),
           "telem_at bad index false");
+
+    /* telem_avg: window mean, -1 when empty */
+    telem_reset();
+    CHECK(telem_avg(TS_CPU_TEMP) < 0, "telem_avg empty -1");
+    telem_push(TS_CPU_TEMP, 10);
+    telem_push(TS_CPU_TEMP, 20);
+    telem_push(TS_CPU_TEMP, 30);
+    CHECK(telem_avg(TS_CPU_TEMP) == 20, "telem_avg mean");
+    telem_push(TS_CPU_TEMP, 40);
+    CHECK(telem_avg(TS_CPU_TEMP) == 25, "telem_avg follows pushes");
     telem_reset();
 }
 

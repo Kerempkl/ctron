@@ -56,6 +56,8 @@ void telem_push(int idx, double v);
 
 double telem_last(int idx); /* last accepted value, -1 when empty */
 int telem_count(int idx);   /* samples stored */
+/* Mean over the stored window, -1 when empty. */
+double telem_avg(int idx);
 /* Sample `back` accepted ticks ago (0 = newest). False when the index
  * or offset is outside the window; *v then stays -1. The detail charts
  * walk the ring through this — the rings keep no second copy of data. */

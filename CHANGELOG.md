@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-10-29 — telem: charts removed — numbers-only table (now/min/avg/max)
+
+- User: "grafikleri kaldıralım, sadece sayılar ve gerekli yerlerde
+  min/avg/max değeri yazsın". All chart machinery deleted from the
+  telemetry screen: wash fills, curves, sparklines, grid mini
+  charts, y-axis labels, the dot markers — the rings still collect
+  (they now feed the stats), but nothing draws glyphs.
+- Grid boxes: numbers only — label left, value RIGHT-ALIGNED in its
+  zone colour, one row per series (pairs get two rows: read/write,
+  rx/tx, cpu/gpu), then the info line.
+- Detail pages: a plain numeric table — header (metric/now/min/avg/
+  max), one row per series with the unit-carrying current value in
+  its zone colour and unit-less min/avg/max columns (MBPS rows
+  rescale per-row by their max), then the live info lines, then the
+  per-series desc lines. New pure telem_avg() (window mean, -1
+  empty) with unit tests; telem_at/telem_minmax feed the rest.
+- Verified: 0 warnings, make test, full tuitest, screenshots (grid:
+  zero chart residue, clean captions; CPU detail: aligned table),
+  raw-stream probes, install in the same breath.
+
 ## 2026-10-29 — feature: --csv telemetry logger
 
 - **`ctron --csv <file>`** — appends one telemetry row per poll tick
