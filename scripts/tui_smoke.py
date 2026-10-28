@@ -570,7 +570,7 @@ def flow_fan_grid():
 def flow_telem_full():
     """Fullscreen telemetry ('t'): contextual open from a non-typing view,
     sections render, j/k cursor + enter opens a section detail page,
-    h/l flips sections, 1-7 jumps directly, esc backs out to the grid,
+    h/l flips sections, 1-8 jumps directly, esc backs out to the grid,
     stray keys are swallowed, t closes, reopens, q quits cleanly."""
     tmpcfg = tempfile.mkdtemp(prefix="ctron-tui-")
     oldcfg = os.environ.get("CTRON_CONFIG")
@@ -620,7 +620,7 @@ def flow_telem_full():
             fail("telem_full", "'t' did not open the fullscreen TELEMETRY")
             return
         ok("telem_full", "fullscreen opened on lowercase 't' (non-typing view)")
-        for sec in (b"CPU", b"GPU", b"RAM", b"STORAGE", b"NET", b"POWER"):
+        for sec in (b"CPU", b"GPU", b"RAM", b"STORAGE", b"NET", b"FAN", b"POWER"):
             if not s.wait_for(sec, since=m, timeout=6.0):
                 fail("telem_full", f"section {sec!r} missing")
                 return
@@ -658,7 +658,7 @@ def flow_telem_full():
         if not s.wait_for(b"total", since=m6, timeout=6.0):
             fail("telem_full", "digit jump did not open the NET detail")
             return
-        ok("telem_full", "1-7 digits jump straight to a detail page")
+        ok("telem_full", "1-8 digits jump straight to a detail page")
         m7 = s.mark()
         s.key(b"\x1b")             # esc: detail -> grid (not closed)
         if not s.wait_for(b"j/k", since=m7, timeout=6.0):

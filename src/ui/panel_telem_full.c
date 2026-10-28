@@ -15,7 +15,7 @@
  * screen never writes hardware; sampling happens in telem_poll(),
  * which ui.c calls after every fast refresh.
  *
- * Two modes: the section grid (j/k cursor, enter/1-7 opens) and one
+ * Two modes: the section grid (j/k cursor, enter/1-8 opens) and one
  * section's detail page — full-width multi-row charts over the same
  * rings plus info lines from the live hw snapshot. */
 
@@ -77,7 +77,7 @@ static void bar(char *out, size_t n, int used, int total, int cells)
 
 /* ---- detail-page charts ------------------------------------------------ */
 
-typedef enum { U_TEMP, U_MHZ, U_W, U_PCT, U_LOAD, U_MBPS, U_MB } unit_t;
+typedef enum { U_TEMP, U_MHZ, U_W, U_PCT, U_LOAD, U_MBPS, U_MB, U_RPM } unit_t;
 
 static void fmt_val(char *out, size_t n, unit_t u, double v)
 {
@@ -92,6 +92,7 @@ static void fmt_val(char *out, size_t n, unit_t u, double v)
         case U_LOAD: snprintf(out, n, "%.2f", v); break;
         case U_MBPS: fmt_bs(out, n, v); break;
         case U_MB:   snprintf(out, n, "%.0f MB", v); break;
+        case U_RPM:  snprintf(out, n, "%.0f rpm", v); break;
         }
     }
 }
@@ -310,6 +311,10 @@ static const chartdef_t CD_DISK[] = {
 static const chartdef_t CD_NET[] = {
     { "rx", U_MBPS, TS_NET_RX, "network receive throughput" },
     { "tx", U_MBPS, TS_NET_TX, "network transmit throughput" },
+};
+static const chartdef_t CD_FAN[] = {
+    { "cpu", U_RPM, TS_FAN_CPU, "CPU fan speed (0 when the EC stops it)" },
+    { "gpu", U_RPM, TS_FAN_GPU, "GPU fan speed (0 when the EC stops it)" },
 };
 static const chartdef_t CD_POWER[] = {
     { "draw", U_W, TS_BAT_MW, "battery power flow (discharge watts)" },
@@ -595,6 +600,19 @@ static void sec_net(struct ncplane *n, const rect_t *r)
     grid_rows(n, r, CD_NET, CD_COUNT(CD_NET), info, 1);
 }
 
+static void sec_fan(struct ncplane *n, const rect_t *r)
+{
+    hw_state_t *hw = g_ui.hw;
+    char line[128];
+    int len = snprintf(line, sizeof line, " custom curve cpu %s · gpu %s",
+                       hw->fan_cpu_on ? "on" : "off",
+                       hw->fan_gpu_on ? "on" : "off");
+    if (len > 0 && (size_t)len < sizeof line && hw->fan_staged)
+        snprintf(line + len, sizeof line - len, " · staged");
+    const char *info[1] = { line };
+    grid_rows(n, r, CD_FAN, CD_COUNT(CD_FAN), info, 1);
+}
+
 static void sec_power(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
@@ -837,6 +855,22 @@ static void detail_net(struct ncplane *n, const rect_t *r)
                  info, ni);
 }
 
+static void detail_fan(struct ncplane *n, const rect_t *r)
+{
+    hw_state_t *hw = g_ui.hw;
+    char l0[128], l1[96];
+    int len = snprintf(l0, sizeof l0, " custom curve: cpu %s · gpu %s",
+                       hw->fan_cpu_on ? "on" : "off",
+                       hw->fan_gpu_on ? "on" : "off");
+    if (len > 0 && (size_t)len < sizeof l0 && hw->fan_staged)
+        snprintf(l0 + len, sizeof l0 - len, " · edits staged (Write pending)");
+    snprintf(l1, sizeof l1, " curves are edited in the FAN workspace view "
+                            "(this screen is read-only)");
+    const char *info[2] = { l0, l1 };
+    stack_charts(n, r, CD_FAN, CD_COUNT(CD_FAN), true, 2, CHART_ROWS_MAX,
+                 info, 2);
+}
+
 static void detail_power(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
@@ -875,6 +909,7 @@ static const telem_section_t SECTIONS[] = {
     { "RAM", sec_ram, detail_ram },
     { "STORAGE", sec_disk, detail_disk },
     { "NET", sec_net, detail_net },
+    { "FAN", sec_fan, detail_fan },
     { "POWER", sec_power, detail_power },
 };
 
@@ -898,7 +933,7 @@ void panel_telem_full_draw(struct ncplane *n, const rect_t *r)
         if (ir.w > 4 && ir.h > 2)
             SECTIONS[det].detail(n, &ir);
         ui_putln(n, r->x + 2, r->y + r->h - 2, r->w - 4,
-                 " esc grid · h/l section · 1-7 jump · t close · q quit · read-only",
+                 " esc grid · h/l section · 1-8 jump · t close · q quit · read-only",
                  pal->muted, false);
         return;
     }
@@ -928,7 +963,7 @@ void panel_telem_full_draw(struct ncplane *n, const rect_t *r)
     }
 
     ui_putln(n, r->x + 2, r->y + r->h - 2, r->w - 4,
-             " j/k select · enter detail · 1-7 jump · t close · q quit · read-only",
+             " j/k select · enter detail · 1-8 jump · t close · q quit · read-only",
              pal->muted, false);
 }
 

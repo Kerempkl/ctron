@@ -93,13 +93,13 @@ Rows are clickable (mouse is a known gap under Hyprland — see the
 Per-view keys (fan point editing, presets modal, core-limit overlay)
 are listed in the HELP view and the footer while you use them.
 
-`t` opens a **fullscreen read-only telemetry screen**: seven live
-sections (CPU / GPU / iGPU / RAM / storage / network / power), each
-with rolling braille charts over a ~60 s window — CPU & GPU
+`t` opens a **fullscreen read-only telemetry screen**: eight live
+sections (CPU / GPU / iGPU / RAM / storage / network / fans / power),
+each with rolling wash-fill charts over a ~60 s window — CPU & GPU
 temperatures, clocks, load, fan RPMs, dGPU power/utilisation/VRAM,
 iGPU temp/clock/power, RAM use + module temps, NVMe temps + disk I/O +
 fill bar, per-interface network rx/tx, battery draw/charge.
-`j`/`k` walk the section grid and `Enter` (or `1`–`7`) opens a
+`j`/`k` walk the section grid and `Enter` (or `1`–`8`) opens a
 section's **detail page**: full-width multi-row charts with min/max/last
 stats plus info lines from a fresh live snapshot (PPT/EPP, per-core
 ceilings, GPU pstate & throttle reasons, VRAM/clock lock, battery

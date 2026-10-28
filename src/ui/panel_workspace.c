@@ -957,7 +957,7 @@ static void draw_help(struct ncplane *n, const rect_t *r)
         "  5..8         workspace view: 5 fan · 6 power · 7 light · 8 help",
         "  t / T        fullscreen telemetry (T works everywhere)",
         "               hjkl/arrows walk the grid (2D) · enter detail",
-        "               1-7 jump · esc back · h/l flips detail sections",
+        "               1-8 jump · esc back · h/l flips detail sections",
         "  esc / s      settings overlay · ? this help",
         "  applies run in the background — keys pause, q waits for them",
         "",
