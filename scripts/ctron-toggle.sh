@@ -26,6 +26,25 @@ log() {
     printf '%s %s\n' "$(date +%H:%M:%S)" "$*" >> "$LOG"
 }
 
+# Close ctron politely first: the TUI's SIGTERM path saves settings,
+# joins its worker and removes the pidfile. If it has not exited after
+# ~2 s it is wedged (seen live: a spinning orphan ignored TERM, and
+# then every later key press took this close branch — the app "would
+# not open" until it was killed by hand) — escalate so a stuck TUI can
+# never wedge the key too.
+close_ctron() {
+    pkill -x ctron 2>/dev/null
+    i=0
+    while [ "$i" -lt 4 ] && pgrep -x ctron >/dev/null 2>&1; do
+        sleep 0.5
+        i=$((i+1))
+    done
+    if pgrep -x ctron >/dev/null 2>&1; then
+        log "close: TERM ignored after 2s, escalating to KILL"
+        pkill -9 -x ctron 2>/dev/null
+    fi
+}
+
 log "invoked pid=$$ ctron=$(pgrep -x ctron | wc -l) stamp=$(cat "$STAMP" 2>/dev/null || echo none)"
 
 if pgrep -x ctron >/dev/null 2>&1; then
@@ -93,7 +112,7 @@ EOF
                     ;;
                 ACTIVE)
                     log "branch: close (KWin window was active)"
-                    pkill -x ctron
+                    close_ctron
                     exit 0
                     ;;
                 *)
@@ -116,7 +135,7 @@ EOF
         done
         if [ "$is_active" -eq 1 ]; then
             log "branch: close (Hyprland window active)"
-            pkill -x ctron
+            close_ctron
             exit 0
         else
             log "branch: raise (Hyprland focusing window)"
@@ -130,7 +149,7 @@ EOF
 
     # 3. Fallback: window already active or untracked -> close
     log "branch: close (fallback)"
-    pkill -x ctron
+    close_ctron
     exit 0
 fi
 
