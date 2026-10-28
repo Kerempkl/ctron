@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-10-28 — ui: FAN section + toggle escalation + sensor map (v0.8.0)
+
+- **FAN telemetry section (8th)**: the `TS_FAN_CPU`/`TS_FAN_GPU`
+  rings have been sampled every tick since v0.4 without ever being
+  charted. New section (NET|FAN|POWER row; the grid is now a full
+  4×2): cpu/gpu RPM wash charts with a new `U_RPM` unit, grid info
+  "custom curve cpu on · gpu on · staged", detail adds a pointer to
+  the FAN workspace view (the telemetry screen stays read-only).
+  Footers/HELP say 1-8 (NET stays '6', '7' is FAN now).
+- **ctron-toggle SIGTERM→SIGKILL escalation**: born from the 10-27
+  incident — a wedged ctron ignoring TERM made every later key press
+  take the close branch, so the app "would not open". `close_ctron()`
+  gives the polite TERM ~2 s (settings save, worker join, pidfile
+  removal all happen on that path) then escalates to `-9`; all three
+  close sites route through it. Proven live with a fake comm=ctron
+  process: TERM-trapping variant killed via escalation (log line
+  present), polite variant closed cleanly.
+- **HARDWARE.md telemetry sensor map (EN+TR)**: every 't'-screen
+  source with its honest limits — Tccd label gating, the nvidia-smi
+  field traps, whole-APU SoC PPT semantics, the gpu_metrics CPU
+  0xFF no-go + root-only RAPL, spd5118 rarity, the net classifier
+  exclusions, battery health caveats, PD-on-barrel-AC.
+- tui-telem.png re-shot with the 8-box grid.
+- Verified: 0 warnings, `make test`, full `make tuitest`, `make
+  install` same breath (0.8.0 live); probe-child discipline held
+  (zero stray ctron processes after every pty step).
+
 ## 2026-10-28 — ui: chart self-descriptions (desc per series)
 
 - User: "grafiklerin yanına ve altına neyi temsil ettikleri ile

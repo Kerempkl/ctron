@@ -1,6 +1,15 @@
 # Ctron Handoff
 
-Latest session — **2026-10-28 (4th round, telemetry charts)**
+Latest session — **2026-10-28 (5th round, "1 2 3 ü yapalım")**
+**GLM / Kerempkl / FA608PP**: the user picked three items and all
+three landed — **FAN telemetry section** (8th: the RPM rings finally
+chart; grid is a full 4×2, digits 1-8), **ctron-toggle TERM→KILL
+escalation** (the 10-27 incident turned into code: a wedged TUI can
+no longer wedge the key; proven with a fake comm=ctron process both
+ways), **HARDWARE.md sensor map** (EN+TR, every 't' source with its
+honest limits); **v0.8.0** cut. Item 4 (nvidia-smi load-latency
+measurement) deliberately deferred by the user — see the session
+section below. Before that **2026-10-28 (4th round, telemetry charts)**
 **GLM / Kerempkl / FA608PP**: wash-fill charts + self-descriptions —
 the area is a solid background color wash, the curve an eighth-block
 bright edge, slice-peak columns, detail cap 12 rows, newest sample
@@ -138,6 +147,44 @@ prioritized todo list and the distilled session lessons.
   pidfile removal, exit 0). Harness-proven: rc=0 + pidfile gone.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
+
+## Session 2026-10-28 (5) — FAN section + toggle escalation + sensor map, v0.8.0 (GLM / Kerempkl / FA608PP)
+
+- User picked 3 of the 4 offered items ("1 2 3 ü yapalım"); item 4
+  (nvidia-smi load-latency measurement for the conditional FAZ 4/16
+  background thread) deferred on purpose.
+- **FAN section (8th)**: discovered during the "ne yapabiliriz"
+  audit — TS_FAN_CPU/GPU have been sampled every tick since v0.4 but
+  no CD_* list ever referenced them. New section between NET and
+  POWER (grid = full 4×2 at 2 cols): cpu/gpu RPM wash charts (new
+  U_RPM unit), grid info "custom curve cpu on · gpu on · staged",
+  detail pointer to the FAN workspace view. Footers/HELP 1-7 → 1-8;
+  NET stays digit '6' so the smoke flow needed only the section-tuple
+  + label updates. Live grid dump verified the "custom curve" line.
+- **ctron-toggle escalation**: close_ctron() = polite TERM, ~2 s
+  poll (4×0.5), then `pkill -9 -x ctron` + a log line; all three
+  close sites (KWin ACTIVE, Hyprland active, fallback) route through
+  it. Proof: a fake comm=ctron binary (build/fakectron/, cleaned
+  after) — TERM-trapping variant died via escalation with the log
+  line, polite variant died cleanly with none. The combined-run
+  "case 2 fail" was the toggle's KWin branch picking a different
+  window match in that invocation, not the close path — isolated
+  rerun proved both cases. make install refreshed the installed
+  script FIRST (lesson 9).
+- **HARDWARE.md**: telemetry sensor map appended to both language
+  notes (every 't' source + honest limits: Tccd label gate,
+  nvidia-smi field traps incl. the latched 6-field fallback, SoC PPT
+  semantics, gpu_metrics 0xFF + RAPL root = no sudoless CPU watt,
+  spd5118 rarity, net exclusions, battery caveats, PD-on-barrel).
+- Parallel-line coordination held: re-read panel_telem_full.c before
+  editing (it gained the desc field + grid_rows pattern this
+  morning); FAN entries written in the NEW 4-field chartdef shape.
+- **v0.8.0** cut (MINOR). Tag+main push user-side (v0.6.0/v0.7.0
+  tags also still unpushed — one `git push origin main v0.6.0 v0.7.0
+  v0.8.0` covers all).
+- Verified: 0 warnings, make test, full tuitest, install same
+  breath; zero stray ctron processes after every pty step (the new
+  discipline held).
 
 ## Session 2026-10-27 (3) — chart types matched to context (GLM / Kerempkl / FA608PP)
 

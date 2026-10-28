@@ -6,7 +6,7 @@
 
 One C binary. One dependency ([notcurses](https://github.com/dankamongmen/notcurses)). No daemon.
 
-![version](https://img.shields.io/badge/version-v0.7.0-0072c6)
+![version](https://img.shields.io/badge/version-v0.8.0-0072c6)
 ![license](https://img.shields.io/badge/license-MIT-0072c6)
 ![language](https://img.shields.io/badge/language-C-659ad2)
 ![deps](https://img.shields.io/badge/dependency-notcurses%20only-2ea043)

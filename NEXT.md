@@ -32,7 +32,10 @@ Kullanıcı sürüm numaralandırmasını agent'a devretti. Şema: semver.
   MIT lisansı; **v0.7.0** atıldı 10-27 — MINOR: sensör dolgu turu
   (Tccd1/2, RAM eşik+alarm, NVMe en-sıcak-sensör, iGPU busy/DPM +
   gpu_metrics gfx-rayı; CPU gücü gpu_metrics'te YOK — Dragon Range
-  blokları kalıcı 0xFF, kanıtlı NO-GO).)*
+  blokları kalıcı 0xFF, kanıtlı NO-GO); **v0.8.0** atıldı 10-28 —
+  MINOR: FAN telemetri bölümü (8.; RPM halkaları artık grafikli) +
+  ctron-toggle TERM→KILL tırmanışı (10-27 olayından) + HARDWARE.md
+  sensör haritası.)*
 
 ## FAZ 1 — Bakım & dürüstlük (kısa vade)
 
