@@ -1,6 +1,38 @@
 # Ctron Handoff
 
-Latest session — **2026-10-28 (7th round, security audit → v0.8.1)**
+Latest session — **2026-10-28 (8th round, security pass 3: independent re-scan)**
+**GLM / Kerempkl / FA608PP**: user asked for a fresh full-tree sweep
+("tüm kodu tararmısın açıkları kapatalım") on current HEAD — three
+parallel review agents (core/write-doors, parsers/socket, UI) plus the
+display/scripts/SECURITY.md block by hand after the fourth agent timed
+out; toolchain proofs run alongside. **P1 fixed: `handle_mouse`
+bypassed the apply-busy lock** (dispatch_key honours it) — a click
+during a background apply ran ctrl_* writes / hw_refresh_live on the
+UI thread concurrently with the worker's (worst case a torn
+fan_curve_t to the EC); mouse now returns early while busy. Also
+fixed: apply_worker read **uninitialized err buffers via "%s"** on
+success paths (profile_import/mode_apply write them only on failure);
+**`ctron mode add` steps newline injection** closed by `mode_steps_ok`
+(the steps twin of mode_name_ok — a `\n` in steps injected bogus
+[sections]/rewritten keys into modes.ini on save; 4 unit cases + live
+CLI check); the **last two fragile `off += snprintf` sites** hardened
+the fan_curve_data_str way (gpu_clock_verify samples join,
+profile_meta_diff ADD_LABEL — both proven safe today, now structurally
+unwrappable); `last_int` saturates instead of signed overflow;
+`ut_read_int` strtol+clamp and `ut_parse_ints` long→int clamp (atoi UB
+on hostile sysfs text; atoi parity kept). Everything else re-verified
+clean: display_kde/hypr bounded parsers + argv exec, ctron-toggle
+hardened state, python harnesses (no shell=True, env save/restore),
+SECURITY.md claims vs code (system() only in a comment, 3 known popen
+sites, pidfile O_EXCL|O_NOFOLLOW). fanalyzer full tree = 4 warnings,
+all known FP families (fork-child fd "leaks"; ctrl_ppt_limits writes
+all six out-params unconditionally). Verified: -O2 0 warnings, make
+test, ASan+UBSan test, HARDEN=1 build+test, full tuitest; the -O1-only
+-Wformat-truncation trio triaged cosmetic/FP. **Commit `1d53638`,
+rides the next version cut (no bump); push on the user's side.**
+NOTE: a **parallel session's uncommitted `--csv` feature in main.c**
+was deliberately left out of the commit (staged via blob, worktree
+file untouched) — whoever owns it commits it. Before that **2026-10-28 (7th round, security audit → v0.8.1)**
 **GLM / Kerempkl / FA608PP**: user asked for a full vulnerability hunt
 over the whole tree ("tüm kodu detaylıca oku") — every source file read,
 `gcc -fanalyzer` pass, dangerous-pattern greps. ONE real vulnerability

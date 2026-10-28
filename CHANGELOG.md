@@ -1,5 +1,38 @@
 # Changelog
 
+## 2026-10-28 — security pass 3: mouse busy-gate, uninit err reads, mode-steps guard, parse clamps
+
+- Independent full re-scan of current HEAD (three parallel review
+  blocks + display/scripts verified by hand) after the v0.8.1 audit.
+- **P1: `handle_mouse` skipped the apply-busy lock** that
+  `dispatch_key` enforces — a mouse click during a background apply
+  drove writes/refreshes on the UI thread concurrently with the apply
+  worker (worst case a torn `fan_curve_t` written to the EC). Mouse
+  events now return early while an apply runs.
+- `apply_worker` printed **uninitialized `err` buffers** (`%s`) on
+  success paths — `profile_import`/`mode_apply` only write them on
+  failure; both are empty-initialized now.
+- **`ctron mode add` steps validated** by the new `mode_steps_ok()`:
+  a newline in steps injected bogus `[sections]` / a rewritten
+  `steps` key into modes.ini on the next save (the steps twin of
+  `mode_name_ok`; TUI typing cannot produce control characters).
+  Unit-tested (4 cases) + live CLI check.
+- The last two fragile `off += snprintf` sites hardened the
+  `fan_curve_data_str` way (break on truncation):
+  `gpu_clock_verify`'s sample join and `profile_meta_diff`'s
+  `ADD_LABEL` macro — both proven safe today, now structurally unable
+  to wrap `size_t`.
+- `editor_daeboard`'s `last_int()` saturates at `INT_MAX` instead of
+  signed overflow on hand-typed ms values; `ut_read_int` uses
+  strtol+clamp and `ut_parse_ints` clamps long→int (atoi on hostile
+  sysfs text is UB; atoi parity kept — no digits still means 0).
+  New `check_int_parse_clamps` unit test.
+- Re-verified clean: display backends (bounded parsers, argv exec),
+  ctron-toggle hardened state, Python harnesses, SECURITY.md claims
+  vs code; fanalyzer's 4 warnings are the known FP families.
+- Verified: -O2 zero-warning build, `make test`, ASan+UBSan build +
+  test, `HARDEN=1` build + test, full `make tuitest`.
+
 ## 2026-10-28 — review pass 2: modes.ini name guard + analyzer-clean shadows
 
 - Second full look after the security audit, this time with
