@@ -271,43 +271,51 @@ typedef struct {
     const char *label;
     unit_t u;
     int sidx;
+    const char *desc; /* what the series measures, drawn under the
+                         chart (detail) / over the mini (grid) */
 } chartdef_t;
 
 /* the series each section charts — one list per section, shared by
  * its grid box and its detail page so the two never drift apart */
 static const chartdef_t CD_CPU[] = {
-    { "temp", U_TEMP, TS_CPU_TEMP },
-    { "clock", U_MHZ, TS_CPU_MHZ },
-    { "load", U_LOAD, TS_CPU_LOAD },
+    { "temp", U_TEMP, TS_CPU_TEMP,
+      "Tctl — CPU die temperature (hottest sensor)" },
+    { "clock", U_MHZ, TS_CPU_MHZ,
+      "thread-0 live frequency (sampled cpu)" },
+    { "load", U_LOAD, TS_CPU_LOAD,
+      "1-min load average (runnable tasks)" },
 };
 static const chartdef_t CD_GPU[] = {
-    { "temp", U_TEMP, TS_GPU_TEMP },
-    { "power", U_W, TS_GPU_MW },
-    { "clock", U_MHZ, TS_GPU_MHZ },
-    { "util", U_PCT, TS_GPU_UTIL },
+    { "temp", U_TEMP, TS_GPU_TEMP, "dGPU temperature" },
+    { "power", U_W, TS_GPU_MW, "dGPU board power draw" },
+    { "clock", U_MHZ, TS_GPU_MHZ, "graphics clock (current)" },
+    { "util", U_PCT, TS_GPU_UTIL, "GPU utilisation (sm activity)" },
 };
 static const chartdef_t CD_IGPU[] = {
-    { "temp", U_TEMP, TS_IGPU_TEMP },
+    { "temp", U_TEMP, TS_IGPU_TEMP, "iGPU edge temperature" },
     /* amdgpu power1_input is the SoC PPT: the WHOLE APU package
      * (CPU cores + iGPU + fabric), not the iGPU rail alone */
-    { "APU PPT", U_W, TS_IGPU_MW },
-    { "clock", U_MHZ, TS_IGPU_MHZ },
+    { "APU PPT", U_W, TS_IGPU_MW,
+      "whole-APU package power: CPU + iGPU" },
+    { "clock", U_MHZ, TS_IGPU_MHZ, "iGPU graphics clock" },
 };
 static const chartdef_t CD_RAM[] = {
-    { "used", U_MB, TS_MEM_USED },
+    { "used", U_MB, TS_MEM_USED,
+      "memory in use (total minus available)" },
 };
 static const chartdef_t CD_DISK[] = {
-    { "read", U_MBPS, TS_DISK_RD },
-    { "write", U_MBPS, TS_DISK_WR },
+    { "read", U_MBPS, TS_DISK_RD, "NVMe read throughput (whole disks)" },
+    { "write", U_MBPS, TS_DISK_WR, "NVMe write throughput (whole disks)" },
 };
 static const chartdef_t CD_NET[] = {
-    { "rx", U_MBPS, TS_NET_RX },
-    { "tx", U_MBPS, TS_NET_TX },
+    { "rx", U_MBPS, TS_NET_RX, "network receive throughput" },
+    { "tx", U_MBPS, TS_NET_TX, "network transmit throughput" },
 };
 static const chartdef_t CD_POWER[] = {
-    { "draw", U_W, TS_BAT_MW },
-    { "charge", U_PCT, TS_BAT_PCT },
-    { "usb-c", U_W, TS_PD_MW },
+    { "draw", U_W, TS_BAT_MW, "battery power flow (discharge watts)" },
+    { "charge", U_PCT, TS_BAT_PCT, "battery charge level" },
+    { "usb-c", U_W, TS_PD_MW,
+      "USB-C PD input power (-- when unplugged)" },
 };
 #define CD_COUNT(a) ((int)(sizeof(a) / sizeof((a)[0])))
 
@@ -366,6 +374,9 @@ static void chart_block(struct ncplane *n, int x, int y, int w, int rows,
     fmt_val(c2, sizeof c2, cd->u, last);
     snprintf(line, sizeof line, " min %s · max %s · last %s", a, b, c2);
     info_line(n, x, y + 1 + rows, w, line);
+    /* what this series measures — the chart explains itself */
+    if (cd->desc)
+        info_line(n, x, y + 2 + rows, w, cd->desc);
 }
 
 /* stacked full-width chart blocks with trailing info lines, shared
@@ -383,7 +394,7 @@ static void stack_charts(struct ncplane *n, const rect_t *r,
     int avail = r->h - 2;
     if (avail < 1)
         return;
-    int over = stats ? 2 : 1; /* label row + optional stats row */
+    int over = stats ? 3 : 1; /* label + stats + desc row / label */
     int nch = ncd;
     while (nch > 0 && (avail - ninfo) / nch - over < minper)
         nch--;
@@ -434,12 +445,18 @@ static void grid_rows(struct ncplane *n, const rect_t *r,
     for (int i = 0; i < ninfo && i < avail - ncd; i++)
         info_line(n, x, yinfo + i, w, info[i]);
     int left = avail - ncd - ninfo;
-    if (left >= 3) {
+    if (left >= 4) {
         double mn, mx;
         int cnt = telem_count(cd[0].sidx);
         chart_scale(cd[0].sidx, cnt, &mn, &mx);
-        if (cnt > 0 && mx > mn)
-            chart(n, x - 1, yinfo + ninfo, w + 2, left, cd[0].sidx, mn, mx);
+        if (cnt > 0 && mx > mn) {
+            /* the mini carries a caption so it names itself */
+            char cap[96];
+            snprintf(cap, sizeof cap, " %s — %s", cd[0].label, cd[0].desc);
+            info_line(n, x, yinfo + ninfo, w, cap);
+            chart(n, x - 1, yinfo + ninfo + 1, w + 2, left - 1,
+                  cd[0].sidx, mn, mx);
+        }
     }
 }
 

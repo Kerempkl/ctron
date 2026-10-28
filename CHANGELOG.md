@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-10-28 — ui: chart self-descriptions (desc per series)
+
+- User: "grafiklerin yanına ve altına neyi temsil ettikleri ile
+  ilgili yazıları yazarmısın". chartdef_t gained a desc field that
+  travels with every series: detail pages draw it as a line under
+  each chart's stats row (Tctl — CPU die temperature (hottest
+  sensor); thread-0 live frequency; 1-min load average; whole-APU
+  package power: CPU + iGPU; battery power flow (discharge watts);
+  USB-C PD input power (-- when unplugged); ...), and the grid boxes'
+  mini charts carry a "label — desc" caption line above them so the
+  small graphs name themselves.
+- Detail block overhead 2→3 rows (label/stats/desc); charts still
+  get ~9-10 rows on a 50-line terminal. Grid mini needs ≥4 leftover
+  rows now (caption + ≥3 chart rows).
+- Verified: 0 warnings, make test, full tuitest, screenshots (desc
+  lines under all three CPU charts, captions above the minis),
+  install in the same breath.
+
 ## 2026-10-28 — ui: wash-fill charts — smooth area, crisp curve, live dot
 
 - User on the two-tone block round: "sevmedim, daha detaylı hassas ve

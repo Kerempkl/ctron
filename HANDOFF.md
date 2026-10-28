@@ -1,13 +1,12 @@
 # Ctron Handoff
 
 Latest session — **2026-10-28 (4th round, telemetry charts)**
-**GLM / Kerempkl / FA608PP**: "sevmedim, daha detaylı hassas göze
-hoş" → WASH-FILL charts: the area is a solid background color wash
-(accent halved into bg, painted as cell bg — zero glyph texture),
-the curve an eighth-block bright edge rising out of the wash, slice-
-peak columns back, detail cap 8→12 rows (96 levels), newest sample
-marked with a bright ●; grid boxes keep value rows and gained a
-small primary-series wash chart in leftover space. Install 11:33.
+**GLM / Kerempkl / FA608PP**: wash-fill charts + self-descriptions —
+the area is a solid background color wash, the curve an eighth-block
+bright edge, slice-peak columns, detail cap 12 rows, newest sample
+marked with a bright ●, and every series carries a desc (detail:
+under each chart; grid: caption over the mini) so graphs explain
+what they measure. Install fresh.
 Process note: one assistant turn in this round degenerated into
 dozens of fake tool-call blocks — the honest recovery was to re-run
 the unverified steps (full tuitest + install) fresh and only then
