@@ -96,11 +96,13 @@ static void fmt_val(char *out, size_t n, unit_t u, double v)
     }
 }
 
-/* multi-row braille area chart over the ring window (btop-style):
- * 2x4 dots per cell — rows*4 vertical levels, no cell seams — filled
- * from the bottom up to each sample, so the series SHAPE reads at a
- * glance (a lone thin line was unreadable at real terminal sizes),
- * newest on the right. */
+/* solid block area chart (btop-style): each column fills with █ from
+ * the bottom up to the sample; the top cell is an eighth-block
+ * (▁▂▃▄▅▆▇█) so the edge is crisp — rows*8 vertical levels, no dot
+ * texture, no cell seams (the braille texture read as noise at real
+ * terminal sizes). The top cell renders bright (accent) and the fill
+ * below it dim (accent2): the shape reads as a bright line over a
+ * quiet area. */
 #define CHART_COLS_MAX 256
 #define CHART_ROWS_MAX 8
 
@@ -177,42 +179,68 @@ static void chart(struct ncplane *n, int x, int y, int w, int rows,
     if (cols > CHART_COLS_MAX)
         cols = CHART_COLS_MAX;
 
-    int drows = rows * 4; /* dot rows */
-    int half = cols * 2;  /* one sample point per dot column */
-    unsigned char grid[CHART_ROWS_MAX][CHART_COLS_MAX];
-    memset(grid, 0, sizeof grid);
-
-    for (int i = 0; i < half; i++) {
-        int k = (int)((long long)i * count / half);
+    int lv8[CHART_COLS_MAX]; /* column height in eighths, 0 = empty */
+    for (int c = 0; c < cols; c++) {
+        int k = (int)((long long)c * count / cols);
         double v;
-        if (!telem_at(sidx, count - 1 - k, &v) || v < 0)
-            continue; /* unknown tick: this dot column stays empty */
+        if (!telem_at(sidx, count - 1 - k, &v) || v < 0) {
+            lv8[c] = 0; /* unknown tick: empty column */
+            continue;
+        }
         double f = (v - mn) / (mx - mn);
         if (f < 0)
             f = 0;
         if (f > 1)
             f = 1;
-        int yb = (int)(f * (drows - 1) + 0.5); /* bottom-based */
-        for (int yy = 0; yy <= yb; yy++) {
-            int dt = drows - 1 - yy; /* dot row from the top */
-            grid[dt / 4][i / 2] |= (i % 2 ? 0x10u : 0x01u) << (dt % 4);
-        }
+        int h = (int)(f * (rows * 8) + 0.5);
+        if (h > rows * 8)
+            h = rows * 8;
+        lv8[c] = h;
     }
 
-    char buf[CHART_COLS_MAX * 3 + 4];
-    for (int r = 0; r < rows; r++) {
-        size_t wb = 0;
-        for (int c = 0; c < cols && wb + 4 < sizeof buf; c++) {
-            if (grid[r][c]) {
-                buf[wb++] = (char)0xE2; /* U+2800..U+28FF braille */
-                buf[wb++] = (char)0xA0;
-                buf[wb++] = (char)(0x80 | grid[r][c]);
-            } else {
-                buf[wb++] = ' ';
+    char buf[CHART_COLS_MAX * 3 + 8];
+    for (int rr = 0; rr < rows; rr++) {
+        int br = rows - 1 - rr; /* bottom-based row index */
+        int c = 0;
+        while (c < cols) {
+            /* role of a column in this row: 1 = top edge (bright),
+             * 2 = fill below it (dim), 0 = above the series */
+            int role = 0;
+            if (lv8[c] > 0) {
+                int top = lv8[c] % 8 > 0 ? lv8[c] / 8 : lv8[c] / 8 - 1;
+                if (br == top)
+                    role = 1;
+                else if (br < top)
+                    role = 2;
             }
+            if (role == 0) {
+                c++;
+                continue;
+            }
+            /* one ui_putln per same-color run so edge and fill never
+             * share a call (a cell carries one color) */
+            size_t wl = 0;
+            int start = c;
+            while (c < cols && wl + 4 <= sizeof buf - 1) {
+                if (lv8[c] <= 0)
+                    break;
+                int rem = lv8[c] % 8;
+                int top = rem > 0 ? lv8[c] / 8 : lv8[c] / 8 - 1;
+                int r2 = br == top ? 1 : (br < top ? 2 : 0);
+                if (r2 != role)
+                    break;
+                buf[wl++] = (char)0xE2;
+                buf[wl++] = (char)0x96;
+                if (role == 1 && rem > 0)
+                    buf[wl++] = (char)(0x81 + rem - 1); /* ▁..▇ */
+                else
+                    buf[wl++] = (char)0x88; /* █ */
+                c++;
+            }
+            buf[wl] = '\0';
+            ui_putln(n, x + 1 + start, y + rr, w - 1 - start, buf,
+                     role == 1 ? pal->accent : pal->accent2, false);
         }
-        buf[wb] = '\0';
-        ui_putln(n, x + 1, y + r, w, buf, pal->accent, false);
     }
 }
 
@@ -353,6 +381,36 @@ static void stack_charts(struct ncplane *n, const rect_t *r,
         info_line(n, x, y + i, w, info[i]);
 }
 
+/* grid-box content: one "label  value  sparkline" row per series.
+ * Small boxes cannot host a real chart (2-3 rows of anything is a
+ * blob); the single-line block sparkline carries the 60 s shape and
+ * the value sits right next to it. */
+static void grid_rows(struct ncplane *n, const rect_t *r,
+                      const chartdef_t *cd, int ncd,
+                      const char *const *info, int ninfo)
+{
+    int x = r->x + 2, w = r->w - 4;
+    int avail = r->h - 2;
+    if (avail < 1)
+        return;
+    const palette_t *pal = ui_palette(g_prefs.theme);
+    int y = r->y + 1;
+    for (int i = 0; i < ncd && i < avail; i++, y++) {
+        char cur[40], spark[600], line[700];
+        int cells = w - 26;
+        if (cells < 6)
+            cells = 6;
+        if ((size_t)cells * 3 + 1 > sizeof spark)
+            cells = (int)(sizeof spark - 1) / 3;
+        telem_spark(cd[i].sidx, spark, sizeof spark, cells);
+        fmt_val(cur, sizeof cur, cd[i].u, telem_last(cd[i].sidx));
+        snprintf(line, sizeof line, " %-8s %-14s %s", cd[i].label, cur, spark);
+        ui_putln(n, x, y, w, line, pal->text, false);
+    }
+    for (int i = 0; i < ninfo && i < avail - ncd; i++)
+        info_line(n, x, y + i, w, info[i]);
+}
+
 /* ---- sections (each draws inside its own boxed rect) ------------------
  * Grid boxes chart the SAME series as their detail pages (shared
  * CD_* lists), compact: label + chart, no stats row. On short boxes
@@ -381,7 +439,7 @@ static void sec_cpu(struct ncplane *n, const rect_t *r)
              " fan %d/%d rpm · %d cores · EPP %s%s",
              hw->rpm_cpu, hw->rpm_gpu, hw->cpu_n, hw_epp_name(hw->epp), cc);
     const char *info[1] = { line };
-    stack_charts(n, r, CD_CPU, CD_COUNT(CD_CPU), false, 1, 4, info, 1);
+    grid_rows(n, r, CD_CPU, CD_COUNT(CD_CPU), info, 1);
 }
 
 static void sec_gpu(struct ncplane *n, const rect_t *r)
@@ -396,7 +454,7 @@ static void sec_gpu(struct ncplane *n, const rect_t *r)
     else
         snprintf(line, sizeof line, " util %d%%", hw->gpu_util);
     const char *info[1] = { line };
-    stack_charts(n, r, CD_GPU, CD_COUNT(CD_GPU), false, 1, 4, info, 1);
+    grid_rows(n, r, CD_GPU, CD_COUNT(CD_GPU), info, 1);
 }
 
 static void sec_igpu(struct ncplane *n, const rect_t *r)
@@ -407,7 +465,7 @@ static void sec_igpu(struct ncplane *n, const rect_t *r)
     fmt_int(vn, sizeof vn, " mV", hw->igpu_vddnb_mv);
     snprintf(line, sizeof line, " vddgfx %s · vddnb %s", vg, vn);
     const char *info[1] = { line };
-    stack_charts(n, r, CD_IGPU, CD_COUNT(CD_IGPU), false, 1, 4, info, 1);
+    grid_rows(n, r, CD_IGPU, CD_COUNT(CD_IGPU), info, 1);
 }
 
 static void sec_ram(struct ncplane *n, const rect_t *r)
@@ -434,7 +492,7 @@ static void sec_ram(struct ncplane *n, const rect_t *r)
         snprintf(line, sizeof line, " swap %d/%d MB",
                  hw->swap_used_mb, hw->swap_total_mb);
     const char *info[1] = { line };
-    stack_charts(n, r, CD_RAM, CD_COUNT(CD_RAM), false, 1, 4, info, 1);
+    grid_rows(n, r, CD_RAM, CD_COUNT(CD_RAM), info, 1);
 }
 
 static void sec_disk(struct ncplane *n, const rect_t *r)
@@ -463,7 +521,7 @@ static void sec_disk(struct ncplane *n, const rect_t *r)
         snprintf(line, sizeof line, " / --");
     }
     const char *info[1] = { line };
-    stack_charts(n, r, CD_DISK, CD_COUNT(CD_DISK), false, 1, 4, info, 1);
+    grid_rows(n, r, CD_DISK, CD_COUNT(CD_DISK), info, 1);
 }
 
 static void sec_net(struct ncplane *n, const rect_t *r)
@@ -485,7 +543,7 @@ static void sec_net(struct ncplane *n, const rect_t *r)
     if (hw->net_n == 0)
         snprintf(line, sizeof line, " no counted interfaces");
     const char *info[1] = { line };
-    stack_charts(n, r, CD_NET, CD_COUNT(CD_NET), false, 1, 4, info, 1);
+    grid_rows(n, r, CD_NET, CD_COUNT(CD_NET), info, 1);
 }
 
 static void sec_power(struct ncplane *n, const rect_t *r)
@@ -499,8 +557,7 @@ static void sec_power(struct ncplane *n, const rect_t *r)
         snprintf(line + len, sizeof line - len, " · USB-C in %.1f W",
                  hw->pd_in_mw / 1000.0);
     const char *info[1] = { line };
-    stack_charts(n, r, CD_POWER, hw->pd_n > 0 ? CD_COUNT(CD_POWER) : 2,
-                 false, 1, 4, info, 1);
+    grid_rows(n, r, CD_POWER, hw->pd_n > 0 ? CD_COUNT(CD_POWER) : 2, info, 1);
 }
 
 /* ---- section detail pages (full page inside the overlay) ------------- */

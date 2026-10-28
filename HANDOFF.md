@@ -1,6 +1,14 @@
 # Ctron Handoff
 
-Latest session — **2026-10-27 (2nd round, "do everything doable")**
+Latest session — **2026-10-27 (3rd round)**
+**GLM / Kerempkl / FA608PP**: telemetry chart types matched to their
+context after the user's "not useful where they're used" verdict —
+detail pages draw two-tone solid block area charts (█ fill dim +
+eighth-block top edge bright: crisp line over quiet area, rows*8
+levels, no braille texture, no seams) and the grid boxes dropped
+mini charts for "label value sparkline" rows (60 s shape beside the
+live value); merged ON TOP of the 2nd round's sensor-fill state
+(NET section, 7 sections, 1-7 digits). Before that **2026-10-27 (2nd round, "do everything doable")**
 **GLM / Kerempkl / FA608PP**: the sensor shortlist is now EXHAUSTED
 for this machine — ④⑤⑥ shipped, ⑦ proven NO-GO (Dragon Range
 gpu_metrics CPU blocks are permanently 0xFF; only the gfx-rail slice
@@ -120,6 +128,28 @@ prioritized todo list and the distilled session lessons.
   pidfile removal, exit 0). Harness-proven: rc=0 + pidfile gone.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
+
+## Session 2026-10-27 (3) — chart types matched to context (GLM / Kerempkl / FA608PP)
+
+- User: "kullanılan grafik türleri kullanıldıkları yerlerde pek
+  kullanışlı değiller başka grafik türlerini değerlendirelim" —
+  re-review with fresh screenshots confirmed both failure modes:
+  grid minis (2-3 rows braille) = grey blobs, axis labels eating
+  narrow boxes, boxes "busy"; detail braille = dot texture in front
+  of the shape, ragged top edge, spikes drowned in fill.
+- User delegated the per-type picks ("önerilenleri sen seç").
+- Detail: TWO-TONE SOLID BLOCK AREA — █ fill in dim accent2, top
+  cell an eighth-block (▁▂▃▄▅▆▇█) in bright accent = crisp line over
+  quiet area; rows*8 vertical levels; one ui_putln per same-color
+  run (a cell carries one color). Y-axis labels + stats rows kept.
+- Grid: mini charts GONE; grid_rows() = one "label value sparkline"
+  row per series (telem_spark single line) + info line. Boxes quiet,
+  readable at a glance; CD_* lists still shared with details.
+- Merge note: landed on top of round 2's sensor-fill state (7
+  sections incl. NET, digits 1-7, Tccd/RAM-alarm/NVMe-hottest/
+  iGPU-busy lines all preserved in the new row format).
+- Verified: 0 warnings, make test, full tuitest, screenshots (grid
+  calm + CPU detail two-tone confirmed), install in the same breath.
 
 ## Session 2026-10-27 (2) — sensor-fill round + CCD proof (GLM / Kerempkl / FA608PP)
 

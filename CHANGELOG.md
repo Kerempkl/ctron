@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-10-27 — ui: chart types matched to their context (block area + sparkline rows)
+
+- User verdict after living with the braille rounds: the chart types
+  weren't useful where they were used. Critical re-review (fresh
+  screenshots) confirmed both contexts: 2-3-row braille minis in the
+  grid boxes read as grey blobs (no shape separation, axis labels
+  eating narrow boxes, boxes looking "busy"), and the dot texture in
+  the large detail charts sat in front of the shape with a ragged
+  top edge.
+- Detail pages: charts are now TWO-TONE SOLID BLOCK AREA — each
+  column fills with █ (dim accent2) and the top cell is an eighth-
+  block (▁▂▃▄▅▆▇█, bright accent) so the series edge is a crisp
+  bright line over a quiet fill (rows*8 vertical levels, no dot
+  texture, no cell seams; one ui_putln per same-color run). Y-axis
+  scale labels and stats rows unchanged.
+- Grid boxes: mini charts dropped entirely — each series is one
+  "label value sparkline" row (single-line block sparkline = the
+  60 s shape next to the live value) plus the info line. Boxes are
+  quiet again and read at a glance; series stay linked to the detail
+  pages through the shared CD_* lists.
+- Verified: 0 warnings, make test, full tuitest (incl. the spatial
+  j+l→RAM proof and 1-7 digit jumps), screenshots of grid + CPU
+  detail (two-tone separation confirmed, no tofu/seams), install in
+  the same breath.
+
 ## 2026-10-27 — telem: sensor-fill round (v0.7.0)
 
 - **Tccd1 / Tccd2** (k10temp temp3/temp4, label-verified once so a
