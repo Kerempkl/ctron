@@ -1,5 +1,34 @@
 # Changelog
 
+## 2026-10-28 — telem: professional monitoring pass (research-driven)
+
+- User asked "telemetry kısmı profesyonelce nasıl yapabiliriz,
+  muadillerini araştır" — researched btop/bottom/glances/htop/
+  zenith-ttyplot conventions, user picked ALL four adoptable items.
+- **Threshold zone colouring (glances OK→CAREFUL→WARNING→CRITICAL)**:
+  temps 70/85/95 °C, util 70/90/98 %, charge inverted (low=alarm);
+  the value text AND the curve+wash+dot take the zone colour, so a
+  hot chart visually shouts. Fixed palette-independent warn colours
+  (amber/orange/red) on top of the theme accent.
+- **Value column alignment (btop per-core rows)**: grid rows are now
+  label-left / sparkline-middle / value-RIGHT-ALIGNED, value in its
+  zone colour; secondary pair series rows in accent2.
+- **Dual-series charts (btop NET box)**: chartdef_t gained
+  sidx2/label2 — STORAGE read/write, NET rx/tx and FAN cpu/gpu draw
+  BOTH series in ONE chart over a shared honest scale (union range;
+  secondary layer first, primary over it, two dots, two-colour label
+  row "read 1.2 MB/s · write 0.3 MB/s", pair stats "rd a-b · wr c-d").
+  Chart count on those details halves.
+- **Window-average reference line (bottom)**: dotted muted line on
+  detail charts where it floats above both curves — typical vs now.
+- **Digit hints in box titles (btop)**: "CPU 1" … "POWER 8".
+- Fixed an honest bug caught in review: the pair sentinel was 0,
+  colliding with TS_CPU_TEMP=0 — non-pair minis rendered a bogus
+  second series and "(null)" labels; sentinel is now -1.
+- Verified: 0 warnings, make test, full tuitest, screenshots (digit
+  titles, right-aligned values, clean captions, dual charts), raw
+  stream checks, install in the same breath.
+
 ## 2026-10-28 — ui: FAN section + toggle escalation + sensor map (v0.8.0)
 
 - **FAN telemetry section (8th)**: the `TS_FAN_CPU`/`TS_FAN_GPU`

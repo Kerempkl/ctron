@@ -97,7 +97,99 @@ static void fmt_val(char *out, size_t n, unit_t u, double v)
     }
 }
 
-/* solid block area chart (btop-style) with a WASH fill: the area
+/* glances-style threshold zones (OK → CAREFUL → WARNING → CRITICAL):
+ * the value AND the curve take the zone colour, so the screen shouts
+ * when something is wrong. Fixed palette-independent warning colours. */
+enum { ZN_NONE, ZN_TEMP, ZN_UTIL, ZN_CHARGE };
+static uint32_t zone_color(int zn, double v, const palette_t *pal)
+{
+    switch (zn) {
+    case ZN_TEMP: /* °C: 70/85/95 steps */
+        return v >= 95 ? 0xe14b4bu : v >= 85 ? 0xd9704au
+               : v >= 70 ? 0xd8b04cu : pal->accent;
+    case ZN_UTIL: /* %: 70/90/98 */
+        return v >= 98 ? 0xe14b4bu : v >= 90 ? 0xd9704au
+               : v >= 70 ? 0xd8b04cu : pal->accent;
+    case ZN_CHARGE: /* inverted: low battery is the alarm */
+        return v < 20 ? 0xe14b4bu : v < 40 ? 0xd8b04cu : pal->accent;
+    default:
+        return pal->accent;
+    }
+}
+
+static uint32_t wash_of(uint32_t c, uint32_t bg)
+{
+    return (((c >> 1) & 0x7f7f7f) + ((bg >> 1) & 0x7f7f7f)) & 0xffffff;
+}
+
+typedef struct {
+    const char *label;
+    unit_t u;
+    int sidx;
+    const char *desc;    /* what the series measures, drawn under the
+                            chart (detail) / over the mini (grid) */
+    int zone;            /* ZN_*: threshold colouring of value+curve */
+    int sidx2;           /* optional 2nd series in the SAME chart
+                            (btop NET convention: rx/tx, read/write) */
+    const char *label2;  /* its label (label row, stats, grid rows) */
+} chartdef_t;
+
+/* the series each section charts — one list per section, shared by
+ * its grid box and its detail page so the two never drift apart.
+ * Every entry fully initialised (-Wextra): ZN_NONE, 0, NULL. */
+static const chartdef_t CD_CPU[] = {
+    { "temp", U_TEMP, TS_CPU_TEMP,
+      "Tctl — CPU die temperature (hottest sensor)", ZN_TEMP, -1, NULL },
+    { "clock", U_MHZ, TS_CPU_MHZ,
+      "thread-0 live frequency (sampled cpu)", ZN_NONE, -1, NULL },
+    { "load", U_LOAD, TS_CPU_LOAD,
+      "1-min load average (runnable tasks)", ZN_NONE, -1, NULL },
+};
+static const chartdef_t CD_GPU[] = {
+    { "temp", U_TEMP, TS_GPU_TEMP, "dGPU temperature", ZN_TEMP, -1, NULL },
+    { "power", U_W, TS_GPU_MW, "dGPU board power draw", ZN_NONE, -1, NULL },
+    { "clock", U_MHZ, TS_GPU_MHZ, "graphics clock (current)",
+      ZN_NONE, -1, NULL },
+    { "util", U_PCT, TS_GPU_UTIL, "GPU utilisation (sm activity)",
+      ZN_UTIL, -1, NULL },
+};
+static const chartdef_t CD_IGPU[] = {
+    { "temp", U_TEMP, TS_IGPU_TEMP, "iGPU edge temperature",
+      ZN_TEMP, -1, NULL },
+    /* amdgpu power1_input is the SoC PPT: the WHOLE APU package
+     * (CPU cores + iGPU + fabric), not the iGPU rail alone */
+    { "APU PPT", U_W, TS_IGPU_MW,
+      "whole-APU package power: CPU + iGPU", ZN_NONE, -1, NULL },
+    { "clock", U_MHZ, TS_IGPU_MHZ, "iGPU graphics clock",
+      ZN_NONE, -1, NULL },
+};
+static const chartdef_t CD_RAM[] = {
+    { "used", U_MB, TS_MEM_USED,
+      "memory in use (total minus available)", ZN_NONE, -1, NULL },
+};
+static const chartdef_t CD_DISK[] = {
+    { "read", U_MBPS, TS_DISK_RD, "NVMe read/write throughput (whole disks)",
+      ZN_NONE, TS_DISK_WR, "write" },
+};
+static const chartdef_t CD_NET[] = {
+    { "rx", U_MBPS, TS_NET_RX, "network rx/tx throughput (counted ifaces)",
+      ZN_NONE, TS_NET_TX, "tx" },
+};
+static const chartdef_t CD_FAN[] = {
+    { "cpu", U_RPM, TS_FAN_CPU, "CPU / GPU fan speeds (rpm)",
+      ZN_NONE, TS_FAN_GPU, "gpu" },
+};
+static const chartdef_t CD_POWER[] = {
+    { "draw", U_W, TS_BAT_MW, "battery power flow (discharge watts)",
+      ZN_NONE, -1, NULL },
+    { "charge", U_PCT, TS_BAT_PCT, "battery charge level",
+      ZN_CHARGE, -1, NULL },
+    { "usb-c", U_W, TS_PD_MW,
+      "USB-C PD input power (-- when unplugged)", ZN_NONE, -1, NULL },
+};
+#define CD_COUNT(a) ((int)(sizeof(a) / sizeof((a)[0])))
+
+/* multi-row wash chart (btop-style) with a WASH fill: the area
  * under the curve is a solid background color wash (no glyphs — the
  * fill has zero texture), and the curve itself is an eighth-block
  * edge (▁▂▃▄▅▆▇█) painted bright over the same wash so it rises
@@ -185,52 +277,12 @@ static int col_top(int h8)
     return h8 % 8 > 0 ? h8 / 8 : h8 / 8 - 1;
 }
 
-static void chart(struct ncplane *n, int x, int y, int w, int rows,
-                  int sidx, double mn, double mx)
+/* one series' wash+edge in the given colours — a LAYER; pairs draw
+ * the secondary first and the primary over it (btop NET convention) */
+static void chart_layer(struct ncplane *n, int x, int y, int rows,
+                        const int *lv8, int cols, uint32_t edge,
+                        uint32_t wash)
 {
-    const palette_t *pal = ui_palette(g_prefs.theme);
-    int count = telem_count(sidx);
-    if (count < 1 || rows < 1 || !(mx > mn))
-        return;
-    if (rows > CHART_ROWS_MAX)
-        rows = CHART_ROWS_MAX;
-    int cols = w - 2;
-    if (cols < 4)
-        cols = 4;
-    if (cols > CHART_COLS_MAX)
-        cols = CHART_COLS_MAX;
-
-    int lv8[CHART_COLS_MAX] = {0}; /* column height in eighths */
-    int last = -1;                 /* newest column with a sample */
-    for (int c = 0; c < cols; c++) {
-        int lo = (int)((long long)c * count / cols);
-        int hi = (int)((long long)(c + 1) * count / cols);
-        if (hi <= lo)
-            hi = lo + 1;
-        double peak = -1, v;
-        for (int k = lo; k < hi && k < count; k++) {
-            if (telem_at(sidx, count - 1 - k, &v) && v > peak)
-                peak = v;
-        }
-        if (peak < 0)
-            continue; /* unknown tick: empty column */
-        double f = (peak - mn) / (mx - mn);
-        if (f < 0)
-            f = 0;
-        if (f > 1)
-            f = 1;
-        int h = (int)(f * (rows * 8) + 0.5);
-        if (h > rows * 8)
-            h = rows * 8;
-        lv8[c] = h;
-        last = c;
-    }
-
-    /* wash = accent halved into the theme bg: a quiet tint that reads
-     * as "the area" without any glyph texture */
-    uint32_t wash = (((pal->accent >> 1) & 0x7f7f7f) +
-                     ((pal->bg >> 1) & 0x7f7f7f)) & 0xffffff;
-
     char buf[CHART_COLS_MAX * 3 + 8];
     for (int rr = 0; rr < rows; rr++) {
         int br = rows - 1 - rr; /* bottom-based row index */
@@ -256,73 +308,174 @@ static void chart(struct ncplane *n, int x, int y, int w, int rows,
                 c++;
             }
             buf[wl] = '\0';
-            put_cells(n, x + 1 + start, y + rr, buf, pal->accent, wash);
+            put_cells(n, x + 1 + start, y + rr, buf, edge, wash);
         }
-    }
-
-    /* newest sample: a bright dot so the current value pops */
-    if (last >= 0) {
-        char dot[4] = {(char)0xE2, (char)0x97, (char)0x8F, 0}; /* ● */
-        put_cells(n, x + 1 + last, y + (rows - 1) - col_top(lv8[last]),
-                  dot, pal->text, wash);
     }
 }
 
-typedef struct {
-    const char *label;
-    unit_t u;
-    int sidx;
-    const char *desc; /* what the series measures, drawn under the
-                         chart (detail) / over the mini (grid) */
-} chartdef_t;
+/* fill lv8[] (slice-peak column heights in eighths, shared scale);
+ * returns the newest column with a sample, -1 when the ring is empty */
+static int chart_levels(int sidx, int cols, int rows, double mn, double mx,
+                        int *lv8)
+{
+    int count = telem_count(sidx);
+    int last = -1;
+    for (int c = 0; c < cols; c++)
+        lv8[c] = 0;
+    if (count < 1)
+        return -1;
+    for (int c = 0; c < cols; c++) {
+        int lo = (int)((long long)c * count / cols);
+        int hi = (int)((long long)(c + 1) * count / cols);
+        if (hi <= lo)
+            hi = lo + 1;
+        double peak = -1, v;
+        for (int k = lo; k < hi && k < count; k++) {
+            if (telem_at(sidx, count - 1 - k, &v) && v > peak)
+                peak = v;
+        }
+        if (peak < 0)
+            continue; /* unknown tick: empty column */
+        double f = (peak - mn) / (mx - mn);
+        if (f < 0)
+            f = 0;
+        if (f > 1)
+            f = 1;
+        int h = (int)(f * (rows * 8) + 0.5);
+        if (h > rows * 8)
+            h = rows * 8;
+        lv8[c] = h;
+        last = c;
+    }
+    return last;
+}
 
-/* the series each section charts — one list per section, shared by
- * its grid box and its detail page so the two never drift apart */
-static const chartdef_t CD_CPU[] = {
-    { "temp", U_TEMP, TS_CPU_TEMP,
-      "Tctl — CPU die temperature (hottest sensor)" },
-    { "clock", U_MHZ, TS_CPU_MHZ,
-      "thread-0 live frequency (sampled cpu)" },
-    { "load", U_LOAD, TS_CPU_LOAD,
-      "1-min load average (runnable tasks)" },
-};
-static const chartdef_t CD_GPU[] = {
-    { "temp", U_TEMP, TS_GPU_TEMP, "dGPU temperature" },
-    { "power", U_W, TS_GPU_MW, "dGPU board power draw" },
-    { "clock", U_MHZ, TS_GPU_MHZ, "graphics clock (current)" },
-    { "util", U_PCT, TS_GPU_UTIL, "GPU utilisation (sm activity)" },
-};
-static const chartdef_t CD_IGPU[] = {
-    { "temp", U_TEMP, TS_IGPU_TEMP, "iGPU edge temperature" },
-    /* amdgpu power1_input is the SoC PPT: the WHOLE APU package
-     * (CPU cores + iGPU + fabric), not the iGPU rail alone */
-    { "APU PPT", U_W, TS_IGPU_MW,
-      "whole-APU package power: CPU + iGPU" },
-    { "clock", U_MHZ, TS_IGPU_MHZ, "iGPU graphics clock" },
-};
-static const chartdef_t CD_RAM[] = {
-    { "used", U_MB, TS_MEM_USED,
-      "memory in use (total minus available)" },
-};
-static const chartdef_t CD_DISK[] = {
-    { "read", U_MBPS, TS_DISK_RD, "NVMe read throughput (whole disks)" },
-    { "write", U_MBPS, TS_DISK_WR, "NVMe write throughput (whole disks)" },
-};
-static const chartdef_t CD_NET[] = {
-    { "rx", U_MBPS, TS_NET_RX, "network receive throughput" },
-    { "tx", U_MBPS, TS_NET_TX, "network transmit throughput" },
-};
-static const chartdef_t CD_FAN[] = {
-    { "cpu", U_RPM, TS_FAN_CPU, "CPU fan speed (0 when the EC stops it)" },
-    { "gpu", U_RPM, TS_FAN_GPU, "GPU fan speed (0 when the EC stops it)" },
-};
-static const chartdef_t CD_POWER[] = {
-    { "draw", U_W, TS_BAT_MW, "battery power flow (discharge watts)" },
-    { "charge", U_PCT, TS_BAT_PCT, "battery charge level" },
-    { "usb-c", U_W, TS_PD_MW,
-      "USB-C PD input power (-- when unplugged)" },
-};
-#define CD_COUNT(a) ((int)(sizeof(a) / sizeof((a)[0])))
+/* the combined chart range: the (smoothed) primary scale widened by
+ * the secondary's window extent, so both curves share ONE honest axis */
+static void chart_range(const chartdef_t *cd, double *mnp, double *mxp)
+{
+    int count = telem_count(cd->sidx);
+    chart_scale(cd->sidx, count, mnp, mxp);
+    if (cd->sidx2 >= 0 && *mxp > *mnp) {
+        double a, b;
+        telem_minmax(cd->sidx2, &a, &b);
+        if (a < *mnp)
+            *mnp = a;
+        if (b > *mxp)
+            *mxp = b;
+    }
+}
+
+static void chart(struct ncplane *n, int x, int y, int w, int rows,
+                  const chartdef_t *cd, double mn, double mx,
+                  bool show_avg)
+{
+    const palette_t *pal = ui_palette(g_prefs.theme);
+    if (rows < 1 || !(mx > mn))
+        return;
+    if (rows > CHART_ROWS_MAX)
+        rows = CHART_ROWS_MAX;
+    int cols = w - 2;
+    if (cols < 4)
+        cols = 4;
+    if (cols > CHART_COLS_MAX)
+        cols = CHART_COLS_MAX;
+
+    int lv1[CHART_COLS_MAX], lv2[CHART_COLS_MAX];
+    int last1 = chart_levels(cd->sidx, cols, rows, mn, mx, lv1);
+    int last2 = cd->sidx2 >= 0 ? chart_levels(cd->sidx2, cols, rows, mn,
+                                              mx, lv2)
+                               : -1;
+    if (last1 < 0 && last2 < 0)
+        return;
+
+    /* zone colouring: the curve (and its wash) carry the state */
+    uint32_t e1 = zone_color(cd->zone, telem_last(cd->sidx), pal);
+    uint32_t w1 = wash_of(e1, pal->bg);
+    uint32_t e2 = pal->accent2;
+    uint32_t w2 = wash_of(e2, pal->bg);
+
+    if (last2 >= 0) {
+        chart_layer(n, x, y, rows, lv2, cols, e2, w2);
+        char dot[4] = {(char)0xE2, (char)0x97, (char)0x8F, 0}; /* ● */
+        put_cells(n, x + 1 + last2, y + (rows - 1) - col_top(lv2[last2]),
+                  dot, e2, w2);
+    }
+    if (last1 >= 0) {
+        chart_layer(n, x, y, rows, lv1, cols, e1, w1);
+        char dot[4] = {(char)0xE2, (char)0x97, (char)0x8F, 0}; /* ● */
+        put_cells(n, x + 1 + last1, y + (rows - 1) - col_top(lv1[last1]),
+                  dot, e1, w1);
+    }
+
+    /* window-average reference line (bottom convention): dotted, only
+     * over columns where it floats above BOTH curves so it never
+     * crosses them */
+    if (show_avg && rows >= 3 && last1 >= 0) {
+        int count = telem_count(cd->sidx);
+        double sum = 0;
+        int nsamp = 0, back;
+        double v;
+        for (back = 0; back < count; back++) {
+            if (telem_at(cd->sidx, back, &v)) {
+                sum += v;
+                nsamp++;
+            }
+        }
+        if (nsamp > 0) {
+            double f = (sum / nsamp - mn) / (mx - mn);
+            if (f < 0)
+                f = 0;
+            if (f > 1)
+                f = 1;
+            int ya = (int)(f * (rows * 8) + 0.5);
+            int rr = rows - 1 - col_top(ya);
+            int br = rows - 1 - rr; /* avg row, bottom-based */
+            char buf[CHART_COLS_MAX * 4 + 8];
+            int c = 0;
+            while (c < cols) {
+                /* the line only floats where it is above BOTH curves */
+                bool above = (lv1[c] <= 0 || col_top(lv1[c]) < br) &&
+                             (lv2[c] <= 0 || col_top(lv2[c]) < br);
+                if (above)
+                    break;
+                c++;
+            }
+            if (c >= cols)
+                return;
+            while (c < cols) {
+                size_t wl = 0;
+                int start = c;
+                while (c < cols && wl + 4 <= sizeof buf - 1) {
+                    bool above = (lv1[c] <= 0 ||
+                                  col_top(lv1[c]) < br) &&
+                                 (lv2[c] <= 0 ||
+                                  col_top(lv2[c]) < br);
+                    if (!above)
+                        break;
+                    if (c % 2) {
+                        buf[wl++] = ' ';
+                    } else {
+                        buf[wl++] = (char)0xC2; /* · */
+                        buf[wl++] = (char)0xB7;
+                    }
+                    c++;
+                }
+                buf[wl] = '\0';
+                if (wl)
+                    put_cells(n, x + 1 + start, y + rr, buf, pal->muted,
+                              pal->bg);
+                while (c < cols) {
+                    bool above = (lv1[c] <= 0 || col_top(lv1[c]) < br) &&
+                                 (lv2[c] <= 0 || col_top(lv2[c]) < br);
+                    if (above)
+                        break;
+                    c++;
+                }
+            }
+        }
+    }
+}
 
 static int utf_cells(const char *s)
 {
@@ -335,20 +488,33 @@ static int utf_cells(const char *s)
 
 /* one labelled block: value row, `rows` chart rows with a y-axis of
  * the actual chart scale (top = max, bottom = min) so every graph
- * says what its height means on its own, optional stats row */
+ * says what its height means on its own, stats + desc rows. Pairs
+ * (sidx2) draw both series in ONE chart over a shared scale. */
 static void chart_block(struct ncplane *n, int x, int y, int w, int rows,
                         const chartdef_t *cd, bool stats)
 {
     const palette_t *pal = ui_palette(g_prefs.theme);
-    char v[40], line[160];
+    char v[40], v2[40], line[224];
     double last = telem_last(cd->sidx);
     fmt_val(v, sizeof v, cd->u, last);
-    snprintf(line, sizeof line, " %-10s %s", cd->label, v);
-    ui_putln(n, x, y, w, line, pal->text, false);
+
+    /* label row: label (text) + value(s); zone colour on the primary
+     * value, secondary in accent2 — colour doubles as the legend */
+    uint32_t zc = zone_color(cd->zone, last, pal);
+    snprintf(line, sizeof line, " %-10s", cd->label);
+    ui_putln(n, x, y, 12, line, pal->text, false);
+    int vx = x + 11;
+    if (cd->sidx2 >= 0) {
+        fmt_val(v2, sizeof v2, cd->u, telem_last(cd->sidx2));
+        snprintf(line, sizeof line, "%s · %s %s", v, cd->label2, v2);
+    } else {
+        snprintf(line, sizeof line, "%s", v);
+    }
+    ui_putln(n, vx, y, w - 11, line, zc, false);
 
     int count = telem_count(cd->sidx);
     double mn, mx;
-    chart_scale(cd->sidx, count, &mn, &mx);
+    chart_range(cd, &mn, &mx);
     if (count < 1 || !(mx > mn))
         return;
 
@@ -364,20 +530,32 @@ static void chart_block(struct ncplane *n, int x, int y, int w, int rows,
         ui_putln(n, x + 1, y + 1, ax, pad, pal->text, false);
         snprintf(pad, sizeof pad, "%*s%s", ax - utf_cells(bb), "", bb);
         ui_putln(n, x + 1, y + rows, ax, pad, pal->text, false);
-        chart(n, x + ax + 2, y, cw, rows, cd->sidx, mn, mx);
+        chart(n, x + ax + 2, y, cw, rows, cd, mn, mx, stats);
     } else {
-        chart(n, x, y, w, rows, cd->sidx, mn, mx);
+        chart(n, x, y, w, rows, cd, mn, mx, stats);
     }
 
     if (!stats)
         return;
-    double wmn, wmx;
-    telem_minmax(cd->sidx, &wmn, &wmx);
-    char a[40], b[40], c2[40];
-    fmt_val(a, sizeof a, cd->u, wmn);
-    fmt_val(b, sizeof b, cd->u, wmx);
-    fmt_val(c2, sizeof c2, cd->u, last);
-    snprintf(line, sizeof line, " min %s · max %s · last %s", a, b, c2);
+    char a[40], b[40], c2[40], d2[40];
+    if (cd->sidx2 >= 0) {
+        double amn, amx, bmn, bmx;
+        telem_minmax(cd->sidx, &amn, &amx);
+        telem_minmax(cd->sidx2, &bmn, &bmx);
+        fmt_val(a, sizeof a, cd->u, amn);
+        fmt_val(b, sizeof b, cd->u, amx);
+        fmt_val(c2, sizeof c2, cd->u, bmn);
+        fmt_val(d2, sizeof d2, cd->u, bmx);
+        snprintf(line, sizeof line, " %s %s-%s · %s %s-%s",
+                 cd->label, a, b, cd->label2, c2, d2);
+    } else {
+        double wmn, wmx;
+        telem_minmax(cd->sidx, &wmn, &wmx);
+        fmt_val(a, sizeof a, cd->u, wmn);
+        fmt_val(b, sizeof b, cd->u, wmx);
+        fmt_val(c2, sizeof c2, cd->u, last);
+        snprintf(line, sizeof line, " min %s · max %s · last %s", a, b, c2);
+    }
     info_line(n, x, y + 1 + rows, w, line);
     /* what this series measures — the chart explains itself */
     if (cd->desc)
@@ -420,10 +598,10 @@ static void stack_charts(struct ncplane *n, const rect_t *r,
         info_line(n, x, y + i, w, info[i]);
 }
 
-/* grid-box content: one "label  value  sparkline" row per series,
- * the info line, and — when the box has room — a small wash chart of
- * the section's PRIMARY series (cd[0]) so every box also carries one
- * real graph without getting busy. */
+/* grid-box content: one row per series — label left, sparkline in
+ * the middle, value RIGHT-ALIGNED in a column (btop's per-core rows),
+ * value coloured by its zone; the info line; and a small wash chart
+ * of the primary series (pairs included) in the leftover space. */
 static void grid_rows(struct ncplane *n, const rect_t *r,
                       const chartdef_t *cd, int ncd,
                       const char *const *info, int ninfo)
@@ -434,33 +612,55 @@ static void grid_rows(struct ncplane *n, const rect_t *r,
         return;
     const palette_t *pal = ui_palette(g_prefs.theme);
     int y = r->y + 1;
-    for (int i = 0; i < ncd && i < avail; i++, y++) {
-        char cur[40], spark[600], line[700];
-        int cells = w - 26;
-        if (cells < 6)
-            cells = 6;
-        if ((size_t)cells * 3 + 1 > sizeof spark)
-            cells = (int)(sizeof spark - 1) / 3;
-        telem_spark(cd[i].sidx, spark, sizeof spark, cells);
-        fmt_val(cur, sizeof cur, cd[i].u, telem_last(cd[i].sidx));
-        snprintf(line, sizeof line, " %-8s %-14s %s", cd[i].label, cur, spark);
-        ui_putln(n, x, y, w, line, pal->text, false);
+    int rows_used = 0;
+    for (int i = 0; i < ncd && rows_used < avail; i++) {
+        /* a pair entry gets one row per series (label / label2) */
+        int halves = cd[i].sidx2 >= 0 ? 2 : 1;
+        for (int half = 0; half < halves && rows_used < avail;
+             half++, rows_used++, y++) {
+            const char *lab = half ? cd[i].label2 : cd[i].label;
+            int sidx = half ? cd[i].sidx2 : cd[i].sidx;
+            double last = telem_last(sidx);
+            char cur[40], labn[24];
+            fmt_val(cur, sizeof cur, cd[i].u, last);
+            int vc = utf_cells(cur);
+            snprintf(labn, sizeof labn, " %-9s", lab);
+            ui_putln(n, x, y, 11, labn, pal->text, false);
+            /* sparkline between the label and the value column */
+            int sw = w - 11 - vc - 2;
+            if (sw >= 6) {
+                char spark[600];
+                int cells = sw;
+                if ((size_t)cells * 3 + 1 > sizeof spark)
+                    cells = (int)(sizeof spark - 1) / 3;
+                telem_spark(sidx, spark, sizeof spark, cells);
+                ui_putln(n, x + 11, y, sw + 1, spark,
+                         half ? pal->accent2 : pal->text, false);
+            }
+            ui_putln(n, x + w - vc, y, vc + 1, cur,
+                     zone_color(cd[i].zone, last, pal), false);
+        }
     }
     int yinfo = y;
-    for (int i = 0; i < ninfo && i < avail - ncd; i++)
+    for (int i = 0; i < ninfo && i < avail - rows_used; i++)
         info_line(n, x, yinfo + i, w, info[i]);
-    int left = avail - ncd - ninfo;
+    int left = avail - rows_used - ninfo;
     if (left >= 4) {
         double mn, mx;
         int cnt = telem_count(cd[0].sidx);
-        chart_scale(cd[0].sidx, cnt, &mn, &mx);
+        chart_range(&cd[0], &mn, &mx);
         if (cnt > 0 && mx > mn) {
             /* the mini carries a caption so it names itself */
             char cap[96];
-            snprintf(cap, sizeof cap, " %s — %s", cd[0].label, cd[0].desc);
+            if (cd[0].sidx2 >= 0)
+                snprintf(cap, sizeof cap, " %s/%s — %s", cd[0].label,
+                         cd[0].label2, cd[0].desc);
+            else
+                snprintf(cap, sizeof cap, " %s — %s", cd[0].label,
+                         cd[0].desc);
             info_line(n, x, yinfo + ninfo, w, cap);
-            chart(n, x - 1, yinfo + ninfo + 1, w + 2, left - 1,
-                  cd[0].sidx, mn, mx);
+            chart(n, x - 1, yinfo + ninfo + 1, w + 2, left - 1, &cd[0],
+                  mn, mx, false);
         }
     }
 }
@@ -957,7 +1157,10 @@ void panel_telem_full_draw(struct ncplane *n, const rect_t *r)
         if (sw < 14 || sh < 2)
             continue; /* too tiny: skip rather than cram */
         rect_t sr = { sx, sy, sw, sh };
-        ui_box(n, &sr, SECTIONS[i].title, i == sel);
+        /* title carries the digit shortcut (btop convention) */
+        char t[40];
+        snprintf(t, sizeof t, "%s %d", SECTIONS[i].title, i + 1);
+        ui_box(n, &sr, t, i == sel);
         tgt_register(sr.x, sr.y, sr.w, sr.h, TGT(TGT_PANEL_TELEM, i));
         SECTIONS[i].draw(n, &sr);
     }

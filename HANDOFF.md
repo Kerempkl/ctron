@@ -1,6 +1,16 @@
 # Ctron Handoff
 
-Latest session — **2026-10-28 (5th round, "1 2 3 ü yapalım")**
+Latest session — **2026-10-28 (6th round, professional telemetry)**
+**GLM / Kerempkl / FA608PP**: research-driven professional pass —
+web research over btop/bottom/glances/htop/zenith/ttyplot, user took
+ALL four items: glances-style threshold zone colouring (value+curve
+shout on 70/85/95 °C temp, 70/90/98 % util, low charge), btop value
+column alignment (label/sparkline/right-aligned value), btop NET
+dual-series charts (read/write, rx/tx, cpu/gpu fans in ONE chart,
+shared union scale, sidx2/label2 on chartdef_t), bottom window-
+average dotted reference line, digit hints in box titles (CPU 1 …
+POWER 8). Caught+fixed in review: pair sentinel 0 collided with
+TS_CPU_TEMP=0 → "(null)" captions; now -1. Before that **2026-10-28 (5th round, "1 2 3 ü yapalım")**
 **GLM / Kerempkl / FA608PP**: the user picked three items and all
 three landed — **FAN telemetry section** (8th: the RPM rings finally
 chart; grid is a full 4×2, digits 1-8), **ctron-toggle TERM→KILL
