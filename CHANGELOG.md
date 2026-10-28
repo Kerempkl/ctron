@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-10-28 — security: full-tree audit, profile_set_note stack overflow fixed (v0.8.1)
+
+- **Full read-only audit of every source file** (~19 k lines: src/,
+  scripts/, Makefile) + `gcc -fanalyzer` pass + targeted greps. The
+  SECURITY.md claims held against the code: privileged writes are pure
+  argv execs everywhere, every remaining `popen`/`ut_exec` gets a
+  code-constant command, every `sscanf %s` is width-bounded, every
+  `ut_log` format is a literal, `system()` is gone, and
+  `profile_sanitize_name` blocks path traversal. The analyzer's five
+  warnings are all false positives or benign (child fds die at exec;
+  `ctrl_ppt_limits` writes all six outputs unconditionally).
+- **The one real vulnerability, found and fixed:** `profile_set_note()`
+  accumulated `off += snprintf(...)` — snprintf returns the WANTED
+  length, so a `>4 KB .ctr` file pushed `off` past `out[4096]`, the
+  next `sizeof(out) - off` wrapped size_t, and the rewrite wrote past
+  the stack buffer with file content. Proven live with an ASan PoC
+  against the real function (WRITE of size 513, `out` overflow), then
+  fixed with `note_append()` (offset hard-clamped on both sides;
+  oversized snapshots are rewritten truncated, never out of bounds).
+  A >12 KB regression test in `tests/test_core.c` covers the path and
+  the whole suite passes under an ASan build.
+- **ctron-toggle.sh:** the KWin helper `.js` is now created with
+  `set -C` noclobber (the stamp's rule) — in the shared `/tmp`
+  fallback a planted symlink at the pid-based name is refused
+  (re-verified with a symlink→/etc/passwd probe), one retry on
+  collision, KWin branch skipped if both refuse.
+- **daeboard warning made explicit** (SECURITY.md §4.1): `db_install`
+  execs `~/Documents/daeboard/install.sh` as root — never add a
+  sudoers rule for it; the default ruleset deliberately excludes it.
+- Small hardening: `make HARDEN=1` opts into
+  `-fstack-protector-strong -D_FORTIFY_SOURCE=2` (distro CFLAGS add
+  these anyway; plain make/Nix do not); `cut_step`'s shift is now
+  `memmove` (regions were adjacent, not overlapping — cleanliness).
+- v0.8.1 (PATCH): VERSION + README badge + flake version in one
+  commit per policy.
+
 ## 2026-10-28 — perf: FAZ 4/16 closed with evidence (no background thread)
 
 - The conditional "nvidia-smi background sampler" item is decided by

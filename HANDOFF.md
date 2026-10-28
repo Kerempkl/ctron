@@ -1,6 +1,24 @@
 # Ctron Handoff
 
-Latest session — **2026-10-28 (6th round, professional telemetry)**
+Latest session — **2026-10-28 (7th round, security audit → v0.8.1)**
+**GLM / Kerempkl / FA608PP**: user asked for a full vulnerability hunt
+over the whole tree ("tüm kodu detaylıca oku") — every source file read,
+`gcc -fanalyzer` pass, dangerous-pattern greps. ONE real vulnerability
+found, ASan-proven and FIXED in the same breath: `profile_set_note`'s
+`off += snprintf(...)` ran past `out[4096]` on any >4 KB `.ctr` (next
+size argument wrapped size_t → out-of-bounds stack WRITE); fixed with a
+hard-clamped `note_append()`, >12 KB regression test in test_core, full
+suite green under an ASan build. Also: ctron-toggle's KWin `.js` now
+created noclobber (symlink-refusal proven with a probe), SECURITY.md
+gained the daeboard install.sh never-add-to-sudoers warning + §2.4 fix
+record + Phase 2.2 closure, `make HARDEN=1` opts into
+stack-protector/fortify, `cut_step` memcpy→memmove. Everything else
+audited CLEAN against the doc claims (argv-only privileged writes,
+width-bounded sscanf, literal log formats, sanitize blocks traversal;
+the 5 analyzer warnings are FPs). **v0.8.1** cut (VERSION+badge+flake
+one commit). 0 warnings on normal and HARDEN builds, `make test`,
+`make tuitest` (note flow exercised), `--status` live, `make install`
+fresh. Push/tag on the user's side. Before that **2026-10-28 (6th round, professional telemetry)**
 **GLM / Kerempkl / FA608PP**: research-driven professional pass —
 web research over btop/bottom/glances/htop/zenith/ttyplot, user took
 ALL four items: glances-style threshold zone colouring (value+curve
@@ -157,6 +175,52 @@ prioritized todo list and the distilled session lessons.
   pidfile removal, exit 0). Harness-proven: rc=0 + pidfile gone.
   User-facing: icon-close and M4-toggle-close now look like regular
   quits.
+
+## Session 2026-10-28 (7) — security audit: profile_set_note overflow fixed, v0.8.1 (GLM / Kerempkl / FA608PP)
+
+Full-tree read-only audit (~19 k lines) → one ASan-proven stack
+overflow found and fixed the same session.
+
+- **The bug** (src/profile.c `profile_set_note`): the note-rewrite
+  loop did `off += snprintf(out + off, sizeof(out) - off, ...)`.
+  snprintf's return is the length it WANTED to write, so a >4 KB
+  `.ctr` pushed `off` past `out[4096]`; the following call's
+  `sizeof(out) - off` underflowed size_t and the append wrote past
+  the stack buffer with file content (a shared/hand-made snapshot +
+  `c` in the TUI is the trigger). PoC: real `profile.c` linked under
+  ASan → `stack-buffer-overflow WRITE of size 513` at the append.
+- **The fix**: `note_append()` clamps `off` into `[0, n-2]` before and
+  after every append — oversized snapshots are rewritten truncated,
+  never out of bounds. Regression test (12 KB profile, note
+  round-trip via `profile_meta_parse`) added to `check_profiles`.
+  Whole `make test` also passes under an ASan build (build the binary
+  under the name `test_core` — the singleton tests compare comm).
+- **Verified clean** (code vs SECURITY.md claims): privileged writes
+  argv-only; popen/ut_exec commands code-constant; sscanf width-
+  bounded; ut_log formats literal; profile_sanitize_name blocks
+  `.`/`..`; pidfile O_EXCL|O_NOFOLLOW + uid gate; daeboard socket
+  exchange 2 s-capped. `gcc -fanalyzer`: 5 warnings, all false
+  positives or benign (child fds close at exec via O_CLOEXEC;
+  ctrl_ppt_limits writes all outputs; fan_normalize fills order[];
+  cut_step's memcpy regions were adjacent, now memmove anyway).
+- **ctron-toggle.sh**: KWin `.js` created via `(set -C; cat > file)`
+  (stamp's rule); symlink→/etc/passwd probe refused, target
+  untouched; one retry on collision, else the KWin branch is skipped
+  with a log line.
+- **SECURITY.md**: §2.4 records the find+fix; Phase 2.2 marked DONE
+  (js noclobber; $TERMINAL already single-quoted argv, no shell);
+  §4.1 daeboard warning — NEVER add a sudoers rule for
+  `~/Documents/daeboard/install.sh` (user-writable path as root).
+- **Makefile**: `HARDEN=1` → `-fstack-protector-strong
+  -D_FORTIFY_SOURCE=2` (opt-in like LTO).
+- **v0.8.1** (PATCH): VERSION + README badge + flake in one commit.
+- Verified: 0 warnings (`make`, `make HARDEN=1`), `make test`,
+  `make tuitest` (snapshots note flow included), `--status` live,
+  `make install` fresh in the same breath.
+
+Signed: **GLM 5.3** — audit, fix, tests, docs, release.
+
+*Date: 2026-10-28*
 
 ## Session 2026-10-28 (5) — FAN section + toggle escalation + sensor map, v0.8.0 (GLM / Kerempkl / FA608PP)
 
