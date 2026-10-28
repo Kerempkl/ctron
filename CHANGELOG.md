@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-10-28 — review pass 2: modes.ini name guard + analyzer-clean shadows
+
+- Second full look after the security audit, this time with
+  `-Wshadow -Wstrict-prototypes -Wwrite-strings -Wformat=2` on top of
+  the stock flags, plus the first read of the two Python harnesses
+  (tui_smoke / tui_screenshot — both clean: isolated CTRON_CONFIG,
+  bounded emulators, careful env restore).
+- **Mode names now validated at both creation sites** (`mode add` CLI
+  and the TUI MODE EDITOR) via `mode_name_ok()`: empty names, `[`/`]`
+  (the ini section parser cuts at the first `]`) and newlines (would
+  inject a bogus line) are rejected with a clear error — such names
+  previously round-tripped broken and silently disappeared from the
+  list. Unit-tested (6 cases).
+- `editor_daeboard`: the four step-string helpers' `step` parameter
+  shadowed the editor's global cursor `step` (-Wshadow) — renamed to
+  `slot`; the 'a' key computed the destination pointer BEFORE the
+  `*pn < DBE_STEPS` guard (benign — the address lands inside the
+  struct and was never written out of range, but the guard now owns
+  the pointer). `detail_ram`'s alarm-counter `n` shadowed the
+  ncplane parameter — renamed to `cnt`. `hw.h` dropped a duplicate
+  include pair.
+- The extra-warnings pass is down to exactly one deliberate warning:
+  `val_or_dash`'s format parameter is non-literal by design (every
+  call site passes a literal).
+
 ## 2026-10-28 — security: full-tree audit, profile_set_note stack overflow fixed (v0.8.1)
 
 - **Full read-only audit of every source file** (~19 k lines: src/,

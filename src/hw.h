@@ -64,9 +64,6 @@ int hw_hwmon_path_nth(const char *want, int nth, char *out, size_t n);
  * wake a sleeping dGPU. */
 int hw_gpu_temp_allowed(int pref_on, const char *runtime_status);
 
-#include <stdbool.h>
-#include <stddef.h>
-
 #include "fan.h"
 
 /* PPT write interface, resolved once at init (probe order):

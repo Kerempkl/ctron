@@ -30,6 +30,12 @@ void modes_write_defaults(void);
 
 int mode_find(const mode_def_t *arr, int n, const char *name);
 
+/* True when `name` is safe to store as a modes.ini section header:
+ * non-empty, no '['/']' (the section parser cuts at the first ']') and
+ * no newline (would inject a bogus line). Both creation paths — the
+ * CLI `mode add` and the TUI MODE EDITOR — must gate on this. */
+bool mode_name_ok(const char *name);
+
 /* ---- applied-mode tracking (CONTROLS Mode row) ------------------------ *
  * After a mode is applied, the Mode row shows "- / name / name*" — the
  * star marks drift: a tracked field the mode touched now differs from

@@ -124,6 +124,16 @@ int mode_find(const mode_def_t *arr, int n, const char *name)
     return -1;
 }
 
+bool mode_name_ok(const char *name)
+{
+    if (!name || !name[0])
+        return false;
+    for (const char *p = name; *p; p++)
+        if (*p == '[' || *p == ']' || *p == '\n' || *p == '\r')
+            return false;
+    return true;
+}
+
 /* ---- applied-mode tracking --------------------------------------------- */
 
 /* step key → tracked-field bits; 0 = untracked (aura, asusd auto

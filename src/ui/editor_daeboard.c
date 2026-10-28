@@ -294,21 +294,21 @@ static int save_file(void)
 	return 0;
 }
 
-static int op_index(const char *step)
+static int op_index(const char *slot)
 {
 	int i;
 	for (i = 0; i < 5; i++) {
 		int n = (int)strlen(kops[i]);
-		if (!strncmp(step, kops[i], (size_t)n) &&
-		    (step[n] == 0 || step[n] == ' '))
+		if (!strncmp(slot, kops[i], (size_t)n) &&
+		    (slot[n] == 0 || slot[n] == ' '))
 			return i;
 	}
 	return 0;
 }
 
-static int last_int(const char *step)
+static int last_int(const char *slot)
 {
-	const char *p = step;
+	const char *p = slot;
 	int v = -1;
 	while (*p) {
 		if (isdigit((unsigned char)*p)) {
@@ -324,32 +324,32 @@ static int last_int(const char *step)
 	return v < 0 ? 0 : v;
 }
 
-static void cycle_step(char *step)
+static void cycle_step(char *slot)
 {
-	int op = (op_index(step) + 1) % 5;
-	int ms = last_int(step);
+	int op = (op_index(slot) + 1) % 5;
+	int ms = last_int(slot);
 	if (op == 3 && ms == 0)
 		ms = 2000;
 	switch (op) {
-	case 0: snprintf(step, 48, "color ffffff %d", ms ? ms : 200); break;
-	case 1: snprintf(step, 48, "brightness 3 %d", ms); break;
-	case 2: snprintf(step, 48, "breathe %d", ms); break;
-	case 3: snprintf(step, 48, "fade %d", ms ? ms : 2000); break;
-	default: snprintf(step, 48, "rest"); break;
+	case 0: snprintf(slot, 48, "color ffffff %d", ms ? ms : 200); break;
+	case 1: snprintf(slot, 48, "brightness 3 %d", ms); break;
+	case 2: snprintf(slot, 48, "breathe %d", ms); break;
+	case 3: snprintf(slot, 48, "fade %d", ms ? ms : 2000); break;
+	default: snprintf(slot, 48, "rest"); break;
 	}
 }
 
-static void bump_step(char *step, int delta)
+static void bump_step(char *slot, int delta)
 {
-	int op = op_index(step);
-	int ms = last_int(step) + delta;
+	int op = op_index(slot);
+	int ms = last_int(slot) + delta;
 	if (ms < 0)
 		ms = 0;
 	if (op == 4)
 		return;
 	if (op == 0) {
 		char hex[8] = "ffffff";
-		const char *p = strchr(step, ' ');
+		const char *p = strchr(slot, ' ');
 		if (p) {
 			int i = 0;
 			p++;
@@ -358,16 +358,16 @@ static void bump_step(char *step, int delta)
 			}
 			hex[i] = 0;
 		}
-		snprintf(step, 48, "color %s %d", hex, ms);
+		snprintf(slot, 48, "color %s %d", hex, ms);
 	} else if (op == 1) {
 		int bri = 3;
-		if (sscanf(step, "brightness %d", &bri) != 1)
+		if (sscanf(slot, "brightness %d", &bri) != 1)
 			bri = 3;
-		snprintf(step, 48, "brightness %d %d", bri, ms);
+		snprintf(slot, 48, "brightness %d %d", bri, ms);
 	} else if (op == 2) {
-		snprintf(step, 48, "breathe %d", ms);
+		snprintf(slot, 48, "breathe %d", ms);
 	} else if (op == 3) {
-		snprintf(step, 48, "fade %d", ms);
+		snprintf(slot, 48, "fade %d", ms);
 	}
 }
 
@@ -1101,8 +1101,8 @@ void editor_daeboard_key(uint32_t key)
 	}
 	if (key == 'a' || key == 'A') {
 		int *pn = side == 0 ? &k->n_down : &k->n_up;
-		char *dest = side == 0 ? k->down[*pn] : k->up[*pn];
 		if (*pn < DBE_STEPS) {
+			char *dest = side == 0 ? k->down[*pn] : k->up[*pn];
 			snprintf(dest, 48, "color ffffff 200");
 			step = (*pn)++;
 			focus = 1;

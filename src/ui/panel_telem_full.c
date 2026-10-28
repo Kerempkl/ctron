@@ -968,16 +968,16 @@ static void detail_ram(struct ncplane *n, const rect_t *r)
     if (hw->ram_alarm) {
         char *p = mod;
         size_t left = sizeof mod;
-        int n = 0;
+        int cnt = 0;
         for (int i = 0; i < hw->ram_temp_n; i++) {
             if (!(hw->ram_alarm & (1 << i)))
                 continue;
-            int w = snprintf(p, left, "%s%d", n ? "," : "", i + 1);
+            int w = snprintf(p, left, "%s%d", cnt ? "," : "", i + 1);
             if (w < 0 || (size_t)w >= left)
                 break;
             p += w;
             left -= (size_t)w;
-            n++;
+            cnt++;
         }
     }
     snprintf(l2, sizeof l2, "%s%s%s", lim,

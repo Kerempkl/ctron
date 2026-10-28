@@ -18,7 +18,15 @@ width-bounded sscanf, literal log formats, sanitize blocks traversal;
 the 5 analyzer warnings are FPs). **v0.8.1** cut (VERSION+badge+flake
 one commit). 0 warnings on normal and HARDEN builds, `make test`,
 `make tuitest` (note flow exercised), `--status` live, `make install`
-fresh. Push/tag on the user's side. Before that **2026-10-28 (6th round, professional telemetry)**
+fresh. Push/tag on the user's side. Same day **review pass 2**: extra-
+warnings build (-Wshadow &co) cleaned the daeboard `step`-param
+shadows + pointer-before-guard, `detail_ram` `n` shadow, hw.h dup
+include; **mode names now validated at both creation sites**
+(`mode_name_ok`: no empty/`[`/`]`/newline — such names round-tripped
+broken through modes.ini; 6 unit cases + live CLI check); first audit
+of tui_smoke.py/tui_screenshot.py (clean); extra-warnings pass now
+exactly 1 deliberate format-nonliteral. 0 warnings, make test, full
+tuitest, install — rides the next version cut (no bump). Before that **2026-10-28 (6th round, professional telemetry)**
 **GLM / Kerempkl / FA608PP**: research-driven professional pass —
 web research over btop/bottom/glances/htop/zenith/ttyplot, user took
 ALL four items: glances-style threshold zone colouring (value+curve

@@ -211,6 +211,12 @@ static void save_mode(bool also_apply)
     snprintf(name, sizeof(name), "%.23s", g_ui.md_name.buf);
     snprintf(steps, sizeof(steps), "%.219s", g_ui.md_steps.buf);
 
+    if (!mode_name_ok(name)) {
+        ut_log("mode save FAILED: bad name (empty, [ ] or newline)");
+        g_ui.md_field = -1;
+        return;
+    }
+
     int idx = mode_find(g_ui.modes, g_ui.mode_n, name);
     if (idx < 0 && g_ui.mode_n < MODES_MAX)
         idx = g_ui.mode_n++;

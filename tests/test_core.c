@@ -103,6 +103,16 @@ static void check_modes(void)
     CHECK(t >= 0, "turbo exists");
     CHECK(strstr(modes[t].steps, "profile performance") != NULL, "turbo steps");
 
+    /* modes.ini section-header safety: a name carrying the section
+     * delimiters or a newline cannot round-trip (the parser cuts at
+     * the first ']' / reads lines whole) */
+    CHECK(mode_name_ok("turbo"), "plain name ok");
+    CHECK(mode_name_ok("my-mode_2.x"), "dotted name ok");
+    CHECK(!mode_name_ok(""), "empty name rejected");
+    CHECK(!mode_name_ok("a]b"), "']' name rejected");
+    CHECK(!mode_name_ok("a[b"), "'[' name rejected");
+    CHECK(!mode_name_ok("a\nb"), "newline name rejected");
+
     /* persist roundtrip */
     snprintf(modes[0].name, MODE_NAME_MAX, "zz-test");
     snprintf(modes[0].steps, MODE_STEPS_MAX, "profile quiet, fan stock");

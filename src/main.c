@@ -341,6 +341,10 @@ static int cmd_mode(int argc, char **argv, hw_state_t *hw)
         return 0;
     }
     if (!strcmp(sub, "add") && argc > 4) {
+        if (!mode_name_ok(argv[3])) {
+            fprintf(stderr, "ctron: bad mode name '%s' (empty, [ ] or newline)\n", argv[3]);
+            return 1;
+        }
         if (mode_find(modes, n, argv[3]) >= 0) {
             fprintf(stderr, "mode exists: %s (delete it first)\n", argv[3]);
             return 1;
