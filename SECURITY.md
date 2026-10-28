@@ -67,6 +67,12 @@ Other privileged operations:
   `[A-Za-z0-9._-]` and safely handled `/` segment separators (`.` and `..` rejected).
 - **Modes file (`modes.ini`):** Fixed buffer parsing. Stack overflow protections
   were audited on 2026-10-03 (32-entry table cap, `MODE_STEPS_MAX` truncation guards).
+- **Snapshot note rewrite:** the 2026-10-28 full-tree audit found a real stack
+  buffer overflow in `profile_set_note()` — a `>4 KB .ctr` drove the offset
+  past the buffer because `snprintf`'s return value is the WANTED length
+  (ASan-proven with a PoC against the real function). Fixed the same day
+  (`note_append()` clamps the offset; oversized files are rewritten truncated,
+  never out of bounds) and locked with a regression test in `tests/test_core.c`.
 
 ---
 
@@ -127,6 +133,14 @@ Other privileged operations:
    - In `ctron-toggle.sh`, sanitize `$TERMINAL` to ensure it resolves to a valid
      executable without arguments or escape sequences.
    - Ignore or sanitize `LD_PRELOAD` / `IFS` in setuid/sudo invocations.
+   - **Status: DONE 2026-10-28** — the KWin helper `.js` is now created with
+     `set -C` (noclobber, the stamp's rule), so a planted symlink or foreign
+     regular file at the pid-based name in the shared `/tmp` fallback is
+     never written through (retry on collision, else the KWin branch is
+     skipped). `$TERMINAL` needs no sanitizing: it is checked with
+     `command -v` and then exec'd as ONE quoted argv word — no shell ever
+     parses it. `LD_PRELOAD`/`IFS` hygiene is moot: nothing in ctron runs
+     setuid, and sudo scrubs the environment itself.
 
 ---
 
@@ -156,6 +170,18 @@ Everything here is derived from what the binary actually execs with
 | GPU clock lock / reset | `sudo -n /usr/sbin/nvidia-smi -lgc <m>,<m>` / `-rgc` — the absolute path comes from `command -v` at runtime | `ctrl_gpu_clock_*` (control.c) |
 | daeboard control (optional) | `sudo -n systemd-run --unit=daeboard --collect <bin>` and `sudo -n <install-script>` | daeboard.c |
 | capability probes | `sudo -n true` | `--doctor`, daeboard |
+
+**daeboard warning (read before adding any daeboard sudoers line):**
+`db_start` execs a binary resolved from `DAEBOARD_BIN` / `~/Documents/`,
+and `db_install` execs `~/Documents/daeboard/install.sh` — both are
+USER-WRITABLE paths. ctron itself only execs them as argv words, but a
+sudoers rule that allows them grants root to whatever sits at that path:
+any local process running as your user could replace the script and run
+it as root. The default §4.2 ruleset deliberately contains neither, so
+out of the box these calls fail cleanly. Never add a sudoers line for
+the install script; if you need the systemd-run rule, accept that it
+amounts to `NOPASSWD:` for your user (the optional line is commented
+out for exactly this reason).
 
 **Merged-usr note (the footgun):** `/usr/sbin` is a symlink to
 `/usr/bin` on Arch/CachyOS, so both spellings are the same file — but

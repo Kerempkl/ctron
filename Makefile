@@ -17,6 +17,14 @@ CFLAGS += -flto=auto
 LDLTO = -flto=auto
 endif
 
+# HARDEN=1 opts into explicit exploit mitigations (strong stack canary +
+# fortified libc calls). Distro CFLAGS usually add these already; Nix
+# stdenv and a plain `make` do not — the flag makes them deterministic
+# for release/packaging builds without touching the default path.
+ifeq ($(HARDEN),1)
+CFLAGS += -fstack-protector-strong -D_FORTIFY_SOURCE=2
+endif
+
 SRC = src/main.c src/util.c src/hw.c src/control.c src/daeboard.c src/fan.c src/cmds.c \
       src/modes.c src/profile.c src/settings.c src/telem.c \
       src/ui/ui.c src/ui/panel_profiles.c src/ui/panel_controls.c \

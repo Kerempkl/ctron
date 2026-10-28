@@ -71,8 +71,12 @@ if pgrep -x ctron >/dev/null 2>&1; then
 
     if [ -n "$QDBUS" ] && "$QDBUS" org.kde.KWin /KWin >/dev/null 2>&1; then
         tag="ctron_toggle_$$"
-        js="${XDG_RUNTIME_DIR:-/tmp}/ctron_kwin_$$.js"
-        cat << EOF > "$js"
+        # The KWin script is created with noclobber (the stamp's rule):
+        # in the shared /tmp fallback a planted symlink or foreign
+        # regular file at the pid-based name must never be written
+        # through. One retry on a collision, then the branch is skipped.
+        write_js() {
+            ( set -C; cat << EOF > "$1"
 var pids = [${ancestors}];
 var wins = workspace.windowList();
 var found = null;
@@ -97,6 +101,17 @@ if (found) {
     console.log("$tag NOT_FOUND");
 }
 EOF
+            ) 2>/dev/null
+        }
+        js="${XDG_RUNTIME_DIR:-/tmp}/ctron_kwin_$$.js"
+        write_js "$js" || {
+            js="${XDG_RUNTIME_DIR:-/tmp}/ctron_kwin_$$-$RANDOM.js"
+            write_js "$js" || js=""
+        }
+        if [ -z "$js" ]; then
+            log "branch: kwin js create refused (noclobber), skipping KWin"
+        fi
+        if [ -n "$js" ]; then
         id=$("$QDBUS" org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "$js" "$tag" 2>/dev/null)
         if [ -n "$id" ]; then
             "$QDBUS" org.kde.KWin "/Scripting/Script$id" org.kde.kwin.Script.run >/dev/null 2>&1
@@ -120,6 +135,7 @@ EOF
             esac
         else
             rm -f "$js"
+        fi
         fi
     fi
 

@@ -491,7 +491,7 @@ static void cut_step(void)
 	if (n <= 0 || step < 0 || step >= n)
 		return;
 	for (i = step; i + 1 < n; i++)
-		memcpy(base + i * 48, base + (i + 1) * 48, 48);
+		memmove(base + i * 48, base + (i + 1) * 48, 48);
 	set_count(&keys[keyi], n - 1);
 	clamp_step();
 	focus = 1;
