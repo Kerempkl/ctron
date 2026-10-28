@@ -184,6 +184,38 @@ static void check_profiles(void)
         rmdir(pdir);
         rmdir(tmp2);
     }
+
+    /* oversized .ctr must not smash the stack through set_note's
+     * offset arithmetic (ASan-proven 2026-10-28); the rewrite comes
+     * back truncated but parseable, and the note round-trips */
+    {
+        char tmp3[] = "/tmp/ctron2-test-XXXXXX";
+        CHECK(mkdtemp(tmp3) != NULL, "note mkdtemp");
+        setenv("CTRON_CONFIG", tmp3, 1);
+        char pdir[400];
+        snprintf(pdir, sizeof(pdir), "%s/profiles", tmp3);
+        CHECK(ut_mkdir_p(pdir) == 0, "note mkdir");
+        char pth[460];
+        snprintf(pth, sizeof(pth), "%s/notebig.ctr", pdir);
+        FILE *g = fopen(pth, "w");
+        CHECK(g != NULL, "note open");
+        if (g) {
+            fputs("# ctron snapshot\n[perf]\n", g);
+            for (int i = 0; i < 24; i++)
+                fprintf(g, "# pad %04d %0500d\n", i, i); /* ~12 KB */
+            fputs("profile = performance\n", g);
+            fclose(g);
+        }
+        CHECK(profile_set_note("notebig", "regression") == 0,
+              "set_note on oversized profile");
+        profile_meta_t m;
+        CHECK(profile_meta_parse("notebig", &m) == 0,
+              "oversized profile still parseable");
+        CHECK(!strcmp(m.note, "regression"), "note round-trips");
+        unlink(pth);
+        rmdir(pdir);
+        rmdir(tmp3);
+    }
 }
 
 /* kscreen-doctor output parser, offline. */

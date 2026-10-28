@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 #include <strings.h>
 #include <time.h>
 #include <unistd.h>
@@ -348,6 +349,27 @@ int profile_rename(const char *old_name, const char *new_name)
     return 0;
 }
 
+/* Append with a hard clamp. snprintf returns the length it WANTED to
+ * write, so a naive `off += snprintf(...)` runs `off` past the buffer
+ * once content is truncated — the next call's size argument then wraps
+ * size_t and writes past `out` (an oversized >4 KB .ctr smashed the
+ * stack here; ASan-proven 2026-10-28, regression-tested). An oversized
+ * file is rewritten truncated, never out of bounds. */
+static void note_append(char *out, size_t n, size_t *off,
+                        const char *fmt, ...)
+{
+    if (*off > n - 2)
+        *off = n - 2;
+    va_list ap;
+    va_start(ap, fmt);
+    int w = vsnprintf(out + *off, n - *off, fmt, ap);
+    va_end(ap);
+    if (w > 0)
+        *off += (size_t)w;
+    if (*off > n - 2)
+        *off = n - 2;
+}
+
 int profile_set_note(const char *name, const char *note)
 {
     char path[520];
@@ -367,11 +389,10 @@ int profile_set_note(const char *name, const char *note)
         if (!strncmp(s, "# note:", 7))
             continue; /* drop the old note */
         if (!inserted && s[0] && s[0] != '#') {
-            off += (size_t)snprintf(out + off, sizeof(out) - off,
-                                    "# note: %s\n", note);
+            note_append(out, sizeof(out), &off, "# note: %s\n", note);
             inserted = true;
         }
-        off += (size_t)snprintf(out + off, sizeof(out) - off, "%s\n", s);
+        note_append(out, sizeof(out), &off, "%s\n", s);
     }
     fclose(f);
 
