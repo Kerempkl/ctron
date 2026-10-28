@@ -96,15 +96,15 @@ static void fmt_val(char *out, size_t n, unit_t u, double v)
     }
 }
 
-/* solid block area chart (btop-style): each column fills with █ from
- * the bottom up to the sample; the top cell is an eighth-block
- * (▁▂▃▄▅▆▇█) so the edge is crisp — rows*8 vertical levels, no dot
- * texture, no cell seams (the braille texture read as noise at real
- * terminal sizes). The top cell renders bright (accent) and the fill
- * below it dim (accent2): the shape reads as a bright line over a
- * quiet area. */
+/* solid block area chart (btop-style) with a WASH fill: the area
+ * under the curve is a solid background color wash (no glyphs — the
+ * fill has zero texture), and the curve itself is an eighth-block
+ * edge (▁▂▃▄▅▆▇█) painted bright over the same wash so it rises
+ * smoothly out of the area. rows*8 vertical levels; each column
+ * keeps its window slice's PEAK so a spike between columns still
+ * shows; the newest sample carries a bright dot marker. */
 #define CHART_COLS_MAX 256
-#define CHART_ROWS_MAX 8
+#define CHART_ROWS_MAX 12
 
 static double s_rng_mn[TS_COUNT], s_rng_mx[TS_COUNT];
 static bool s_rng_ok[TS_COUNT];
@@ -164,6 +164,26 @@ static void chart_scale(int sidx, int count, double *mnp, double *mxp)
     *mxp = s_rng_mx[sidx];
 }
 
+/* write a run with BOTH colors: the wash needs a bg, and ui_putln
+ * only takes a fg (every other writer resets channels itself, so
+ * this can never leak) */
+static void put_cells(struct ncplane *n, int x, int y, const char *s,
+                      uint32_t fg, uint32_t bg)
+{
+    ncplane_cursor_move_yx(n, y, x);
+    uint64_t ch = 0;
+    ncchannels_set_fg_rgb(&ch, fg);
+    ncchannels_set_bg_rgb(&ch, bg);
+    ncplane_set_channels(n, ch);
+    ncplane_putstr(n, s);
+}
+
+/* bottom-based row of a column's top cell, from its height in eighths */
+static int col_top(int h8)
+{
+    return h8 % 8 > 0 ? h8 / 8 : h8 / 8 - 1;
+}
+
 static void chart(struct ncplane *n, int x, int y, int w, int rows,
                   int sidx, double mn, double mx)
 {
@@ -179,15 +199,21 @@ static void chart(struct ncplane *n, int x, int y, int w, int rows,
     if (cols > CHART_COLS_MAX)
         cols = CHART_COLS_MAX;
 
-    int lv8[CHART_COLS_MAX]; /* column height in eighths, 0 = empty */
+    int lv8[CHART_COLS_MAX] = {0}; /* column height in eighths */
+    int last = -1;                 /* newest column with a sample */
     for (int c = 0; c < cols; c++) {
-        int k = (int)((long long)c * count / cols);
-        double v;
-        if (!telem_at(sidx, count - 1 - k, &v) || v < 0) {
-            lv8[c] = 0; /* unknown tick: empty column */
-            continue;
+        int lo = (int)((long long)c * count / cols);
+        int hi = (int)((long long)(c + 1) * count / cols);
+        if (hi <= lo)
+            hi = lo + 1;
+        double peak = -1, v;
+        for (int k = lo; k < hi && k < count; k++) {
+            if (telem_at(sidx, count - 1 - k, &v) && v > peak)
+                peak = v;
         }
-        double f = (v - mn) / (mx - mn);
+        if (peak < 0)
+            continue; /* unknown tick: empty column */
+        double f = (peak - mn) / (mx - mn);
         if (f < 0)
             f = 0;
         if (f > 1)
@@ -196,51 +222,48 @@ static void chart(struct ncplane *n, int x, int y, int w, int rows,
         if (h > rows * 8)
             h = rows * 8;
         lv8[c] = h;
+        last = c;
     }
+
+    /* wash = accent halved into the theme bg: a quiet tint that reads
+     * as "the area" without any glyph texture */
+    uint32_t wash = (((pal->accent >> 1) & 0x7f7f7f) +
+                     ((pal->bg >> 1) & 0x7f7f7f)) & 0xffffff;
 
     char buf[CHART_COLS_MAX * 3 + 8];
     for (int rr = 0; rr < rows; rr++) {
         int br = rows - 1 - rr; /* bottom-based row index */
         int c = 0;
         while (c < cols) {
-            /* role of a column in this row: 1 = top edge (bright),
-             * 2 = fill below it (dim), 0 = above the series */
-            int role = 0;
-            if (lv8[c] > 0) {
-                int top = lv8[c] % 8 > 0 ? lv8[c] / 8 : lv8[c] / 8 - 1;
-                if (br == top)
-                    role = 1;
-                else if (br < top)
-                    role = 2;
-            }
-            if (role == 0) {
-                c++;
-                continue;
-            }
-            /* one ui_putln per same-color run so edge and fill never
-             * share a call (a cell carries one color) */
+            while (c < cols && (lv8[c] <= 0 || br > col_top(lv8[c])))
+                c++; /* skip columns above the curve on this row */
+            if (c >= cols)
+                break;
             size_t wl = 0;
             int start = c;
-            while (c < cols && wl + 4 <= sizeof buf - 1) {
-                if (lv8[c] <= 0)
-                    break;
+            while (c < cols && lv8[c] > 0 && br <= col_top(lv8[c]) &&
+                   wl + 4 <= sizeof buf - 1) {
                 int rem = lv8[c] % 8;
-                int top = rem > 0 ? lv8[c] / 8 : lv8[c] / 8 - 1;
-                int r2 = br == top ? 1 : (br < top ? 2 : 0);
-                if (r2 != role)
-                    break;
-                buf[wl++] = (char)0xE2;
-                buf[wl++] = (char)0x96;
-                if (role == 1 && rem > 0)
-                    buf[wl++] = (char)(0x81 + rem - 1); /* ▁..▇ */
-                else
-                    buf[wl++] = (char)0x88; /* █ */
+                if (br == col_top(lv8[c])) { /* the curve itself */
+                    buf[wl++] = (char)0xE2;
+                    buf[wl++] = (char)0x96;
+                    buf[wl++] = rem > 0 ? (char)(0x81 + rem - 1)
+                                        : (char)0x88;
+                } else { /* inside the area: plain wash */
+                    buf[wl++] = ' ';
+                }
                 c++;
             }
             buf[wl] = '\0';
-            ui_putln(n, x + 1 + start, y + rr, w - 1 - start, buf,
-                     role == 1 ? pal->accent : pal->accent2, false);
+            put_cells(n, x + 1 + start, y + rr, buf, pal->accent, wash);
         }
+    }
+
+    /* newest sample: a bright dot so the current value pops */
+    if (last >= 0) {
+        char dot[4] = {(char)0xE2, (char)0x97, (char)0x8F, 0}; /* ● */
+        put_cells(n, x + 1 + last, y + (rows - 1) - col_top(lv8[last]),
+                  dot, pal->text, wash);
     }
 }
 
@@ -381,10 +404,10 @@ static void stack_charts(struct ncplane *n, const rect_t *r,
         info_line(n, x, y + i, w, info[i]);
 }
 
-/* grid-box content: one "label  value  sparkline" row per series.
- * Small boxes cannot host a real chart (2-3 rows of anything is a
- * blob); the single-line block sparkline carries the 60 s shape and
- * the value sits right next to it. */
+/* grid-box content: one "label  value  sparkline" row per series,
+ * the info line, and — when the box has room — a small wash chart of
+ * the section's PRIMARY series (cd[0]) so every box also carries one
+ * real graph without getting busy. */
 static void grid_rows(struct ncplane *n, const rect_t *r,
                       const chartdef_t *cd, int ncd,
                       const char *const *info, int ninfo)
@@ -407,8 +430,17 @@ static void grid_rows(struct ncplane *n, const rect_t *r,
         snprintf(line, sizeof line, " %-8s %-14s %s", cd[i].label, cur, spark);
         ui_putln(n, x, y, w, line, pal->text, false);
     }
+    int yinfo = y;
     for (int i = 0; i < ninfo && i < avail - ncd; i++)
-        info_line(n, x, y + i, w, info[i]);
+        info_line(n, x, yinfo + i, w, info[i]);
+    int left = avail - ncd - ninfo;
+    if (left >= 3) {
+        double mn, mx;
+        int cnt = telem_count(cd[0].sidx);
+        chart_scale(cd[0].sidx, cnt, &mn, &mx);
+        if (cnt > 0 && mx > mn)
+            chart(n, x - 1, yinfo + ninfo, w + 2, left, cd[0].sidx, mn, mx);
+    }
 }
 
 /* ---- sections (each draws inside its own boxed rect) ------------------

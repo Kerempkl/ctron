@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-10-28 — ui: wash-fill charts — smooth area, crisp curve, live dot
+
+- User on the two-tone block round: "sevmedim, daha detaylı hassas ve
+  göze hoş gelebilecek ne yapabiliriz". The glyph-based fill was the
+  last texture left; this round removes it entirely.
+- The area under each curve is now a solid background COLOR WASH
+  (accent halved into the theme bg, painted as cell backgrounds —
+  zero glyphs, zero texture), and the curve is an eighth-block edge
+  (▁▂▃▄▅▆▇█, bright accent) drawn over the same wash so it rises
+  smoothly out of the area. Detail charts got taller (cap 8 → 12
+  rows = up to 96 vertical levels), columns keep their window
+  slice's PEAK again (spikes between columns no longer vanish), and
+  the newest sample carries a bright ● marker so the current value
+  pops. One put_cells() run per same-color span; ui_putln resets its
+  own channels so the wash never leaks into other text.
+- Grid boxes keep the value rows + info line and now ALSO draw the
+  section's primary series as a small wash chart in the leftover
+  space (≥3 rows) — every box carries one real graph without
+  getting busy.
+- Verified: 0 warnings, make test, full tuitest, screenshots (CPU
+  detail: smooth wash + crisp bright curve + end dots at ~10 rows;
+  grid: calm boxes with mini wash charts), install in the same
+  breath.
+
 ## 2026-10-27 — ui: chart types matched to their context (block area + sparkline rows)
 
 - User verdict after living with the braille rounds: the chart types
