@@ -461,6 +461,10 @@ static void draw_topbar(struct ncplane *n, unsigned dimy, unsigned dimx)
  * and clamp. Only BUTTON1 press acts; drags/releases/edges are ignored. */
 static void handle_mouse(struct ncplane *stdn, const struct ncinput *ni, uint32_t key)
 {
+    /* a running apply owns the write path: dispatch_key locks keys for
+     * that reason and mouse clicks must not jump the queue */
+    if (atomic_load(&g_ui.apply_busy))
+        return;
     int mx = ni->x, my = ni->y;
     unsigned dimy = 0, dimx = 0, cdy = 0, cdx = 0;
     ncplane_dim_yx(stdn, &dimy, &dimx);
@@ -629,7 +633,7 @@ static void *apply_worker(void *arg)
 
     switch (g_ui.apply_kind) {
     case APPLY_SNAPSHOT: {
-        char err[192];
+        char err[192] = ""; /* profile_import writes it only on failure */
         g_ui.apply_ok = profile_import(g_ui.apply_arg, hw, err, sizeof(err)) == 0;
         snprintf(g_ui.apply_sum, sizeof(g_ui.apply_sum), "%s", err);
         ut_progress("snapshot: fan curves");
@@ -651,7 +655,7 @@ static void *apply_worker(void *arg)
             snprintf(g_ui.apply_sum, sizeof(g_ui.apply_sum), "no such mode");
             break;
         }
-        char err[128];
+        char err[128] = ""; /* mode_apply writes it only on failure */
         g_ui.apply_ok = mode_apply(hw, g_ui.modes[idx].steps, err, sizeof(err)) == 0;
         snprintf(g_ui.apply_sum, sizeof(g_ui.apply_sum), "%s", err);
         hw_refresh_live(hw);

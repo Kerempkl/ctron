@@ -8,6 +8,7 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -314,7 +315,10 @@ static int last_int(const char *slot)
 		if (isdigit((unsigned char)*p)) {
 			v = 0;
 			while (isdigit((unsigned char)*p)) {
-				v = v * 10 + (*p - '0');
+				if (v > (INT_MAX - 9) / 10)
+					v = INT_MAX; /* saturate, never overflow */
+				else
+					v = v * 10 + (*p - '0');
 				p++;
 			}
 		} else {

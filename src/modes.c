@@ -134,6 +134,16 @@ bool mode_name_ok(const char *name)
     return true;
 }
 
+bool mode_steps_ok(const char *steps)
+{
+    if (!steps)
+        return true;
+    for (const char *p = steps; *p; p++)
+        if (*p == '\n' || *p == '\r')
+            return false;
+    return true;
+}
+
 /* ---- applied-mode tracking --------------------------------------------- */
 
 /* step key → tracked-field bits; 0 = untracked (aura, asusd auto

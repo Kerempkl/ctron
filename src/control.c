@@ -761,9 +761,13 @@ static int gpu_clock_verify(int mhz, char *samples, size_t n)
             const char *q[] = { "nvidia-smi",
                                 "--query-gpu=clocks.current.graphics",
                                 "--format=csv,noheader,nounits", NULL };
-            if (ut_exec_argv(q, one, sizeof(one)) == 0 && one[0])
-                off += (size_t)snprintf(samples + off, n - off, "%s%s",
-                                        off ? "," : "", one);
+            if (ut_exec_argv(q, one, sizeof(one)) == 0 && one[0]) {
+                int w = snprintf(samples + off, n - off, "%s%s",
+                                 off ? "," : "", one);
+                if (w < 0 || (size_t)w >= n - off)
+                    break;
+                off += (size_t)w;
+            }
             usleep(120000);
         }
         if (ctrl_gpu_clock_ok(mhz, samples))

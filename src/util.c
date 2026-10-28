@@ -6,6 +6,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -62,7 +63,17 @@ int ut_read_int(const char *path)
     char buf[64];
     if (ut_read_file(path, buf, sizeof(buf)) != 0)
         return -1;
-    return atoi(buf);
+    /* strtol + clamp instead of atoi: whatever a corrupt/sysadmin-typo'd
+     * file holds must not be signed-overflow UB on the cast */
+    char *end = NULL;
+    long v = strtol(buf, &end, 10);
+    if (end == buf)
+        return 0; /* atoi parity: no digits -> 0 */
+    if (v > INT_MAX)
+        v = INT_MAX;
+    if (v < INT_MIN)
+        v = INT_MIN;
+    return (int)v;
 }
 
 int ut_write_file(const char *path, const char *val)
@@ -502,6 +513,10 @@ int ut_parse_ints(const char *s, int *out, int max)
         long v = strtol(p, &end, 10);
         if (end == p)
             break;
+        if (v > INT_MAX)
+            v = INT_MAX; /* clamp, never wrap on the (int) cast */
+        else if (v < INT_MIN)
+            v = INT_MIN;
         out[n++] = (int)v;
         p = end;
     }

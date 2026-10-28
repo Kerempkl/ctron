@@ -36,6 +36,12 @@ int mode_find(const mode_def_t *arr, int n, const char *name);
  * CLI `mode add` and the TUI MODE EDITOR — must gate on this. */
 bool mode_name_ok(const char *name);
 
+/* True when `steps` is safe to store on one modes.ini `steps = ` line:
+ * no newline (would inject a bogus section / rewrite the key on the
+ * next save). The CLI `mode add` gates on this; the TUI editor cannot
+ * type control characters. */
+bool mode_steps_ok(const char *steps);
+
 /* ---- applied-mode tracking (CONTROLS Mode row) ------------------------ *
  * After a mode is applied, the Mode row shows "- / name / name*" — the
  * star marks drift: a tracked field the mode touched now differs from

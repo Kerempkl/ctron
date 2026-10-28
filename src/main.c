@@ -359,6 +359,13 @@ static int cmd_mode(int argc, char **argv, hw_state_t *hw)
             if (i + 1 < argc)
                 strncat(steps, " ", sizeof(steps) - strlen(steps) - 2);
         }
+        /* a newline in steps would inject fresh modes.ini lines (bogus
+         * sections / a rewritten steps key) on the next save - same
+         * round-trip class mode_name_ok guards the name against */
+        if (!mode_steps_ok(steps)) {
+            fprintf(stderr, "ctron: bad mode steps (newline not allowed)\n");
+            return 1;
+        }
         snprintf(modes[n].name, MODE_NAME_MAX, "%s", argv[3]);
         snprintf(modes[n].steps, MODE_STEPS_MAX, "%s", steps);
         n++;

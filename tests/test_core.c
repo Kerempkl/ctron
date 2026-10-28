@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #endif
 #include <pthread.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -112,6 +113,14 @@ static void check_modes(void)
     CHECK(!mode_name_ok("a]b"), "']' name rejected");
     CHECK(!mode_name_ok("a[b"), "'[' name rejected");
     CHECK(!mode_name_ok("a\nb"), "newline name rejected");
+
+    /* steps share the round-trip rule: a newline would inject fresh
+     * modes.ini lines on save ([bogus] sections, rewritten keys) */
+    CHECK(mode_steps_ok("profile performance, fan stock"), "plain steps ok");
+    CHECK(mode_steps_ok(""), "empty steps ok");
+    CHECK(!mode_steps_ok("hz 60\n[hijack]\nsteps = profile quiet"),
+          "newline steps rejected");
+    CHECK(!mode_steps_ok("hz 60\r\n"), "CR steps rejected");
 
     /* persist roundtrip */
     snprintf(modes[0].name, MODE_NAME_MAX, "zz-test");
@@ -532,6 +541,46 @@ static void check_read_file_all(void)
     if (f)
         fclose(f);
     CHECK(ut_read_file_all(path, buf, sizeof(buf)) != 0, "read_all empty");
+    unlink(path);
+    rmdir(tmp);
+}
+
+static void check_int_parse_clamps(void)
+{
+    char tmp[] = "/tmp/ctron2-ip-XXXXXX";
+    CHECK(mkdtemp(tmp) != NULL, "intparse mkdtemp");
+
+    char path[300];
+    snprintf(path, sizeof(path), "%s/v", tmp);
+    FILE *f = fopen(path, "w");
+    CHECK(f != NULL, "intparse open");
+    if (f) {
+        fputs("99999999999999\n", f);
+        fclose(f);
+    }
+    CHECK(ut_read_int(path) == INT_MAX, "read_int clamps huge to INT_MAX");
+
+    f = fopen(path, "w");
+    if (f) {
+        fputs("-99999999999999\n", f);
+        fclose(f);
+    }
+    CHECK(ut_read_int(path) == INT_MIN, "read_int clamps huge-neg to INT_MIN");
+
+    f = fopen(path, "w");
+    if (f) {
+        fputs("2400\n", f);
+        fclose(f);
+    }
+    CHECK(ut_read_int(path) == 2400, "read_int plain value");
+    CHECK(ut_read_int("/nonexistent-ctron2-test") == -1, "read_int missing -> -1");
+
+    int out[4] = {0};
+    int n = ut_parse_ints("99999999999999,-99999999999999,42", out, 4);
+    CHECK(n == 3, "parse_ints count");
+    CHECK(out[0] == INT_MAX && out[1] == INT_MIN && out[2] == 42,
+          "parse_ints clamps instead of wrapping");
+
     unlink(path);
     rmdir(tmp);
 }
@@ -1440,6 +1489,7 @@ int main(void)
     check_asusd_enforced();
     check_asusd_ron_parse();
     check_read_file_all();
+    check_int_parse_clamps();
     check_util_write();
     check_argv_exec();
     check_mode_split();

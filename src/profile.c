@@ -524,8 +524,11 @@ void profile_meta_diff(const hw_state_t *hw, const profile_meta_t *m,
 
 #define ADD_LABEL(lbl)                                                     \
     do {                                                                   \
-        off += (size_t)snprintf(labels + off, sizeof(labels) - off, "%s%s", \
-                                ndiff ? " · " : "", lbl);                  \
+        int w_lbl = snprintf(labels + off, sizeof(labels) - off, "%s%s",   \
+                             ndiff ? " · " : "", lbl);                     \
+        if (w_lbl < 0 || (size_t)w_lbl >= sizeof(labels) - off)            \
+            break; /* truncated: keep what fits, stop accumulating */      \
+        off += (size_t)w_lbl;                                              \
         ndiff++;                                                           \
     } while (0)
 
