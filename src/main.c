@@ -37,6 +37,7 @@ static void print_usage(const char *prog)
     printf("Information:\n");
     printf("  --status, -s        live hardware snapshot\n");
     printf("  --watch, -w         rolling one-line telemetry (Ctrl-C stops)\n");
+    printf("  --csv <file>        append telemetry rows to a CSV (Ctrl-C stops)\n");
     printf("  --doctor            capability report\n");
     printf("  --help, -h          this help\n");
     printf("  --version, -V       version\n\n");
@@ -253,6 +254,66 @@ static int cmd_watch(hw_state_t *hw)
     return 0;
 }
 
+/* --csv: append one row per poll tick for external graphing. Unknown
+ * sensors are EMPTY fields (--), never fabricated values — the same
+ * honest-reads rule as the TUI. Header written once per new file, so
+ * consecutive runs append cleanly. */
+static void csv_val(char *out, size_t n, int v)
+{
+    if (v < 0)
+        out[0] = '\0';
+    else
+        snprintf(out, n, "%d", v);
+}
+
+static int cmd_csv(hw_state_t *hw, const char *path)
+{
+    bool new = ut_path_exists(path) == false;
+    FILE *f = fopen(path, "a");
+    if (!f) {
+        fprintf(stderr, "ctron: cannot write %s\n", path);
+        return 1;
+    }
+    setvbuf(f, NULL, _IOLBF, 0);
+    if (new)
+        fprintf(f, "epoch,cpu_temp_c,igpu_temp_c,gpu_temp_c,cpu_mhz,gpu_mhz,"
+                   "gpu_util_pct,gpu_mw,fan_cpu_rpm,fan_gpu_rpm,bat_pct,bat_mw,load1\n");
+
+    struct sigaction sa = {0};
+    sa.sa_handler = watch_stop;
+    sigaction(SIGINT, &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
+
+    fprintf(stderr, "ctron csv — %s (%s) — Ctrl-C stops\n", path,
+            new ? "new file" : "appending");
+    while (s_watch_run) {
+        char t[16], ti[16], tg[16], mc[16], mg[16], gu[16], gw[16],
+             fc[16], fg[16], bp[16], bm[16], l1[16];
+        hw_refresh_fast(hw);
+        csv_val(t, sizeof t, hw->cpu_temp);
+        csv_val(ti, sizeof ti, hw->igpu_temp);
+        csv_val(tg, sizeof tg, hw->gpu_temp);
+        csv_val(mc, sizeof mc, hw->cpu_mhz_cur);
+        csv_val(mg, sizeof mg, hw->gpu_mhz);
+        csv_val(gu, sizeof gu, hw->gpu_util);
+        csv_val(gw, sizeof gw, hw->gpu_mw);
+        csv_val(fc, sizeof fc, hw->rpm_cpu);
+        csv_val(fg, sizeof fg, hw->rpm_gpu);
+        csv_val(bp, sizeof bp, hw->bat_pct);
+        csv_val(bm, sizeof bm, hw->bat_mw_known ? hw->bat_mw : -1);
+        if (hw->load1 >= 0)
+            snprintf(l1, sizeof l1, "%.2f", hw->load1);
+        else
+            l1[0] = '\0';
+        fprintf(f, "%ld,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
+                time(NULL), t, ti, tg, mc, mg, gu, gw, fc, fg, bp, bm, l1);
+        usleep((useconds_t)g_prefs.poll_ms * 1000);
+    }
+    fclose(f);
+    fprintf(stderr, "ctron csv — stopped\n");
+    return 0;
+}
+
 static int cmd_doctor(hw_state_t *hw)
 {
     char os[128] = "?", dir[400];
@@ -360,7 +421,7 @@ static int cmd_mode(int argc, char **argv, hw_state_t *hw)
                 strncat(steps, " ", sizeof(steps) - strlen(steps) - 2);
         }
         /* a newline in steps would inject fresh modes.ini lines (bogus
-         * sections / a rewritten steps key) on the next save - same
+         * sections / a rewritten steps key) on the next save — same
          * round-trip class mode_name_ok guards the name against */
         if (!mode_steps_ok(steps)) {
             fprintf(stderr, "ctron: bad mode steps (newline not allowed)\n");
@@ -600,6 +661,10 @@ int main(int argc, char *argv[])
     if (!strcmp(argv[1], "--watch") || !strcmp(argv[1], "-w")) {
         hw_refresh_fast(&hw);
         return cmd_watch(&hw);
+    }
+    if (!strcmp(argv[1], "--csv") && argc > 2) {
+        hw_refresh_fast(&hw);
+        return cmd_csv(&hw, argv[2]);
     }
 
     /* everything else: hardware flags applied in order */

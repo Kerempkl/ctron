@@ -70,6 +70,7 @@ their rows.
 ctron                    # tam ekran arayüz (TUI)
 ctron --status           # tüm donanım durumunu yaz, çık
 ctron --watch            # canlı tek satır telemetri (Ctrl-C durdurur)
+ctron --csv log.csv      # telemetriyi CSV'e kaydet (dışarıda grafikle)
 ctron --doctor           # neler destekleniyor raporu
 ctron --mode turbo       # hazır ayar paketi uygula
 ctron mode list          # paketleri listele (modes.ini)

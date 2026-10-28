@@ -1,6 +1,6 @@
 # Ctron Handoff
 
-Latest session — **2026-10-28 (8th round, security pass 3: independent re-scan)**
+Latest session — **2026-10-28/29 (8th round, security pass 3 + --csv logger)**
 **GLM / Kerempkl / FA608PP**: user asked for a fresh full-tree sweep
 ("tüm kodu tararmısın açıkları kapatalım") on current HEAD — three
 parallel review agents (core/write-doors, parsers/socket, UI) plus the
@@ -32,7 +32,16 @@ test, ASan+UBSan test, HARDEN=1 build+test, full tuitest; the -O1-only
 rides the next version cut (no bump); push on the user's side.**
 NOTE: a **parallel session's uncommitted `--csv` feature in main.c**
 was deliberately left out of the commit (staged via blob, worktree
-file untouched) — whoever owns it commits it. Before that **2026-10-28 (7th round, security audit → v0.8.1)**
+file untouched) — whoever owns it commits it.
+
+**10-29 addendum (this session, on top of pass 3):** the `--csv`
+feature is that owner and has now landed — `ctron --csv <file>`
+appends one row per poll tick (epoch, cpu/igpu/gpu temps, clocks, gpu
+util/W, fan RPMs, battery %/W, load1; empty fields for unknown
+sensors, header once per new file, append-safe, --watch's signal
+handling). Verified on the combined tree: -O2 0 warnings, make test,
+live new+append runs, full tuitest, install. Rides the next version
+cut. Before that **2026-10-28 (7th round, security audit → v0.8.1)**
 **GLM / Kerempkl / FA608PP**: user asked for a full vulnerability hunt
 over the whole tree ("tüm kodu detaylıca oku") — every source file read,
 `gcc -fanalyzer` pass, dangerous-pattern greps. ONE real vulnerability

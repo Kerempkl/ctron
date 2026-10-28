@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-10-29 — feature: --csv telemetry logger
+
+- **`ctron --csv <file>`** — appends one telemetry row per poll tick
+  for external graphing (gnuplot/spreadsheet): epoch, cpu/igpu/gpu
+  temps, cpu+gpu clocks, gpu util + watts, both fan RPMs, battery
+  percent + signed watts, 1-min load. Unknown sensors are EMPTY
+  fields, never fabricated (the honest-reads rule); the header is
+  written once per new file so consecutive runs append cleanly; the
+  poll interval follows settings.ini (`poll_ms`). Shares `--watch`'s
+  SIGINT/SIGTERM handling — verified live end-to-end (new-file header,
+  single header on append, 13 columns, real sensor rows, clean stop).
+- Help text + README quick-start line (README CLI table derives from
+  real `--help`).
+
 ## 2026-10-28 — security pass 3: mouse busy-gate, uninit err reads, mode-steps guard, parse clamps
 
 - Independent full re-scan of current HEAD (three parallel review
