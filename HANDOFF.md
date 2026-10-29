@@ -1,6 +1,69 @@
 # Ctron Handoff
 
-Latest session — **2026-10-29 (14th round, APU PPT → CPU section)**
+Latest session — **2026-10-29 (16th round, per-core NOW table +
+busiest series; before it two read-only research turns)**
+
+**GLM / Kerempkl / FA608PP** — the day's research-to-code arc, in
+order: (15a) "APU gücünü CPU/GPU olarak ayırabilir miyiz" → read-only
+research: gpu_metrics u32@28 is the REAL iGPU rail power (shader-load
+proof: 28/28 samples pegged at exactly 10.00 W = the 610M rail
+budget; graded 2.4–10 W at desktop load, true 0 W when gated; parser
+already wired into hw->igpu_gfx_mw — the earlier "dead code" claim
+was wrong, the caller lives inside hw.c). CPU+SoC ≈ power1_input −
+gfx is ready to ship whenever the user wants the derived row (honest
+label "CPU+SoC (est)"; gfx saturates at 10 W; power1_input is ±10 W
+noisy per-instant, ring averaging smooths it). (15b) "çekirdek başına
+gösterim?" → per-core REAL watts exist as the kernel 6.14+
+`power_core` perf PMU (energy-core per physical core; cpumask grew
+to 0-15 when the user enabled CCD2 in the BIOS — machine is now
+16c/32t) but perf_event_open hits EACCES at paranoid=2; access is a
+user decision (sudoers helper like nvidia-smi, or setcap
+cap_perfmon on a root-owned install, or sysctl — not recommended).
+perf CLI misleads here: it auto-adds exclude_kernel (/u) which RAPL
+rejects with EINVAL — the honest test is raw perf_event_open
+(build/rapl_probe.c, `sudo build/rapl_probe cores 3`; whether the
+counters actually count on Dragon Range is STILL unvalidated — one
+sudo run answers it). zenpower3 conflicts with k10temp (same PCI
+device, DKMS) and ryzenadj 0.19 has no Dragon Range monitoring —
+both dead ends, documented. (16) "root'suz alternatifi test eder
+misin" → the proxy (per-core /proc/stat util, cpuidle residency,
+cpuinfo_avg_freq, Tccd) separates loaded/idle cores flawlessly under
+pinned load — then "kaydedelim + tablo olarak ekleyelim + min/max
+nasıl" → SHIPPED this round:
+
+- **CPU detail page** gained a "cores (now)" table below the live
+  block: core id · util% (zone-coloured, bold) · live MHz per
+  physical core (SMT merged by max), 4 columns at ≥60 cells, 2 below;
+  honest "--" everywhere (first poll primes the /proc/stat counters;
+  both amd-pstate freq nodes can briefly vanish after policy
+  transitions — read chain cpuinfo_avg_freq → scaling_cur_freq → --).
+- **min/max design decision (the user's question):** the table is a
+  snapshot ONLY — 16×3×2 numbers would bury the page. The time
+  dimension is ONE new series, TS_BUSIEST_UTIL ("busiest" = the
+  busiest thread's util), riding all the existing machinery (grid
+  row + window range, detail min/avg/max, 's', 'r', legend) and a
+  15th --csv column (guard now expects 15).
+- New read layer: hw_parse_cpu_stat (pure, +6 unit checks) +
+  read_core_now in the fast poll; hw.h core_util[]/core_mhz[]/
+  busiest_util next to the existing topology arrays.
+- detail_table() grew an optional tail block (8 sections pass
+  NULL,0); the tail's minimum height joins the roomy threshold so
+  mid-size terminals trade spacing for the table: 100×30 packed
+  shows everything, 160×50 keeps full spacing, 100×22 clips the
+  table honestly. Grid CPU box: 5th row visible at 160×50; at
+  100×30 the box's 4-row limit clips it (pre-existing behaviour, no
+  regression — the info line was already clipped there).
+- Verified: 0 warnings, make test, full tuitest, live dumps 3 detail
+  sizes + 3 grid sizes, live --csv under pinned load (busiest 100%),
+  tui-telem.png re-shot, README + HARDWARE.md EN/TR, install in the
+  same breath. Probes stay in build/ (gitignored): apuload.c,
+  rapl_probe.c, proxytest.sh, proxyan.sh.
+- **Open, user-decided:** (1) the CPU+SoC derived row (formula
+  ready); (2) per-core real watts via rapl_probe validation + access
+  model choice. Memory files updated (sensor inventory + telemetry
+  rounds).
+
+Before that **2026-10-29 (14th round, APU PPT → CPU section)**
 **GLM / Kerempkl / FA608PP**: user asked to add the APU PPT series
 to the CPU section — done as a fourth CD_CPU entry reading the
 SAME TS_IGPU_MW ring (no second storage/sensor); CPU grid box +

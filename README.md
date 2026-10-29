@@ -105,12 +105,16 @@ network rx/tx, wifi signal quality, battery draw/charge.
 section's **detail page**: a numeric now/min/avg/max table over the
 ~60 s window plus info lines from a fresh live snapshot (PPT/EPP,
 per-core ceilings, GPU pstate & throttle reasons, VRAM/clock lock,
-battery health, load 1/5/15 min …); `h`/`l` flips sections, `esc`
-backs out to the grid, `r` (or the footer button) clears every
-window and the lifetime stats — a fresh measurement then starts
-from zero history — and `s` flips the MIN/AVG/MAX columns between
-the rolling 60 s window and everything since the last reset.
-Unknown sensors stay `--`; the screen never writes hardware.
+battery health, load 1/5/15 min …); the CPU page adds a per-core
+`now` grid (util% + live clock per physical core, SMT merged) plus
+a `busiest` series — the only per-core stat kept over time, so the
+grid stays a snapshot instead of a wall of numbers; `h`/`l` flips
+sections, `esc` backs out to the grid, `r` (or the footer button)
+clears every window and the lifetime stats — a fresh measurement
+then starts from zero history — and `s` flips the MIN/AVG/MAX
+columns between the rolling 60 s window and everything since the
+last reset. Unknown sensors stay `--`; the screen never writes
+hardware.
 
 ![ctron TUI — POWER view](docs/tui-power.png)
 ![ctron TUI — fullscreen telemetry](docs/tui-telem.png)

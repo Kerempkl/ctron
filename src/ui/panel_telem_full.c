@@ -148,6 +148,12 @@ static const chartdef_t CD_CPU[] = {
      * storage — watching a CPU test wants the package power beside */
     { "APU PPT", U_W, TS_IGPU_MW,
      "whole-APU package power: CPU + iGPU", ZN_NONE, -1, NULL },
+    /* the per-core table below is a NOW snapshot with no stats by
+     * design (16 cores x min/avg/max x 2 modes would bury the page);
+     * the time dimension of "how busy do the cores get" lives here,
+     * in one ordinary series with the usual window/since stats */
+    { "busiest", U_PCT, TS_BUSIEST_UTIL,
+     "highest single-core utilisation (busiest thread)", ZN_UTIL, -1, NULL },
 };
 static const chartdef_t CD_GPU[] = {
     { "temp", U_TEMP, TS_GPU_TEMP, "dGPU temperature", ZN_TEMP, -1, NULL },
@@ -317,10 +323,18 @@ static void dt_sep(struct ncplane *n, int x, int y, int w, const char *tag)
  * terminals get breathing space — a blank line after every series
  * (pairs stay together) and section separators around the live info
  * and legend blocks; short terminals fall back to the packed layout
- * and then to tail clipping as before. */
+ * and then to tail clipping as before. `tail` is an optional block
+ * drawn between the live info and the legend (the CPU section's
+ * per-core table); tail_min is the height below which it is skipped —
+ * it also joins roomy_n, so on mid-size terminals spacing yields to
+ * the table rather than the table dying. */
+typedef int (*detail_tail_fn)(struct ncplane *n, int x, int y, int w,
+                              int rows);
+
 static void detail_table(struct ncplane *n, const rect_t *r,
                          const chartdef_t *cd, int ncd,
-                         const char *const *info, int ninfo)
+                         const char *const *info, int ninfo,
+                         detail_tail_fn tail, int tail_min)
 {
     const palette_t *pal = ui_palette(g_prefs.theme);
     int x = r->x + 2, w = r->w - 4;
@@ -336,6 +350,8 @@ static void detail_table(struct ncplane *n, const rect_t *r,
     /* +1 for the stats-source line under the header */
     int roomy_n = 1 + 1 + 1 + halves + ncd + (ninfo > 0 ? 1 : 0) +
                   ninfo + 1 + (ncd > 0 ? 1 : 0) + ncd;
+    if (tail)
+        roomy_n += tail_min + 1;
     bool roomy = avail >= roomy_n;
 
     int y = r->y + 1;
@@ -384,6 +400,17 @@ static void detail_table(struct ncplane *n, const rect_t *r,
         }
         for (int i = 0; i < ninfo && used < avail; i++, used++, y++)
             info_line(n, x, y, w, info[i]);
+    }
+    if (tail) {
+        if (roomy && used < avail) {
+            y++;
+            used++;
+        }
+        if (avail - used >= tail_min) {
+            int u = tail(n, x, y, w, avail - used);
+            y += u;
+            used += u;
+        }
     }
     if (ncd > 0) {
         if (roomy && used < avail) {
@@ -647,6 +674,69 @@ static void sec_power(struct ncplane *n, const rect_t *r)
 
 /* ---- section detail pages (full page inside the overlay) ------------- */
 
+/* per-core NOW table (CPU detail): a snapshot grid of core id · util% ·
+ * live clock, the SMT pair merged into one row per physical core.
+ * Deliberately NO min/avg/max — the cells are "right now"; the time
+ * dimension is the "busiest" series row in the table above, which
+ * carries the usual window/since-reset stats. Returns lines drawn. */
+static int core_now_table(struct ncplane *n, int x, int y, int w, int rows)
+{
+    hw_state_t *hw = g_ui.hw;
+    if (hw->core_n <= 0 || rows < 3 || w < 34)
+        return 0;
+    const palette_t *pal = ui_palette(g_prefs.theme);
+    dt_sep(n, x, y, w, "cores (now)");
+    y++;
+    rows--;
+    /* cell = "c12 100% 4916"; 4 columns on normal detail widths, 2 on
+     * narrow ones (stride 16 keeps id+util+clock from touching) */
+    int cols = w >= 60 ? 4 : 2;
+    int stride = w / cols;
+    if (stride < 16) {
+        cols = 2;
+        stride = w / 2;
+    }
+    for (int c = 0; c < cols; c++) {
+        int cx = x + c * stride;
+        if (cx + 15 >= x + w)
+            break;
+        ui_putln(n, cx, y, 6, "CORE", pal->muted, false);
+        ui_putln(n, cx + 6, y, 5, "UTIL", pal->muted, false);
+        ui_putln(n, cx + 11, y, 6, "CLOCK", pal->muted, false);
+    }
+    y++;
+    rows--;
+    int drawn = 0;
+    for (int i = 0; i < hw->core_n && rows > 0; i += cols, drawn++) {
+        for (int c = 0; c < cols && i + c < hw->core_n; c++) {
+            int cx = x + c * stride;
+            if (cx + 15 >= x + w)
+                break;
+            int u = hw->core_util[i + c], m = hw->core_mhz[i + c];
+            char id[8], uv[8], mv[8];
+            snprintf(id, sizeof id, "c%d", hw->core_cpu[i + c]);
+            if (u >= 0)
+                snprintf(uv, sizeof uv, "%d%%", u);
+            else
+                snprintf(uv, sizeof uv, "--");
+            if (m >= 0)
+                snprintf(mv, sizeof mv, "%d", m);
+            else
+                snprintf(mv, sizeof mv, "--");
+            ui_putln(n, cx, y, 6, id, pal->muted, false);
+            int uc = utf_cells(uv);
+            ui_putln(n, cx + 9 - uc, y, uc + 1, uv,
+                     u >= 0 ? zone_color(ZN_UTIL, u, pal) : pal->muted,
+                     u >= 0);
+            int mc = utf_cells(mv);
+            ui_putln(n, cx + 15 - mc, y, mc + 1, mv, pal->text, false);
+        }
+        y++;
+        rows--;
+    }
+    return drawn + 2;
+}
+
 static void detail_cpu(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
@@ -700,7 +790,7 @@ static void detail_cpu(struct ncplane *n, const rect_t *r)
 
     const char *info[4] = { l0, l1, l2, l3 };
     detail_table(n, r, CD_CPU, CD_COUNT(CD_CPU),
-                 info, 4);
+                 info, 4, core_now_table, 3);
 }
 
 static void detail_gpu(struct ncplane *n, const rect_t *r)
@@ -727,13 +817,13 @@ static void detail_gpu(struct ncplane *n, const rect_t *r)
         snprintf(l2, sizeof l2, " pstate %s · throttle: %s",
                  hw->gpu_pstate, th);
         const char *info[3] = { l0, l1, l2 };
-        detail_table(n, r, CD_GPU, CD_COUNT(CD_GPU), 
-                     info, 3);
+        detail_table(n, r, CD_GPU, CD_COUNT(CD_GPU),
+                     info, 3, NULL, 0);
         return;
     }
     const char *info[2] = { l0, l1 };
-    detail_table(n, r, CD_GPU, CD_COUNT(CD_GPU), 
-                 info, 2);
+    detail_table(n, r, CD_GPU, CD_COUNT(CD_GPU),
+                 info, 2, NULL, 0);
 }
 
 static void detail_igpu(struct ncplane *n, const rect_t *r)
@@ -760,8 +850,8 @@ static void detail_igpu(struct ncplane *n, const rect_t *r)
     else
         snprintf(l2, sizeof l2, " APU PPT = whole-package power (CPU+iGPU)");
     const char *info[3] = { l0, l1, l2 };
-    detail_table(n, r, CD_IGPU, CD_COUNT(CD_IGPU), 
-                 info, 3);
+    detail_table(n, r, CD_IGPU, CD_COUNT(CD_IGPU),
+                 info, 3, NULL, 0);
 }
 
 static void detail_ram(struct ncplane *n, const rect_t *r)
@@ -783,8 +873,8 @@ static void detail_ram(struct ncplane *n, const rect_t *r)
     else {
         snprintf(l1, sizeof l1, " no spd5118 temp sensors");
         const char *info2[2] = { l0, l1 };
-        detail_table(n, r, CD_RAM, CD_COUNT(CD_RAM), 
-                     info2, 2);
+        detail_table(n, r, CD_RAM, CD_COUNT(CD_RAM),
+                     info2, 2, NULL, 0);
         return;
     }
     /* spd5118 limits + which modules are flagged over max right now */
@@ -813,8 +903,8 @@ static void detail_ram(struct ncplane *n, const rect_t *r)
              hw->ram_alarm ? " · over max: module " : "",
              hw->ram_alarm ? mod : "");
     const char *info[3] = { l0, l1, l2 };
-    detail_table(n, r, CD_RAM, CD_COUNT(CD_RAM), 
-                 info, 3);
+    detail_table(n, r, CD_RAM, CD_COUNT(CD_RAM),
+                 info, 3, NULL, 0);
 }
 
 static void detail_disk(struct ncplane *n, const rect_t *r)
@@ -868,7 +958,7 @@ static void detail_disk(struct ncplane *n, const rect_t *r)
         info[ni++] = ml[HW_MOUNT_MAX];
     }
     detail_table(n, r, CD_DISK, CD_COUNT(CD_DISK),
-                 info, ni);
+                 info, ni, NULL, 0);
 }
 
 static void detail_net(struct ncplane *n, const rect_t *r)
@@ -908,7 +998,7 @@ static void detail_net(struct ncplane *n, const rect_t *r)
     info[ni] = l[ni];
     ni++;
     detail_table(n, r, CD_NET, CD_COUNT(CD_NET),
-                 info, ni);
+                 info, ni, NULL, 0);
 }
 
 static void detail_fan(struct ncplane *n, const rect_t *r)
@@ -923,8 +1013,8 @@ static void detail_fan(struct ncplane *n, const rect_t *r)
     snprintf(l1, sizeof l1, " curves are edited in the FAN workspace view "
                             "(this screen is read-only)");
     const char *info[2] = { l0, l1 };
-    detail_table(n, r, CD_FAN, CD_COUNT(CD_FAN), 
-                 info, 2);
+    detail_table(n, r, CD_FAN, CD_COUNT(CD_FAN),
+                 info, 2, NULL, 0);
 }
 
 static void detail_power(struct ncplane *n, const rect_t *r)
@@ -953,7 +1043,7 @@ static void detail_power(struct ncplane *n, const rect_t *r)
                  hw->pd_in_mw > 0 ? "live" : "--");
     const char *info[3] = { l0, l1, l2 };
     detail_table(n, r, CD_POWER, hw->pd_n > 0 ? CD_COUNT(CD_POWER) : 2,
-                 info, hw->pd_n > 0 ? 3 : 2);
+                 info, hw->pd_n > 0 ? 3 : 2, NULL, 0);
 }
 
 /* 'r' key / footer button: clear every series ring AND the lifetime
@@ -1240,6 +1330,7 @@ void telem_poll(hw_state_t *hw, long now_ms)
     telem_push(TS_CPU_TEMP, hw->cpu_temp);
     telem_push(TS_CPU_MHZ, hw->cpu_mhz_cur);
     telem_push(TS_CPU_LOAD, hw->load1);
+    telem_push(TS_BUSIEST_UTIL, hw->busiest_util);
     telem_push(TS_GPU_TEMP, hw->gpu_temp);
     telem_push(TS_GPU_MHZ, hw->gpu_mhz);
     telem_push(TS_GPU_MW, hw->gpu_mw);

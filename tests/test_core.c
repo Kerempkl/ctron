@@ -917,6 +917,31 @@ static void check_telem_hw(void)
               "loadavg empty");
     }
 
+    /* /proc/stat per-cpu jiffies: busy = user+nice+system+irq+softirq+
+     * steal, total = busy+idle+iowait; the aggregate cpu line skipped */
+    {
+        long long b[16] = {0}, t[16] = {0};
+        static const char st[] =
+            "cpu  4700 150 1100 38000 800 90 130 0 0 0\n"
+            "cpu0 100 0 50 1000 10 5 5 10 0 0\n"
+            "cpu1 200 10 40 900 20 0 0 0\n"
+            "intr ...\n"
+            "cpu7 5 5 5 5\n";
+        int top = hw_parse_cpu_stat(st, b, t, 8);
+        CHECK(top == 8, "cpu_stat top id+1");
+        CHECK(b[0] == 100 + 0 + 50 + 5 + 5 + 10 && t[0] == b[0] + 1000 + 10,
+              "cpu_stat busy/total full row");
+        CHECK(b[1] == 250 && t[1] == 250 + 900 + 20,
+              "cpu_stat busy/total missing tail fields");
+        CHECK(b[7] == 15 && t[7] == 20, "cpu_stat four-field row");
+        top = hw_parse_cpu_stat("cpu0 1 1 1 1\ncpu9 1 1 1 1",
+                                b, t, 8);
+        CHECK(top == 1 && b[9] == 0, "cpu_stat clamps at max_cpu");
+        CHECK(hw_parse_cpu_stat(NULL, b, t, 8) == 0 &&
+                  hw_parse_cpu_stat("", b, t, 8) == 0,
+              "cpu_stat null/empty honest");
+    }
+
     /* /proc/<pid>/mounts: whole-disk filter + per-device dedupe */
     {
         static const char mt[] =

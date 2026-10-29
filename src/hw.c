@@ -836,6 +836,43 @@ int hw_parse_loadavg(const char *s, double *l1, double *l5, double *l15)
     return 0;
 }
 
+/* /proc/stat per-cpu jiffies: "cpuN user nice system idle iowait irq
+ * softirq steal ...". busy = user+nice+system+irq+softirq+steal (guest
+ * is already folded into user on the host), total = busy+idle+iowait —
+ * the delta of total IS the elapsed time, so per-core utilisation needs
+ * no wall clock. The aggregate "cpu " line does not match cpu%d and is
+ * skipped. Returns the highest cpu id seen + 1, 0 when nothing parsed.
+ * Pure — tested. */
+int hw_parse_cpu_stat(const char *s, long long *busy, long long *total,
+                      int max_cpu)
+{
+    if (!s || !busy || !total || max_cpu <= 0)
+        return 0;
+    int top = 0;
+    const char *p = s;
+    while (p && *p) {
+        const char *e = strchr(p, '\n');
+        size_t len = e ? (size_t)(e - p) : strlen(p);
+        char line[256];
+        if (len > 0 && len < sizeof line) {
+            memcpy(line, p, len);
+            line[len] = '\0';
+            int id;
+            long long u, n, sy, idl, io = 0, irq = 0, sirq = 0, st = 0;
+            if (sscanf(line, "cpu%d %lld %lld %lld %lld %lld %lld %lld %lld",
+                       &id, &u, &n, &sy, &idl, &io, &irq, &sirq, &st) >= 4 &&
+                id >= 0 && id < max_cpu) {
+                busy[id] = u + n + sy + irq + sirq + st;
+                total[id] = busy[id] + idl + io;
+                if (id + 1 > top)
+                    top = id + 1;
+            }
+        }
+        p = e ? e + 1 : NULL;
+    }
+    return top;
+}
+
 bool hw_mount_whole(const char *dev, const char *fs)
 {
     if (!dev || !fs || !dev[0] || !fs[0])
@@ -999,6 +1036,8 @@ static void read_net_ifs(hw_state_t *hw)
         }
     }
 }
+
+static void read_core_now(hw_state_t *hw, char *buf, size_t bufsize);
 
 static void read_telem_extras(hw_state_t *hw)
 {
@@ -1209,6 +1248,69 @@ static void read_telem_extras(hw_state_t *hw)
 
     read_pd_ports(hw);
     read_net_ifs(hw);
+    read_core_now(hw, buf, sizeof buf);
+}
+
+/* Per-core NOW telemetry. Utilisation = /proc/stat jiffy deltas between
+ * fast polls (the total delta is itself the elapsed time — no wall
+ * clock), the SMT pair merged by max; the live clock is amd-pstate's
+ * measured cpuinfo_avg_freq, falling back to scaling_cur_freq (both
+ * nodes were observed to briefly vanish after policy transitions —
+ * an unknown tick honestly reads "--"). The first pass only primes the
+ * counters, so a fresh ctron shows "--" until the second poll. */
+static void read_core_now(hw_state_t *hw, char *buf, size_t bufsize)
+{
+    static long long s_busy[HW_CPU_MAX], s_total[HW_CPU_MAX];
+    static bool s_primed;
+    hw->busiest_util = -1;
+    if (hw->core_n <= 0)
+        return;
+    long long busy[HW_CPU_MAX], total[HW_CPU_MAX];
+    int n = 0;
+    if (ut_read_file_all("/proc/stat", buf, bufsize) == 0)
+        n = hw_parse_cpu_stat(buf, busy, total, HW_CPU_MAX);
+    for (int i = 0; i < hw->core_n; i++) {
+        hw->core_util[i] = -1;
+        hw->core_mhz[i] = -1;
+        int t1 = hw->core_cpu[i], t2 = hw->core_sib[i];
+        if (s_primed && t1 < n) {
+            long long db = busy[t1] - s_busy[t1];
+            long long dt = total[t1] - s_total[t1];
+            int u = -1;
+            if (db >= 0 && dt > 0)
+                u = (int)(db * 100 / dt > 100 ? 100 : db * 100 / dt);
+            if (t2 >= 0 && t2 < n) {
+                long long db2 = busy[t2] - s_busy[t2];
+                long long dt2 = total[t2] - s_total[t2];
+                if (db2 >= 0 && dt2 > 0) {
+                    int u2 = (int)(db2 * 100 / dt2 > 100
+                                       ? 100 : db2 * 100 / dt2);
+                    if (u2 > u)
+                        u = u2;
+                }
+            }
+            hw->core_util[i] = u;
+            if (u > hw->busiest_util)
+                hw->busiest_util = u;
+        }
+        char p[96];
+        snprintf(p, sizeof p,
+                 "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_avg_freq", t1);
+        int khz = ut_read_int(p);
+        if (khz <= 0) {
+            snprintf(p, sizeof p,
+                     "/sys/devices/system/cpu/cpu%d/cpufreq/scaling_cur_freq",
+                     t1);
+            khz = ut_read_int(p);
+        }
+        if (khz > 0)
+            hw->core_mhz[i] = khz / 1000;
+    }
+    if (n > 0) {
+        memcpy(s_busy, busy, (size_t)n * sizeof s_busy[0]);
+        memcpy(s_total, total, (size_t)n * sizeof s_total[0]);
+        s_primed = true;
+    }
 }
 
 /* ---- profile / epp / kbd reads --------------------------------------- */
@@ -1323,6 +1425,9 @@ void hw_init(hw_state_t *hw)
     /* all-cores sweep also fills cpu_n / cpu_mhz_core, which the CLI
      * flag path needs before any hw_refresh_* call */
     cpu_limits_sweep(hw, true);
+    for (int i = 0; i < HW_CPU_MAX; i++)
+        hw->core_util[i] = hw->core_mhz[i] = -1;
+    hw->busiest_util = -1;
     hw_topology_build(hw);
 
     fan_hwmon_read(hw);

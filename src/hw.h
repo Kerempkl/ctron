@@ -63,6 +63,10 @@ int hw_parse_mounts(const char *text, hw_mount_t *out, int max, int *dupes);
 
 /* /proc/loadavg: the 1/5/15-minute averages; missing fields stay -1. */
 int hw_parse_loadavg(const char *s, double *l1, double *l5, double *l15);
+/* /proc/stat per-cpu jiffies (busy = user+nice+system+irq+softirq+steal,
+ * total = busy+idle+iowait). Returns highest cpu id seen + 1. Pure. */
+int hw_parse_cpu_stat(const char *s, long long *busy, long long *total,
+                      int max_cpu);
 
 /* pstate/throttle-reason labels, bit i = 1u<<i in hw->gpu_throttle,
  * in the same order as the nvidia-smi query field list */
@@ -165,6 +169,14 @@ typedef struct hw_state {
     int core_ccd[HW_CPU_MAX];  /* L3 group index of each core */
     int ccd_n;                 /* L3 group count (>=1) */
     bool topo_odd;             /* weird topology -> per-cpu grid fallback */
+    /* per-core NOW telemetry (fast-poll deltas, indexed like core_cpu):
+     * util from /proc/stat jiffies (max of the SMT pair), live clock
+     * from amd-pstate — the ceilings array above is the CAP, this is
+     * what the core runs at right now. -1 = unknown (first poll, or
+     * the source briefly vanished — both honest "--") */
+    int core_util[HW_CPU_MAX];
+    int core_mhz[HW_CPU_MAX];
+    int busiest_util;          /* highest thread utilisation, % (-1) */
     hw_paths_t paths;                         /* cached device paths */
     int rpm_cpu, rpm_gpu;  /* -1 unknown */
     int bat_pct;

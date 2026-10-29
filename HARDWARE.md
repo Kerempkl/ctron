@@ -116,7 +116,13 @@ Notes:
   - **CPU**: k10temp `temp1` (Tctl) + `temp3`/`temp4` (Tccd1/2 —
     accepted only when their label files say `Tccd`, so a different
     chip layout can never mislabel a sensor); per-core ceilings from
-    cpufreq `scaling_max_freq`.
+    cpufreq `scaling_max_freq`; per-core NOW utilisation from
+    `/proc/stat` jiffy deltas (busy = user+nice+system+irq+softirq+
+    steal, the SMT pair merged by max — the total delta is itself
+    the clock, no wall time involved) and the live per-core clock
+    from amd-pstate `cpuinfo_avg_freq` with a `scaling_cur_freq`
+    fallback (both nodes were observed to briefly vanish after
+    policy transitions — an unknown tick reads `--`).
   - **Fans**: asus hwmon `fan1/2_input` RPM (0 is honest — the EC
     stops the GPU fan at idle on many machines).
   - **dGPU** (nvidia-smi, one query): temperature, power draw,
@@ -278,7 +284,14 @@ Notlar:
   - **CPU**: k10temp `temp1` (Tctl) + `temp3`/`temp4` (Tccd1/2 —
     yalnızca etiket dosyaları `Tccd` diyorsa kabul edilir, başka bir
     çip düzeninde yanlış etiket imkânsız); çekirdek başına tavanlar
-    cpufreq `scaling_max_freq`'ten.
+    cpufreq `scaling_max_freq`'ten; çekirdek başına ANLIK kullanım
+    `/proc/stat` jiffy delta'sından (busy = user+nice+system+irq+
+    softirq+steal, SMT çifti maksimumla birleştirilir — total
+    delta'sı kendisi saat olduğu için duvar saati gerekmez), canlı
+    çekirdek saati amd-pstate `cpuinfo_avg_freq`'ten
+    (`scaling_cur_freq` yedeğiyle; her iki düğümün politika
+    geçişlerinden sonra kısa süre kaybolduğu gözlendi — bilinmeyen
+    işareti dürüstçe `--` basar).
   - **Fanlar**: asus hwmon `fan1/2_input` RPM (0 dürüst değerdir —
     birçok makinede EC, GPU fanını boştayla tamamen durdurur).
   - **dGPU** (nvidia-smi, tek sorgu): sıcaklık, güç, grafik saati,

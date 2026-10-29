@@ -1,5 +1,39 @@
 # Changelog
 
+## 2026-10-29 — telem: per-core NOW table + busiest-core series
+
+- User ask: the per-core proxy research (util/C-state/freq, verified
+  live after the BIOS-enabled 2nd CCD) should land in the CPU detail
+  page as a table below the existing rows — and "how should min/max
+  work here without drowning the screen?"
+- Design answer, implemented: the table is a pure NOW snapshot
+  (core id · util% · live clock, SMT pair merged by max, zone-coloured
+  util, 4 columns ≥60 cells wide, 2 below); per-cell min/avg/max was
+  rejected — 16 cores × 3 stats × 2 modes would bury the page. The
+  time dimension lives in ONE new ring series, TS_BUSIEST_UTIL
+  ("busiest", the busiest thread's utilisation), so all existing
+  machinery comes free: grid row with window range, detail
+  now/min/avg/max, 's' window↔since-reset, 'r' reset, legend, and a
+  15th --csv column (busiest_util_pct; the append guard now expects
+  15).
+- Read layer: hw_parse_cpu_stat (pure, unit-tested — busy = user+
+  nice+system+irq+softirq+steal, total = busy+idle+iowait; the
+  jiffy-total delta IS the clock, no wall time) + read_core_now in
+  the fast poll (first pass only primes counters → fresh start shows
+  honest "--"; per-core clock = amd-pstate cpuinfo_avg_freq with a
+  scaling_cur_freq fallback — both were observed to briefly vanish
+  after policy transitions).
+- detail_table gained an optional tail block (drawn between the live
+  info and the legend); its minimum height joins the roomy threshold,
+  so mid-size terminals trade spacing for the table instead of
+  dropping it: 100×30 fits everything packed, 160×50 keeps the full
+  spaced layout, 100×22 clips the table to 2 rows.
+- Verified: 0 warnings, make test (+6 cpu_stat checks), full
+  tuitest, live dumps of the CPU detail at 160×50/100×30/100×22 and
+  the grid at 160×50/100×30/60×24, live --csv under pinned load
+  (busiest hit 100%), tui-telem.png re-shot, README + HARDWARE.md
+  (EN+TR) updated, install in the same breath.
+
 ## 2026-10-29 — telem: APU PPT mirrored into the CPU section
 
 - User ask: the APU PPT series (whole-package power, CPU + iGPU —
