@@ -144,6 +144,10 @@ static const chartdef_t CD_CPU[] = {
       "thread-0 live frequency (sampled cpu)", ZN_NONE, -1, NULL },
     { "load", U_LOAD, TS_CPU_LOAD,
       "1-min load average (runnable tasks)", ZN_NONE, -1, NULL },
+    /* mirrored from the iGPU section: the same ring, no second
+     * storage — watching a CPU test wants the package power beside */
+    { "APU PPT", U_W, TS_IGPU_MW,
+     "whole-APU package power: CPU + iGPU", ZN_NONE, -1, NULL },
 };
 static const chartdef_t CD_GPU[] = {
     { "temp", U_TEMP, TS_GPU_TEMP, "dGPU temperature", ZN_TEMP, -1, NULL },

@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-10-29 — telem: APU PPT mirrored into the CPU section
+
+- User ask: the APU PPT series (whole-package power, CPU + iGPU —
+  amdgpu power1_input) lived only in the iGPU section; a CPU
+  watch wants it beside. Added as a fourth CD_CPU entry — the
+  SAME ring is read (TS_IGPU_MW), no second storage, no new
+  sensor: CPU grid box gains an "APU PPT" row (with window
+  min–max range) and the CPU detail table gains the row + legend
+  line. iGPU section unchanged; absent amdgpu stays honest "--".
+- Verified: 0 warnings, make test, full tuitest, live dumps of
+  the CPU grid box + detail, tui-telem.png re-shot, install in
+  the same breath.
+
 ## 2026-10-29 — critique round: since-reset stats + df-exact pct + csv guard + flash fix
 
 - The self-critique's four real findings, closed:

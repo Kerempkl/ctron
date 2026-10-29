@@ -1,6 +1,12 @@
 # Ctron Handoff
 
-Latest session — **2026-10-29 (13th round, critique fixes)**
+Latest session — **2026-10-29 (14th round, APU PPT → CPU section)**
+**GLM / Kerempkl / FA608PP**: user asked to add the APU PPT series
+to the CPU section — done as a fourth CD_CPU entry reading the
+SAME TS_IGPU_MW ring (no second storage/sensor); CPU grid box +
+detail table + legend carry "APU PPT" now, iGPU section unchanged.
+Verified: 0 warnings, make test, full tuitest, dumps, tui-telem.png,
+install same breath. Before that **2026-10-29 (13th round, critique fixes)**
 **GLM / Kerempkl / FA608PP**: user asked for a self-critique of the
 day's telemetry work, then "önerdiğin yolla düzelt" — all four real
 findings closed in one pass: ① **since-reset lifetime stats** (the
