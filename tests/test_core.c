@@ -773,6 +773,33 @@ static void check_telem(void)
     telem_push(TS_CPU_TEMP, 40);
     CHECK(telem_avg(TS_CPU_TEMP) == 25, "telem_avg follows pushes");
     telem_reset();
+
+    /* telem_since: lifetime stats, cleared by reset, outlive window */
+    double smn = -9, smx = -9, sav = -9;
+    telem_reset();
+    CHECK(telem_since_n(TS_CPU_TEMP) == 0, "since empty count 0");
+    telem_since(TS_CPU_TEMP, &smn, &smx, &sav);
+    CHECK(smn == -1 && smx == -1 && sav == -1, "since empty -1s");
+    telem_push(TS_CPU_TEMP, 40.0);
+    telem_push(TS_CPU_TEMP, -1); /* unknown ticks are not counted */
+    telem_push(TS_CPU_TEMP, 60.0);
+    telem_push(TS_CPU_TEMP, 50.0);
+    telem_since(TS_CPU_TEMP, &smn, &smx, &sav);
+    CHECK(telem_since_n(TS_CPU_TEMP) == 3 && smn == 40 && smx == 60 &&
+              sav == 50,
+          "since min/max/avg over all samples");
+    telem_reset();
+    telem_since(TS_CPU_TEMP, &smn, &smx, &sav);
+    CHECK(telem_since_n(TS_CPU_TEMP) == 0 && smn == -1 && sav == -1,
+          "since cleared by reset");
+    telem_reset();
+    for (int i = 0; i < 300; i++) /* window is 240 samples */
+        telem_push(TS_GPU_TEMP, 50);
+    telem_since(TS_GPU_TEMP, &smn, &smx, &sav);
+    CHECK(telem_count(TS_GPU_TEMP) == 240 &&
+              telem_since_n(TS_GPU_TEMP) == 300,
+          "since outlives the 60 s window");
+    telem_reset();
 }
 
 static void check_telem_hw(void)

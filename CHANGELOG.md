@@ -1,5 +1,38 @@
 # Changelog
 
+## 2026-10-29 — critique round: since-reset stats + df-exact pct + csv guard + flash fix
+
+- The self-critique's four real findings, closed:
+- **"since reset" lifetime stats** (the big one): telem.c now keeps
+  per-series lifetime min/max/sum/count accumulators next to the
+  rings — every accepted sample counts, the 60 s window can roll
+  off without losing the extremes (unit-proven: 300 pushes →
+  window 240 / since 300). 's' flips the detail table's MIN/AVG/MAX
+  between the rolling 60 s window and "since reset"; a self-
+  describing mode line under the header states which is active;
+  'r' clears BOTH. The reset → run a long test → read stats
+  workflow now reports the whole test, not its last minute.
+- **Reset flash no longer eats the section name**: "TELEMETRY ·
+  CPU · cleared" (was a full-title override), and the flash is
+  time-based (CLOCK_MONOTONIC, 3 s) instead of a draw-count
+  counter — a closed overlay can never carry a stale flash into a
+  reopen.
+- **df-exact disk percent**: percentages now use the df basis
+  used/(used+bavail) with ceiling rounding — verified identical to
+  `df /` live (91% = 91%; the old used/total floor could read a
+  few points off). Applies to the STORAGE detail mount rows and
+  the grid "/" bar (bar fill fraction included).
+- **--csv append guard**: appending to a file whose header has a
+  different column count than this build writes now refuses with
+  a clear message instead of silently misaligning rows (old 13-col
+  files refused, empty files get a fresh header, live-tested).
+- Unit: 6 new telem_since checks; smoke pins the 's' switch
+  (probe "back", unique to the since-mode line). Footer hints
+  gained "s stats" (grid + detail). HARDWARE.md (EN+TR) + README
+  updated. Verified: 0 warnings, make test, full tuitest, live
+  dumps (both modes, fresh-reset since = now, df match), csv
+  three-way live test, install in the same breath.
+
 ## 2026-10-29 — telem fix: grid CPU box said "16 cores" (threads, not cores)
 
 - User caught an inconsistency: the CPU grid info line read "16

@@ -59,6 +59,12 @@ double telem_last(int idx); /* last accepted value, -1 when empty */
 int telem_count(int idx);   /* samples stored */
 /* Mean over the stored window, -1 when empty. */
 double telem_avg(int idx);
+/* Lifetime "since reset" stats, independent of the ring window: the
+ * min/max/mean over EVERY accepted sample since the last telem_reset
+ * (or process start) — a measurement run longer than the 60 s window
+ * still reports its whole extent. -1 outs when empty. */
+void telem_since(int idx, double *mn, double *mx, double *avg);
+long telem_since_n(int idx); /* samples accumulated since reset */
 /* Sample `back` accepted ticks ago (0 = newest). False when the index
  * or offset is outside the window; *v then stays -1. The detail charts
  * walk the ring through this — the rings keep no second copy of data. */

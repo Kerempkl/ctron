@@ -106,8 +106,10 @@ section's **detail page**: a numeric now/min/avg/max table over the
 ~60 s window plus info lines from a fresh live snapshot (PPT/EPP,
 per-core ceilings, GPU pstate & throttle reasons, VRAM/clock lock,
 battery health, load 1/5/15 min …); `h`/`l` flips sections, `esc`
-backs out to the grid, and `r` (or the footer button) clears every
-window — a fresh measurement then starts from zero history.
+backs out to the grid, `r` (or the footer button) clears every
+window and the lifetime stats — a fresh measurement then starts
+from zero history — and `s` flips the MIN/AVG/MAX columns between
+the rolling 60 s window and everything since the last reset.
 Unknown sensors stay `--`; the screen never writes hardware.
 
 ![ctron TUI — POWER view](docs/tui-power.png)

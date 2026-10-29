@@ -147,9 +147,10 @@ Notes:
     `/` usage via statvfs, per-mount usage from
     `/proc/self/mounts` (whole-disk mounts only, one row per
     device — btrfs subvolumes share the device's space and are
-    deduped with a note), disk I/O from /proc/diskstats (whole
-    disks only — partitions/loops excluded so bytes are never
-    counted twice).
+    deduped with a note; the percentage uses the df basis
+    used/(used+bavail) rounded up, matching `df`'s Use%), disk
+    I/O from /proc/diskstats (whole disks only — partitions/loops
+    excluded so bytes are never counted twice).
   - **NET**: `/sys/class/net/*/statistics` for physical + wifi
     interfaces only (lo, veth*, docker*, br-*, virbr*, tap*, tun*,
     wg*, tailscale* excluded — the same double-count guard); rx/tx
@@ -305,9 +306,11 @@ Notlar:
     bileşenler bileşikten daha sıcak çalışır), statvfs ile `/`
     doluluk, `/proc/self/mounts`'tan mount başına doluluk (yalnız
     gerçek disk mountları, cihaz başına tek satır — btrfs alt
-    birimleri aynı cihazın alanını paylaşır, notla teklenir),
-    /proc/diskstats'tan disk I/O (yalnız bütün diskler —
-    bölüm/loop'lar hariç, baytlar iki kez sayılmaz).
+    birimleri aynı cihazın alanını paylaşır, notla teklenir; yüzde
+    df tabanıyla used/(used+bavail) tavana yuvarlanır, `df`'in
+    Use%'siyle birebir), /proc/diskstats'tan disk I/O (yalnız
+    bütün diskler — bölüm/loop'lar hariç, baytlar iki kez
+    sayılmaz).
   - **NET**: `/sys/class/net/*/statistics` yalnız fiziksel + wifi
     arayüzler için (lo, veth*, docker*, br-*, virbr*, tap*, tun*,
     wg*, tailscale* hariç — aynı çift-sayım koruması); rx/tx tik

@@ -196,6 +196,7 @@ typedef struct hw_state {
     int mnt_n;                                 /* statvfs'd whole-disk mounts */
     hw_mount_t mnt[HW_MOUNT_MAX];
     int mnt_used_mb[HW_MOUNT_MAX], mnt_total_mb[HW_MOUNT_MAX];
+    int mnt_avail_mb[HW_MOUNT_MAX];            /* f_bavail (df-style pct) */
     int mnt_dupes;                             /* same-device mounts skipped */
     int igpu_temp, igpu_mhz, igpu_mw;          /* amdgpu hwmon */
     int igpu_vddgfx_mv, igpu_vddnb_mv;         /* amdgpu in0/in1_input */
@@ -210,6 +211,7 @@ typedef struct hw_state {
     int nvme_sensor_max[2];                    /* hottest Sensor 1/2 per drive */
     long long disk_rd_sectors, disk_wr_sectors; /* raw /proc/diskstats */
     int fs_used_mb, fs_total_mb;               /* statvfs of / */
+    int fs_avail_mb;                            /* f_bavail of / (df pct) */
     int gpu_mw, gpu_mhz, gpu_util;             /* extended nvidia-smi */
     int gpu_vram_used_mb, gpu_vram_total_mb;
     char gpu_pstate[8];        /* "P0".."P12", "" unknown (ext query) */

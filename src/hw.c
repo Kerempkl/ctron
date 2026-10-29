@@ -1168,16 +1168,21 @@ static void read_telem_extras(hw_state_t *hw)
     }
 
     hw->fs_used_mb = hw->fs_total_mb = -1;
+    hw->fs_avail_mb = -1;
     struct statvfs st;
     if (statvfs("/", &st) == 0 && st.f_frsize > 0 && st.f_blocks > 0) {
         hw->fs_total_mb =
             (int)((long long)st.f_blocks * st.f_frsize / (1024 * 1024));
         hw->fs_used_mb = (int)((long long)(st.f_blocks - st.f_bfree) *
                                st.f_frsize / (1024 * 1024));
+        hw->fs_avail_mb =
+            (int)((long long)st.f_bavail * st.f_frsize / (1024 * 1024));
     }
 
     /* whole-disk mounts from /proc/self/mounts (one row per device —
-     * btrfs subvolumes deduped); statvfs per mount for live usage */
+     * btrfs subvolumes deduped); statvfs per mount for live usage.
+     * used = blocks-bfree (root reserve included), avail = bavail —
+     * the df basis: pct = used / (used + avail) */
     hw->mnt_n = 0;
     hw->mnt_dupes = 0;
     if (ut_read_file_all("/proc/self/mounts", buf, sizeof(buf)) == 0) {
@@ -1195,6 +1200,8 @@ static void read_telem_extras(hw_state_t *hw)
             hw->mnt_used_mb[hw->mnt_n] =
                 (int)((long long)(ms.f_blocks - ms.f_bfree) * ms.f_frsize /
                       (1024 * 1024));
+            hw->mnt_avail_mb[hw->mnt_n] =
+                (int)((long long)ms.f_bavail * ms.f_frsize / (1024 * 1024));
             hw->mnt_n++;
         }
         hw->mnt_dupes = dup;

@@ -13,6 +13,10 @@ typedef struct {
 static ring_t s_rings[TS_COUNT];
 static long s_last_tick = -1;
 
+/* lifetime "since reset" accumulators (independent of the window) */
+static double s_lt_min[TS_COUNT], s_lt_max[TS_COUNT], s_lt_sum[TS_COUNT];
+static long s_lt_n[TS_COUNT];
+
 static const struct {
     const char *key;
     double mn, mx;
@@ -38,6 +42,10 @@ void telem_range(int idx, double *mn, double *mx)
 void telem_reset(void)
 {
     memset(s_rings, 0, sizeof s_rings);
+    memset(s_lt_min, 0, sizeof s_lt_min);
+    memset(s_lt_max, 0, sizeof s_lt_max);
+    memset(s_lt_sum, 0, sizeof s_lt_sum);
+    memset(s_lt_n, 0, sizeof s_lt_n);
     s_last_tick = -1;
 }
 
@@ -60,6 +68,36 @@ void telem_push(int idx, double v)
         r->count++;
     else
         r->head = (r->head + 1) % TELEM_N;
+    /* lifetime side: every accepted sample, window never rolls off */
+    if (s_lt_n[idx] == 0 || v < s_lt_min[idx])
+        s_lt_min[idx] = v;
+    if (s_lt_n[idx] == 0 || v > s_lt_max[idx])
+        s_lt_max[idx] = v;
+    s_lt_sum[idx] += v;
+    s_lt_n[idx]++;
+}
+
+void telem_since(int idx, double *mn, double *mx, double *avg)
+{
+    if (mn)
+        *mn = -1;
+    if (mx)
+        *mx = -1;
+    if (avg)
+        *avg = -1;
+    if (idx < 0 || idx >= TS_COUNT || s_lt_n[idx] == 0)
+        return;
+    if (mn)
+        *mn = s_lt_min[idx];
+    if (mx)
+        *mx = s_lt_max[idx];
+    if (avg)
+        *avg = s_lt_sum[idx] / (double)s_lt_n[idx];
+}
+
+long telem_since_n(int idx)
+{
+    return (idx >= 0 && idx < TS_COUNT) ? s_lt_n[idx] : 0;
 }
 
 double telem_last(int idx)

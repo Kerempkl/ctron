@@ -672,6 +672,16 @@ def flow_telem_full():
             fail("telem_full", "'r' stats-reset acknowledgement missing")
             return
         ok("telem_full", "'r' resets the stats (title flash)")
+        m6c = s.mark()
+        s.key(b"s")                # stats source: 60 s window <-> since reset
+        # "back" only exists in the since-mode line ("'s' back to the
+        # 60 s window"); the whole mode line redraws, so it is emitted
+        if not s.wait_for(b"back", since=m6c, timeout=6.0):
+            fail("telem_full", "'s' stats-source switch missing")
+            return
+        ok("telem_full", "'s' switches the table to since-reset stats")
+        s.key(b"s")                # back to the window mode
+        time.sleep(0.3)
         m7 = s.mark()
         s.key(b"\x1b")             # esc: detail -> grid (not closed)
         if not s.wait_for(b"j/k", since=m7, timeout=6.0):

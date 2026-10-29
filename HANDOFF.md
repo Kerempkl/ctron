@@ -1,6 +1,26 @@
 # Ctron Handoff
 
-Latest session — **2026-10-29 (12th round, grid CPU cores fix)**
+Latest session — **2026-10-29 (13th round, critique fixes)**
+**GLM / Kerempkl / FA608PP**: user asked for a self-critique of the
+day's telemetry work, then "önerdiğin yolla düzelt" — all four real
+findings closed in one pass: ① **since-reset lifetime stats** (the
+semantic gap: the 60 s window cannot serve a long measurement) —
+telem.c lifetime accumulators + telem_since()/telem_since_n(), 's'
+flips the detail table between window and since modes (self-
+describing mode line under the header), 'r' clears both; unit-proven
+300-push case (window 240 / since 300). ② flash rides BESIDE the
+section title ("TELEMETRY · CPU · cleared") and is CLOCK_MONOTONIC
+time-based — no stale flash across close/reopen. ③ disk percent is
+now df-exact: used/(used+bavail) with ceiling rounding, verified
+identical to `df /` live (was used/total floor, a few points off);
+STORAGE detail rows + grid "/" bar (fill fraction too). ④ --csv
+append refuses mismatched-column headers instead of silently
+misaligning (live-tested 3 ways). Remaining critique items left as
+notes (mid-size spaced/compact inconsistency = accepted trade-off;
+>6 mounts truncation, 16k mounts buffer, wifi % scale note — edge
+cases). Verified: 0 warnings, make test (6 new since checks), full
+tuitest ('s' probe "back"), dumps of both modes + fresh reset, csv
+guard, install same breath. Before that **2026-10-29 (12th round, grid CPU cores fix)**
 **GLM / Kerempkl / FA608PP**: user caught the CPU grid info line
 saying "16 cores" while the detail said "16 threads · 8 cores" —
 sec_cpu labelled hw->cpu_n (threads) as cores. Grid now shows

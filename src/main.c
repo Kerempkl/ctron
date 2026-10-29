@@ -279,7 +279,34 @@ static void csv_val(char *out, size_t n, int v)
 
 static int cmd_csv(hw_state_t *hw, const char *path)
 {
+    /* columns this build writes — the header and the row must agree */
+    enum { CSV_COLS = 14 };
     bool new = ut_path_exists(path) == false;
+    int hdr_cols = 0;
+    if (!new) {
+        /* appending to an old file: verify its header matches the
+         * current column count, or rows would silently misalign */
+        FILE *hf = fopen(path, "r");
+        char hl[512];
+        bool got = hf && fgets(hl, sizeof hl, hf);
+        if (hf)
+            fclose(hf);
+        if (!got) {
+            new = true; /* exists but unreadable/empty: write header */
+        } else {
+            hdr_cols = 1;
+            for (const char *p = hl; *p; p++)
+                if (*p == ',')
+                    hdr_cols++;
+            if (hdr_cols != CSV_COLS) {
+                fprintf(stderr,
+                        "ctron: %s has a %d-column header, this build "
+                        "writes %d — start a new file\n",
+                        path, hdr_cols, CSV_COLS);
+                return 1;
+            }
+        }
+    }
     FILE *f = fopen(path, "a");
     if (!f) {
         fprintf(stderr, "ctron: cannot write %s\n", path);

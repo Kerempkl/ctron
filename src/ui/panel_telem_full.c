@@ -8,6 +8,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 /* Fullscreen TELEMETRY ('t'): read-only rolling view over the telem
  * rings. Sections are a REGISTRY — adding, removing or moving one is
@@ -256,9 +257,13 @@ static void stat_row(struct ncplane *n, int x, int y,
                      const int ce[4])
 {
     const palette_t *pal = ui_palette(g_prefs.theme);
-    double last = telem_last(sidx), mn, mx;
-    telem_minmax(sidx, &mn, &mx);
-    double av = telem_avg(sidx);
+    double last = telem_last(sidx), mn = -1, mx = -1, av = -1;
+    if (g_ui.telem_since)
+        telem_since(sidx, &mn, &mx, &av);
+    else {
+        telem_minmax(sidx, &mn, &mx);
+        av = telem_avg(sidx);
+    }
     char now[40], a[24], b[24], c2[24], labn[16];
     fmt_val(now, sizeof now, cd->u, last);
     if (cd->u == U_MBPS && mx >= 1024.0 * 1024.0) { /* row scale MB/s */
@@ -324,8 +329,9 @@ static void detail_table(struct ncplane *n, const rect_t *r,
     int halves = 0;
     for (int i = 0; i < ncd; i++)
         halves += cd[i].sidx2 >= 0 ? 2 : 1;
-    int roomy_n = 1 + 1 + halves + ncd + (ninfo > 0 ? 1 : 0) + ninfo +
-                  1 + (ncd > 0 ? 1 : 0) + ncd;
+    /* +1 for the stats-source line under the header */
+    int roomy_n = 1 + 1 + 1 + halves + ncd + (ninfo > 0 ? 1 : 0) +
+                  ninfo + 1 + (ncd > 0 ? 1 : 0) + ncd;
     bool roomy = avail >= roomy_n;
 
     int y = r->y + 1;
@@ -338,6 +344,20 @@ static void detail_table(struct ncplane *n, const rect_t *r,
                  pal->muted, false);
     y++;
     used++;
+    if (roomy) {
+        /* self-describing stats source (the two modes differ in what
+         * MIN/AVG/MAX cover — the measurement workflow needs both) */
+        char mode[128];
+        if (g_ui.telem_since)
+            snprintf(mode, sizeof mode,
+                     " stats: since reset — 's' back to the 60 s window");
+        else
+            snprintf(mode, sizeof mode,
+                     " stats: 60 s window — 's' switches to since reset");
+        info_line(n, x, y, w, mode);
+        y++;
+        used++;
+    }
     if (roomy) {
         y++;
         used++;
@@ -538,9 +558,15 @@ static void sec_disk(struct ncplane *n, const rect_t *r)
             cells = 8;
         if ((size_t)cells * 3 + 1 > sizeof b)
             cells = (int)(sizeof b - 1) / 3;
-        bar(b, sizeof b, hw->fs_used_mb, hw->fs_total_mb, cells);
-        int pct = hw->fs_total_mb > 0
-                      ? hw->fs_used_mb * 100 / hw->fs_total_mb : 0;
+        /* df basis (matches the STORAGE detail rows): denominator is
+         * used + available, rounding up — the bar and % agree with
+         * `df`'s Use% */
+        int basis = hw->fs_avail_mb > 0
+                        ? hw->fs_used_mb + hw->fs_avail_mb
+                        : hw->fs_total_mb;
+        bar(b, sizeof b, hw->fs_used_mb, basis > 0 ? basis : 1, cells);
+        int pct = basis > 0
+                      ? (hw->fs_used_mb * 100 + basis - 1) / basis : 0;
         if (hw->nvme_temp_n == 2)
             snprintf(line, sizeof line, " / %d%% %s · NVMe %d/%d °C",
                      pct, b, hw->nvme_temp[0], hw->nvme_temp[1]);
@@ -815,7 +841,11 @@ static void detail_disk(struct ncplane *n, const rect_t *r)
     for (int i = 0; i < hw->mnt_n && ni < (int)(sizeof info / sizeof info[0]);
          i++) {
         long tot = hw->mnt_total_mb[i], used = hw->mnt_used_mb[i];
-        int pct = tot > 0 ? (int)(used * 100 / tot) : 0;
+        long avail = hw->mnt_avail_mb[i];
+        /* df basis: root reserve counts as used, denominator is
+         * used+bavail, and the % rounds UP — matches `df`'s Use% */
+        long basis = (used + avail) > 0 ? used + avail : tot;
+        int pct = basis > 0 ? (int)((used * 100 + basis - 1) / basis) : 0;
         char sz[48];
         if (tot >= 1024)
             snprintf(sz, sizeof sz, "%.0f/%.0f GB",
@@ -922,14 +952,23 @@ static void detail_power(struct ncplane *n, const rect_t *r)
                  info, hw->pd_n > 0 ? 3 : 2);
 }
 
-/* 'r' key / footer button: clear every series ring. min/avg/max then
- * rebuild from a clean window — old samples cannot colour a fresh
- * measurement run (workflow: reset, run the test, read the stats).
- * "now" values refill on the next poll tick (<= 250 ms). */
+/* 'r' key / footer button: clear every series ring AND the lifetime
+ * "since" accumulators. min/avg/max then rebuild from a clean state —
+ * old samples cannot colour a fresh measurement run (workflow: reset,
+ * run the test — however long — read the stats, 's' switches the
+ * table to "since reset"). "now" values refill on the next poll tick
+ * (<= 250 ms). */
+static long tmono_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
 static void telem_stats_reset(void)
 {
     telem_reset();
-    g_ui.telem_ack = 12; /* ~3 s title confirmation at the 4 Hz poll */
+    g_ui.telem_ack_ms = tmono_ms();
 }
 
 /* overlay footer: key hints left, a clickable "[r] reset stats" button
@@ -974,12 +1013,13 @@ void panel_telem_full_draw(struct ncplane *n, const rect_t *r)
         snprintf(title, sizeof title, "TELEMETRY");
     else
         snprintf(title, sizeof title, "TELEMETRY · %s", SECTIONS[det].title);
-    /* the reset acknowledgement rides the title: draw-side countdown,
-     * no timer anywhere */
-    if (g_ui.telem_ack > 0) {
-        g_ui.telem_ack--;
-        snprintf(title, sizeof title, "TELEMETRY · min/avg/max cleared");
-    }
+    /* reset acknowledgement rides BESIDE the section name (time-based:
+     * no draw-count clock, so a closed overlay can never carry a stale
+     * flash into a reopen) */
+    if (g_ui.telem_ack_ms > 0 &&
+        tmono_ms() - g_ui.telem_ack_ms < 3000)
+        snprintf(title + strlen(title), sizeof(title) - strlen(title),
+                 " · cleared");
     ui_window(n, r, title);
 
     if (det >= 0) {
@@ -987,7 +1027,7 @@ void panel_telem_full_draw(struct ncplane *n, const rect_t *r)
         if (ir.w > 4 && ir.h > 2)
             SECTIONS[det].detail(n, &ir);
         telem_footer(n, r,
-                     " esc grid · h/l section · 1-8 jump · r reset · t close · q quit");
+                     " esc grid · h/l section · 1-8 · r reset · s stats · t close · q quit");
         return;
     }
 
@@ -1019,7 +1059,7 @@ void panel_telem_full_draw(struct ncplane *n, const rect_t *r)
     }
 
     telem_footer(n, r,
-                 " j/k select · enter detail · 1-8 jump · r reset · t close · q quit");
+                 " j/k select · enter detail · 1-8 · r reset · s stats · t close · q quit");
 }
 
 /* ---- input: grid navigation + detail pages ---------------------------- */
@@ -1054,6 +1094,13 @@ void panel_telem_full_key(uint32_t key)
      * the thing being reset */
     if (key == 'r' || key == 'R') {
         telem_stats_reset();
+        return;
+    }
+
+    /* stats source of the detail tables: the rolling 60 s window or
+     * everything since the last reset (long measurement runs) */
+    if (key == 's' || key == 'S') {
+        g_ui.telem_since = !g_ui.telem_since;
         return;
     }
 

@@ -71,7 +71,8 @@ typedef struct ui_ctx {
     bool telem_full;       /* 't': fullscreen read-only telemetry */
     int telem_sel;         /* grid cursor in the fullscreen (section idx) */
     int telem_detail;      /* -1 grid, else section shown full-page */
-    int telem_ack;         /* 'r' stats-reset flash: draw countdown */
+    bool telem_since;      /* detail stats: 60 s window vs since-reset */
+    long telem_ack_ms;     /* 'r' reset flash: CLOCK_MONOTONIC ms, 0 none */
     bool db_overlay;       /* dedicated daeboard editor / installer */
     rect_t rc_overlay;     /* settings overlay rectangle (below top bar) */
 
