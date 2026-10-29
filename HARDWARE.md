@@ -138,17 +138,18 @@ Notes:
     **SoC PPT — the whole-APU package (CPU + iGPU)**, not an
     iGPU-only rail; vddgfx/vddnb millivolts. DRM device adds
     `gpu_busy_percent` and the active `pp_dpm_sclk` level.
-    `gpu_metrics`: the only live power slice on Dragon Range is the
-    gfx field (signature-gated read) — the CPU blocks of that blob
-    are permanently 0xFF (probed live 2026-10-27). The APU split
-    shown in the TUI is **CPU+SoC (est) = power1_input − gfx
-    rail** (both sides real sensors, the difference derived; the
-    gfx rail saturates at its ~10 W budget under load and reads
-    true 0 W when gated, and the two counters sample on different
-    clocks, so single instants can wobble — the ring averages
-    smooth it). A MEASURED per-core/CPU watt still needs root:
-    RAPL `energy_uj` is 0400 and the per-core `power_core` perf
-    PMU (kernel 6.14+) is gated by perf_event_paranoid.
+    `gpu_metrics`: **no live power exists in this blob on Dragon
+    Range** — the CPU blocks are permanently 0xFF and the u32@28
+    field once shipped as "gfx rail watts" is actually gfx
+    **ACTIVITY in hundredths of a percent** (disproved live
+    2026-10-29: tight-pair sampling against `gpu_busy_percent`
+    matched 18/22 exactly, 11/12 within 5 points under load, and
+    the "10.00 W ceiling" was 100% utilisation — user caught the
+    0 W-while-working contradiction). So `power1_input` is the
+    only honest APU watt and **no rootless CPU/iGPU split exists**;
+    a MEASURED per-core watt still needs root (RAPL `energy_uj`
+    0400; the per-core `power_core` perf PMU, kernel 6.14+, sits
+    behind perf_event_paranoid).
   - **RAM**: spd5118 module temps are uncommon hardware — most
     laptops have none and show `--`. Where present, the limits
     (`temp1_max`/`temp1_crit`) and the kernel `max_alarm` flag
@@ -312,17 +313,18 @@ Notlar:
   - **iGPU** (amdgpu hwmon): sıcaklık, saat, `power1_input` = **SoC
     PPT — APU'nun TAM paketi (CPU + iGPU)**, yalnız iGPU rayı değil;
     vddgfx/vddnb milivoltları. DRM cihazı `gpu_busy_percent` ve
-    etkin `pp_dpm_sclk` kademesini ekler. `gpu_metrics`: Dragon
-    Range'de tek canlı güç dilimi gfx alanıdır (imza-kapılı okuma) —
-    o bloğun CPU kısımları kalıcı 0xFF (2026-10-27'de canlı
-    yoklandı). TUI'deki APU ayrıştırması **CPU+SoC (est) =
-    power1_input − gfx rayı** (iki taraf da gerçek sensör, fark
-    türetilmiş; gfx rayı yük altında ~10 W bütçesinde doyar,
-    kapılandığında gerçek 0 W okur, iki sayaç farklı saatlerde
-    örneklendiğinden tek anlar titreyebilir — halka ortalaması
-    yumuşatır). ÖLÇÜLMÜŞ çekirdek/CPU watt'ı hâlâ root ister:
-    RAPL `energy_uj` 0400, çekirdek başına `power_core` perf PMU
-    (kernel 6.14+) perf_event_paranoid ardında.
+    etkin `pp_dpm_sclk` kademesini ekler. `gpu_metrics`: **bu
+    blob'da Dragon Range'de canlı GÜÇ yoktur** — CPU blokları kalıcı
+    0xFF ve bir ara "gfx ray watt'ı" olarak gösterilen u32@28 alanı
+    aslında yüzde-yüzde-bir biriminde gfx **AKTİVİTESİDİR** (canlı
+    çürütme 2026-10-29: `gpu_busy_percent` ile sıkı-eşleşmeli
+    örneklemede 22'de 18'i birebir, yük altında 12'de 11'i ≤5 puan;
+    "10.00 W tavanı" %100 kullanımmış — çalışırken 0 W çelişkisini
+    kullanıcı yakaladı). Dolayısıyla `power1_input` tek dürüst APU
+    watt'ıdır ve **sudo'suz CPU/iGPU ayrıştırması YOKTUR**;
+    ÖLÇÜLMÜŞ çekirdek watt'ı yine root ister (RAPL `energy_uj` 0400;
+    çekirdek başına `power_core` perf PMU, kernel 6.14+,
+    perf_event_paranoid ardında).
   - **RAM**: spd5118 modül sıcaklıkları nadir donanımdır — çoğu
     laptop'ta yoktur, `--` görünür. Varsa limitler
     (`temp1_max`/`temp1_crit`) ve çekirdeğin `max_alarm` bayrağı da

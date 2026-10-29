@@ -280,7 +280,7 @@ static void csv_val(char *out, size_t n, int v)
 static int cmd_csv(hw_state_t *hw, const char *path)
 {
     /* columns this build writes — the header and the row must agree */
-    enum { CSV_COLS = 17 };
+    enum { CSV_COLS = 15 };
     bool new = ut_path_exists(path) == false;
     int hdr_cols = 0;
     if (!new) {
@@ -316,8 +316,7 @@ static int cmd_csv(hw_state_t *hw, const char *path)
     if (new)
         fprintf(f, "epoch,cpu_temp_c,igpu_temp_c,gpu_temp_c,cpu_mhz,gpu_mhz,"
                    "gpu_util_pct,gpu_mw,fan_cpu_rpm,fan_gpu_rpm,bat_pct,bat_mw,"
-                   "load1,wifi_signal_pct,busiest_util_pct,cpu_soc_mw,"
-                   "igpu_gfx_mw\n");
+                   "load1,wifi_signal_pct,busiest_util_pct\n");
 
     struct sigaction sa = {0};
     sa.sa_handler = watch_stop;
@@ -328,8 +327,7 @@ static int cmd_csv(hw_state_t *hw, const char *path)
             new ? "new file" : "appending");
     while (s_watch_run) {
         char t[16], ti[16], tg[16], mc[16], mg[16], gu[16], gw[16],
-             fc[16], fg[16], bp[16], bm[16], l1[16], wl[16], bu[16],
-             cs[16], gr[16];
+             fc[16], fg[16], bp[16], bm[16], l1[16], wl[16], bu[16];
         hw_refresh_fast(hw);
         csv_val(t, sizeof t, hw->cpu_temp);
         csv_val(ti, sizeof ti, hw->igpu_temp);
@@ -348,11 +346,9 @@ static int cmd_csv(hw_state_t *hw, const char *path)
             l1[0] = '\0';
         csv_val(wl, sizeof wl, hw->wifi_link_pct);
         csv_val(bu, sizeof bu, hw->busiest_util);
-        csv_val(cs, sizeof cs, hw->cpu_soc_mw);
-        csv_val(gr, sizeof gr, hw->igpu_gfx_mw);
-        fprintf(f, "%ld,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
+        fprintf(f, "%ld,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
                 time(NULL), t, ti, tg, mc, mg, gu, gw, fc, fg, bp, bm, l1, wl,
-                bu, cs, gr);
+                bu);
         usleep((useconds_t)g_prefs.poll_ms * 1000);
     }
     fclose(f);

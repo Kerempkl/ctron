@@ -100,9 +100,7 @@ each showing live numbers with zone colouring — CPU & GPU
 temperatures, clocks, load, APU package power, fan RPMs, dGPU
 power/utilisation/VRAM, iGPU temp/clock/power, RAM use + module
 temps, NVMe temps + disk I/O, per-mount disk usage, per-interface
-network rx/tx, wifi signal quality, battery draw/charge, and the
-APU power split (CPU+SoC estimate beside the iGPU rail, both with
-window stats).
+network rx/tx, wifi signal quality, battery draw/charge.
 `j`/`k` walk the section grid and `Enter` (or `1`–`8`) opens a
 section's **detail page**: a numeric now/min/avg/max table over the
 ~60 s window plus info lines from a fresh live snapshot (PPT/EPP,

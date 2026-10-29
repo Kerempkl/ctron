@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-10-29 — correction: gpu_metrics gfx field is ACTIVITY — APU split reverted
+
+- The user caught two contradictions in the split feature shipped
+  earlier today: gfx "power" pinned at exactly 10.00 W twice, and
+  0 W shown while the iGPU was definitely working (it drives the
+  desktop). The decisive tight-pair experiment (gpu_busy_percent
+  sampled immediately around the field) proved the gpu_metrics
+  u32@28 field is gfx **utilisation in hundredths of a percent**,
+  not milliwatts: 18/22 samples matched the busy reading exactly
+  (7/10 at idle, 11/12 within 5 points under a proven 100%-busy
+  load, field pinned at 10000 = 100%). The "rail budget ceiling"
+  was full utilisation; "0 W" was 0% between frames.
+- Removed the same evening: the "gfx rail" and "CPU+SoC" series and
+  section rows, the split live line, the csv columns (back to 15),
+  the hw_metrics_gfx_mw parser, hw->igpu_gfx_mw / hw->cpu_soc_mw,
+  hw_split_cpu_soc_mw() and their tests. The wrong "gfx rail W"
+  wording had actually shipped with the 10-26 sensor round — this
+  purge removes it everywhere.
+- Standing truth after the correction: amdgpu power1_input (APU
+  PPT) is the only honest APU watt; no rootless CPU/iGPU split
+  exists on this silicon; iGPU utilisation = gpu_busy_percent.
+  HARDWARE.md EN+TR rewritten accordingly.
+- Verified: 0 warnings, make test, full tuitest, live dumps of both
+  pages, tui-telem.png re-shot, install in the same breath.
+
 ## 2026-10-29 — telem: APU power split (CPU+SoC est + iGPU gfx rail)
 
 - User ask: split the APU watt value into CPU and iGPU — the

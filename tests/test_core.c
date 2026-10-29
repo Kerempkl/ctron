@@ -942,17 +942,6 @@ static void check_telem_hw(void)
               "cpu_stat null/empty honest");
     }
 
-    /* APU split: CPU+SoC = package − gfx rail, honest edges */
-    {
-        CHECK(hw_split_cpu_soc_mw(26410, 10000) == 16410,
-              "split plain difference");
-        CHECK(hw_split_cpu_soc_mw(-1, 10000) == -1 &&
-                  hw_split_cpu_soc_mw(26410, -1) == -1,
-              "split unknown side stays unknown");
-        CHECK(hw_split_cpu_soc_mw(8000, 10000) == 0,
-              "split cross-instant skew clamps to zero");
-    }
-
     /* /proc/<pid>/mounts: whole-disk filter + per-device dedupe */
     {
         static const char mt[] =
@@ -1000,18 +989,8 @@ static void check_telem_hw(void)
     hw_parse_pp_dpm("garbage line\nstill not a level\n", &dn, &da, &dm);
     CHECK(dn == 0, "pp_dpm garbage ignored");
 
-    /* gpu_metrics: signature-gated gfx-power read */
-    unsigned char gm[64];
-    memset(gm, 0xFF, sizeof gm);
-    CHECK(hw_metrics_gfx_mw(gm, sizeof gm) == -1,
-          "metrics wrong signature rejected");
-    gm[0] = 120; gm[1] = 0; gm[2] = 2; gm[3] = 1;
-    gm[28] = 0x58; gm[29] = 0x26; gm[30] = 0; gm[31] = 0; /* 0x2658 = 9816 mW */
-    CHECK(hw_metrics_gfx_mw(gm, sizeof gm) == 9816, "metrics gfx mW read");
-    gm[28] = 0xFF; gm[29] = 0xFF; gm[30] = 0xFF; gm[31] = 0x7F;
-    CHECK(hw_metrics_gfx_mw(gm, sizeof gm) == -1,
-          "metrics out-of-range value rejected");
-    CHECK(hw_metrics_gfx_mw(gm, 16) == -1, "metrics short buffer rejected");
+    /* gpu_metrics parser retired 2026-10-29: u32@28 proved to be gfx
+     * ACTIVITY (centi-percent), not watts — see hw.c note */
 
     char fb[24];
     hw_fmt_bytes(fb, sizeof fb, -1);

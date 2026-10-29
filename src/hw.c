@@ -616,21 +616,10 @@ int hw_parse_pp_dpm(const char *text, int *count, int *active,
     return 0;
 }
 
-/* Dragon Range gpu_metrics: verified live on FA608PP (kernel 7.2,
- * blob signature 78 00 02 01) — the CPU blocks stay 0xFF forever, the
- * only live power field is gfx. Any other blob layout reads unknown:
- * the four signature bytes gate every access. */
-int hw_metrics_gfx_mw(const unsigned char *buf, size_t n)
-{
-    static const unsigned char SIG[4] = { 120, 0, 2, 1 };
-    if (!buf || n < 32 || memcmp(buf, SIG, 4) != 0)
-        return -1;
-    unsigned v = (unsigned)buf[28] | ((unsigned)buf[29] << 8) |
-                 ((unsigned)buf[30] << 16) | ((unsigned)buf[31] << 24);
-    if (v > 200000u) /* sanity: no GPU rail beyond 200 W */
-        return -1;
-    return (int)v;
-}
+/* Dragon Range gpu_metrics: the blob (signature 78 00 02 01) was read
+ * here for its u32@28, shipped as "gfx rail watts" — WRONG, see the
+ * read_telem_extras note. The field is gfx ACTIVITY in centi-percent;
+ * the parser is retired. No live per-rail power exists in this blob. */
 
 const char *const hw_gpu_reason_names[HW_GPU_REASON_N] = {
     "idle", "app clocks", "sw power cap", "hw slowdown", "sync boost",
@@ -834,15 +823,6 @@ int hw_parse_loadavg(const char *s, double *l1, double *l5, double *l15)
     if (n >= 3 && c >= 0 && l15)
         *l15 = c;
     return 0;
-}
-
-/* APU package split — see the hw.h comment. Pure — tested. */
-int hw_split_cpu_soc_mw(int apu_mw, int gfx_mw)
-{
-    if (apu_mw < 0 || gfx_mw < 0)
-        return -1;
-    int d = apu_mw - gfx_mw;
-    return d > 0 ? d : 0;
 }
 
 /* /proc/stat per-cpu jiffies: "cpuN user nice system idle iowait irq
@@ -1086,7 +1066,6 @@ static void read_telem_extras(hw_state_t *hw)
     hw->igpu_busy = -1;
     hw->igpu_dpm = hw->igpu_dpm_mhz = -1;
     hw->igpu_dpm_n = 0;
-    hw->igpu_gfx_mw = -1;
     int ig_ok = 0;
     if (cached_hwmon(hw->paths.amdgpu, "amdgpu", base, sizeof base) == 0) {
         if (hwmon_read_int(base, "temp1_input", &v) == 0 && v > 0 && v < 150000) {
@@ -1116,19 +1095,16 @@ static void read_telem_extras(hw_state_t *hw)
                     hw_parse_pp_dpm(dp, &hw->igpu_dpm_n, &hw->igpu_dpm,
                                     &hw->igpu_dpm_mhz);
             }
-            if (ut_path_join(leaf, sizeof leaf, dev, "gpu_metrics") == 0) {
-                /* binary blob: read raw, never as a string */
-                FILE *f = fopen(leaf, "rb");
-                if (f) {
-                    unsigned char gm[128];
-                    size_t got = fread(gm, 1, sizeof gm, f);
-                    fclose(f);
-                    hw->igpu_gfx_mw = hw_metrics_gfx_mw(gm, got);
-                }
-            }
+            /* gpu_metrics: deliberately NOT read. Its u32@28 was
+             * believed to be the gfx-rail power and shipped as watts
+             * for a day — disproved live 2026-10-29 evening: the field
+             * tracks gpu_busy_percent in hundredths of a percent
+             * (tight-pair proof: 18/22 samples equal, load phase 11/12
+             * within 5 points, pinned at 10000 = 100% busy). Dragon
+             * Range reports NO live per-rail power in this blob —
+             * amdgpu power1_input stays the only honest APU watts. */
         }
     }
-    hw->cpu_soc_mw = hw_split_cpu_soc_mw(hw->igpu_mw, hw->igpu_gfx_mw);
 
     /* Tccd sensors: k10temp temp3/temp4, verified once against their
      * labels so a different chip layout never shows a wrong name */

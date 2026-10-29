@@ -1,6 +1,48 @@
 # Ctron Handoff
 
-Latest session — **2026-10-29 (17th round, APU power split SHIPPED)**
+Latest session — **2026-10-29 (18th round, CORRECTION: gpu_metrics
+field is ACTIVITY, not watts — the APU split was wrong and is
+reverted)**
+
+**GLM / Kerempkl / FA608PP** — the user caught it: "iGPU gücü 2
+kerede de tam 10.00 W çıkıyor, çok tuhaf" and "telemetride iGPU 0 W
+gösteriyor ama çalıştığına %100 eminim". Both were right and the
+morning's "power" proof was wrong. **Discriminator (tight-pair
+sampling: gpu_busy_percent immediately before+after the field):**
+idle desktop matched EXACTLY in 7/10 samples (99→99, 55→55, 71→71,
+79→79, 0→0…), under a proven 100%-busy shader load 11/12 samples
+within 5 points with the field pinned at exactly 10000. Conclusion:
+**gpu_metrics u32@28 = gfx ACTIVITY in hundredths of a percent.**
+The "10.00 W ceiling" was 100% utilisation; "0 W while working" was
+0% between frames; the morning's "28/28 samples at exactly 10 W =
+rail budget" reasoning was a wrong rationalisation of a pegged
+utilisation meter. (The earlier duty-cycle experiment was too noisy
+to decide — live desktop — the tight-pair one settled it.)
+
+Reverted/removed, same evening:
+- TS_IGPU_GFXMW ("gfx rail") and TS_CPU_SOCMW ("CPU+SoC") series,
+  their CD_CPU/CD_IGPU rows, the "split:" live line, and the
+  csv columns (back to 15; guard updated).
+- hw_metrics_gfx_mw() parser + hw->igpu_gfx_mw / hw->cpu_soc_mw +
+  hw_split_cpu_soc_mw() + their tests — all removed; a comment at
+  the old read site in read_telem_extras records the disproof.
+- NOTE: the wrong "gfx rail W" presentation predates today — it
+  shipped with the ⑦ sensor round (10-26/27) in the iGPU detail
+  live line; today's split only amplified it.
+- Current truth (HARDWARE.md EN+TR updated): amdgpu power1_input is
+  the ONLY honest APU watt; **no rootless CPU/iGPU split exists**;
+  iGPU utilisation stays gpu_busy_percent. A measured per-core watt
+  remains root-gated (power_core perf PMU + `sudo build/rapl_probe
+  cores 3` validation still pending, user's call).
+- Verified: 0 warnings, make test, full tuitest, live dumps of both
+  pages (clean), tui-telem.png re-shot, install in the same breath.
+- Lesson recorded in memory: a value that pegs EXACTLY at a round
+  ceiling under load is a utilization/cap reading until proven
+  otherwise; and cross-source tight-pair sampling beats
+  phase-averaging on a live desktop.
+
+Before that **2026-10-29 (17th round, APU power split SHIPPED —
+see above: reverted the same day)**
 
 **GLM / Kerempkl / FA608PP** — user: "apu watt değerini cpu igpu
 olarak nasıl ayırabiliriz şimdi ayırabilir misin" → the 15a research
