@@ -457,9 +457,19 @@ static void sec_cpu(struct ncplane *n, const rect_t *r)
     char line[192];
     char cc[40];
     fmt_tccd(cc, sizeof cc, hw);
+    /* compact topology, same facts as the detail page: physical
+     * cores / threads. cpu_n alone would relabel threads as cores
+     * (16 "cores" on an 8-core SMT part — user report) */
+    char topo[32];
+    if (hw->core_n > 0 && hw->cpu_n > hw->core_n)
+        snprintf(topo, sizeof topo, "%dc/%dt", hw->core_n, hw->cpu_n);
+    else if (hw->core_n > 0)
+        snprintf(topo, sizeof topo, "%dc", hw->core_n);
+    else
+        snprintf(topo, sizeof topo, "%dt", hw->cpu_n);
     snprintf(line, sizeof line,
-             " fan %d/%d rpm · %d cores · EPP %s%s",
-             hw->rpm_cpu, hw->rpm_gpu, hw->cpu_n, hw_epp_name(hw->epp), cc);
+             " fan %d/%d rpm · %s · EPP %s%s",
+             hw->rpm_cpu, hw->rpm_gpu, topo, hw_epp_name(hw->epp), cc);
     const char *info[1] = { line };
     grid_rows(n, r, CD_CPU, CD_COUNT(CD_CPU), info, 1);
 }

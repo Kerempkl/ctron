@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-10-29 — telem fix: grid CPU box said "16 cores" (threads, not cores)
+
+- User caught an inconsistency: the CPU grid info line read "16
+  cores" while the detail page correctly said "16 threads · 8
+  cores". Root cause: sec_cpu labelled hw->cpu_n (present THREAD
+  count) as "cores". Now the grid shows the compact honest form
+  "8c/16t" (SMT on), "16c" (SMT off), "16t" (no topology sysfs —
+  VM fallback), same facts as the detail page. Fits the box even
+  with the longest EPP name + Tccd suffix.
+- Verified: 0 warnings, make test, full tuitest, live grid dump,
+  tui-telem.png re-shot, install in the same breath.
+
 ## 2026-10-29 — telem readability: spaced detail report + grid min–max ranges
 
 - User: the detail page text read "grid-sized", cramped and complex

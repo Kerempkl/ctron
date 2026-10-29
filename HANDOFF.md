@@ -1,6 +1,19 @@
 # Ctron Handoff
 
-Latest session — **2026-10-29 (11th round, telemetry readability)**
+Latest session — **2026-10-29 (12th round, grid CPU cores fix)**
+**GLM / Kerempkl / FA608PP**: user caught the CPU grid info line
+saying "16 cores" while the detail said "16 threads · 8 cores" —
+sec_cpu labelled hw->cpu_n (threads) as cores. Grid now shows
+"8c/16t" (SMT on) / "16c" (SMT off) / "16t" (no topology sysfs),
+same facts as the detail. Same round, question-only: explained how
+ccd_n is read (distinct L3 shared_cpu_list groups — no core-count
+guessing anywhere); Intel risk is LABEL-only — POWER's core-limits
+overlay already labels vendor-conditionally (amd ? "CCD%d" :
+"L3-%d", editor_corefreq.c:271); if Intel support ever lands,
+detail_cpu's "%d CCD" line (panel_telem_full.c:617) + --freq help
+wording need the same one-line condition. Verified: 0 warnings,
+make test, full tuitest, live dump, tui-telem.png, install same
+breath. Before that **2026-10-29 (11th round, telemetry readability)**
 **GLM / Kerempkl / FA608PP**: same-day follow-up on the telemetry
 screen — user: detail text read "grid-sized", cramped, complex;
 wanted spacing + bigger-feeling text + a more detailed grid. (Real
