@@ -1,6 +1,24 @@
 # Ctron Handoff
 
-Latest session — **2026-10-29 (10th round, hwprobe cherry-picks + stats reset)**
+Latest session — **2026-10-29 (11th round, telemetry readability)**
+**GLM / Kerempkl / FA608PP**: same-day follow-up on the telemetry
+screen — user: detail text read "grid-sized", cramped, complex;
+wanted spacing + bigger-feeling text + a more detailed grid. (Real
+font size = the terminal's own zoom; the app can only re-layout.)
+Detail pages are now a SPACED NUMERIC REPORT: upper-case labels,
+bold zone-coloured "now", min/avg/max spread across the full width
+(capped 40-cell columns), a blank line after every series (pairs
+together), "── live ──" / "── what these mean ──" separators between
+the blocks; short terminals fall back to the packed layout
+(roomy_n/avail), verified at 160×50/100×30 roomy + 100×22/60×24
+compact. Grid rows gained the window min–max range in muted beside
+the bold value ("temp 69.0-76.0  70.0 °C"; flat/empty = no range).
+Review catches: fmt_num U_W printed raw mW beside watt values → now
+watts everywhere; pair legend rows share the 10-cell label column;
+label upper-casing is ASCII-only — toupper() under tr_TR made
+"write" → "WRiTE" (the LC_NUMERIC locale lesson has a sibling).
+Verified: 0 warnings, make test, full tuitest, dumps, tui-telem.png,
+install same breath. Rides the next cut with 9d55a59. Before that **2026-10-29 (10th round, hwprobe cherry-picks + stats reset)**
 **GLM / Kerempkl / FA608PP**: user picked items 1+2+3 from the
 deneme2/hwprobe.py analysis plus a new reset feature — all landed in
 one pass: ① wifi link quality (new pure hw_parse_wireless over

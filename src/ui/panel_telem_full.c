@@ -16,8 +16,9 @@
  * which ui.c calls after every fast refresh.
  *
  * Two modes: the section grid (j/k cursor, enter/1-8 opens) and one
- * section's detail page — a numeric now/min/avg/max table over the same
- * rings plus info lines from the live hw snapshot. */
+ * section's detail page — a spaced numeric report (now/min/avg/max,
+ * bold zone-coloured "now", separators around the live + legend
+ * blocks; packed layout on short terminals) over the same rings. */
 
 typedef void (*telem_sec_fn)(struct ncplane *n, const rect_t *r);
 
@@ -217,7 +218,9 @@ static void fmt_num(char *out, size_t n, unit_t u, double v)
     switch (u) {
     case U_TEMP: snprintf(out, n, "%.1f", v); break;
     case U_MHZ:  snprintf(out, n, "%.0f", v); break;
-    case U_W:    snprintf(out, n, "%.2f", v); break;
+    /* watts, not the stored mW — "8.11" beside "8.11 W" reads, raw
+     * milliwatts next to a watt value did not */
+    case U_W:    snprintf(out, n, "%.2f", v / 1000.0); break;
     case U_PCT:  snprintf(out, n, "%.0f", v); break;
     case U_LOAD: snprintf(out, n, "%.2f", v); break;
     case U_MBPS: snprintf(out, n, "%.0f", v / 1024.0); break; /* kB/s */
@@ -226,15 +229,37 @@ static void fmt_num(char *out, size_t n, unit_t u, double v)
     }
 }
 
-/* one numeric row: label - now (unit, zone colour) - min avg max */
-static void stat_row(struct ncplane *n, int x, int y, int w,
-                     const chartdef_t *cd, int sidx, const char *lab)
+/* column right-edges for the detail table: label zone left, then
+ * now/min/avg/max spread evenly across the content width (the detail
+ * page is nearly fullscreen — use it, a packed left table reads
+ * "grid-sized"). Capped so ultrawide terminals do not detach the
+ * columns from the label. */
+static void dt_cols(int x, int w, int ce[4])
+{
+    int col = (w - 14) / 4;
+    if (col > 40)
+        col = 40;
+    if (col < 12)
+        col = 12;
+    if (12 + 4 * col > w)
+        col = (w - 12) / 4;
+    if (col < 8)
+        col = 8;
+    for (int i = 0; i < 4; i++)
+        ce[i] = x + 12 + (i + 1) * col;
+}
+
+/* one numeric row: upper-case label left, the unit-carrying "now"
+ * BOLD in its zone colour, min/avg/max spread to the right */
+static void stat_row(struct ncplane *n, int x, int y,
+                     const chartdef_t *cd, int sidx, const char *lab,
+                     const int ce[4])
 {
     const palette_t *pal = ui_palette(g_prefs.theme);
     double last = telem_last(sidx), mn, mx;
     telem_minmax(sidx, &mn, &mx);
     double av = telem_avg(sidx);
-    char now[40], a[24], b[24], c2[24], num[160], labn[24];
+    char now[40], a[24], b[24], c2[24], labn[16];
     fmt_val(now, sizeof now, cd->u, last);
     if (cd->u == U_MBPS && mx >= 1024.0 * 1024.0) { /* row scale MB/s */
         snprintf(a, sizeof a, "%.1f", mn / 1048576.0);
@@ -245,16 +270,45 @@ static void stat_row(struct ncplane *n, int x, int y, int w,
         fmt_num(b, sizeof b, cd->u, av);
         fmt_num(c2, sizeof c2, cd->u, mx);
     }
-    snprintf(labn, sizeof labn, " %-10s", lab);
+    int li = 0;
+    for (const char *p = lab; p && *p && li < 10; p++)
+        labn[li++] = (*p >= 'a' && *p <= 'z')
+                         ? (char)(*p - 'a' + 'A') : *p; /* ASCII-only:
+                         toupper() is locale-aware (tr_TR: i->İ) */
+    labn[li] = '\0';
     ui_putln(n, x, y, 12, labn, pal->text, false);
-    snprintf(num, sizeof num, "%14s %10s %10s %10s", now, a, b, c2);
-    ui_putln(n, x + 11, y, w - 11, num,
-             zone_color(cd->zone, last, pal), false);
+    char *cols[4] = { now, a, b, c2 };
+    for (int i = 0; i < 4; i++) {
+        int vc = utf_cells(cols[i]);
+        int cx = ce[i] - vc;
+        if (cx < x + 12)
+            cx = x + 12;
+        ui_putln(n, cx, y, vc + 1, cols[i],
+                 i == 0 ? zone_color(cd->zone, last, pal) : pal->text,
+                 i == 0);
+    }
 }
 
-/* detail page: a plain NUMERIC table (user request — no charts):
- * one row per series (pairs two), now/min/avg/max over the 60 s
- * ring, the live info lines, then the per-series desc lines. */
+/* "── tag ────..." across the content width: groups the live info
+ * block and the legend block so mixed lines stop reading as data */
+static void dt_sep(struct ncplane *n, int x, int y, int w, const char *tag)
+{
+    const palette_t *pal = ui_palette(g_prefs.theme);
+    char s[512];
+    int off = snprintf(s, sizeof s, "── %s ", tag);
+    while (off > 0 && (size_t)off + 3 < sizeof s && utf_cells(s) < w - 1) {
+        memcpy(s + off, "─", 3);
+        off += 3;
+        s[off] = '\0';
+    }
+    ui_putln(n, x, y, w, s, pal->muted, false);
+}
+
+/* detail page: a numeric now/min/avg/max report (no charts). Roomy
+ * terminals get breathing space — a blank line after every series
+ * (pairs stay together) and section separators around the live info
+ * and legend blocks; short terminals fall back to the packed layout
+ * and then to tail clipping as before. */
 static void detail_table(struct ncplane *n, const rect_t *r,
                          const chartdef_t *cd, int ncd,
                          const char *const *info, int ninfo)
@@ -262,37 +316,80 @@ static void detail_table(struct ncplane *n, const rect_t *r,
     const palette_t *pal = ui_palette(g_prefs.theme);
     int x = r->x + 2, w = r->w - 4;
     int avail = r->h - 2;
-    if (avail < 1)
+    if (avail < 1 || w < 30)
         return;
+    int ce[4];
+    dt_cols(x, w, ce);
+
+    int halves = 0;
+    for (int i = 0; i < ncd; i++)
+        halves += cd[i].sidx2 >= 0 ? 2 : 1;
+    int roomy_n = 1 + 1 + halves + ncd + (ninfo > 0 ? 1 : 0) + ninfo +
+                  1 + (ncd > 0 ? 1 : 0) + ncd;
+    bool roomy = avail >= roomy_n;
+
     int y = r->y + 1;
-    char hdr[96];
-    snprintf(hdr, sizeof hdr, "%11s%14s%10s%10s%10s",
-             "metric", "now", "min", "avg", "max");
-    ui_putln(n, x, y, w, hdr, pal->muted, false);
+    int used = 0;
+    /* header aligned with the value columns */
+    static const char *const hn[4] = { "NOW", "MIN", "AVG", "MAX" };
+    ui_putln(n, x, y, 12, "METRIC", pal->muted, false);
+    for (int i = 0; i < 4; i++)
+        ui_putln(n, ce[i] - (int)strlen(hn[i]), y, 8, hn[i],
+                 pal->muted, false);
     y++;
-    int used = 1;
-    for (int i = 0; i < ncd; i++) {
-        int halves = cd[i].sidx2 >= 0 ? 2 : 1;
-        for (int h = 0; h < halves && used < avail; h++, used++, y++)
-            stat_row(n, x, y, w, &cd[i], h ? cd[i].sidx2 : cd[i].sidx,
-                     h ? cd[i].label2 : cd[i].label);
+    used++;
+    if (roomy) {
+        y++;
+        used++;
     }
-    for (int i = 0; i < ninfo && used < avail; i++, used++, y++)
-        info_line(n, x, y, w, info[i]);
-    for (int i = 0; i < ncd && used < avail; i++, used++, y++) {
-        char d[128];
-        if (cd[i].sidx2 >= 0)
-            snprintf(d, sizeof d, " %s/%s — %s", cd[i].label,
-                     cd[i].label2, cd[i].desc);
-        else
-            snprintf(d, sizeof d, " %s — %s", cd[i].label, cd[i].desc);
-        info_line(n, x, y, w, d);
+    for (int i = 0; i < ncd; i++) {
+        int hh = cd[i].sidx2 >= 0 ? 2 : 1;
+        for (int h = 0; h < hh && used < avail; h++, used++, y++)
+            stat_row(n, x, y, &cd[i], h ? cd[i].sidx2 : cd[i].sidx,
+                     h ? cd[i].label2 : cd[i].label, ce);
+        if (roomy && used < avail) {
+            y++;
+            used++;
+        }
+    }
+    if (ninfo > 0) {
+        if (roomy && used < avail) {
+            dt_sep(n, x, y, w, "live");
+            y++;
+            used++;
+        }
+        for (int i = 0; i < ninfo && used < avail; i++, used++, y++)
+            info_line(n, x, y, w, info[i]);
+    }
+    if (ncd > 0) {
+        if (roomy && used < avail) {
+            y++;
+            used++;
+            if (used < avail) {
+                dt_sep(n, x, y, w, "what these mean");
+                y++;
+                used++;
+            }
+        }
+        for (int i = 0; i < ncd && used < avail; i++, used++, y++) {
+            char d[128];
+            if (cd[i].sidx2 >= 0) {
+                char pair[24];
+                snprintf(pair, sizeof pair, "%s/%s", cd[i].label,
+                         cd[i].label2);
+                snprintf(d, sizeof d, " %-10s %s", pair, cd[i].desc);
+            } else {
+                snprintf(d, sizeof d, " %-10s %s", cd[i].label, cd[i].desc);
+            }
+            info_line(n, x, y, w, d);
+        }
     }
 }
 
 /* grid-box content: NUMBERS ONLY (user request) — label left, value
- * RIGHT-ALIGNED in its zone colour, one row per series (pairs get
- * two), then the info line. */
+ * RIGHT-ALIGNED and BOLD in its zone colour, the window's min–max
+ * range in muted beside it (now + spread at a glance), one row per
+ * series (pairs get two), then the info line. */
 static void grid_rows(struct ncplane *n, const rect_t *r,
                       const chartdef_t *cd, int ncd,
                       const char *const *info, int ninfo)
@@ -315,8 +412,20 @@ static void grid_rows(struct ncplane *n, const rect_t *r,
             int vc = utf_cells(cur);
             snprintf(labn, sizeof labn, " %-9s", lab);
             ui_putln(n, x, y, 11, labn, pal->text, false);
+            double mn, mx;
+            telem_minmax(sidx, &mn, &mx);
+            if (telem_count(sidx) > 1 && mx > mn) {
+                char r0[20], r1[20], rng[44];
+                fmt_num(r0, sizeof r0, cd[i].u, mn);
+                fmt_num(r1, sizeof r1, cd[i].u, mx);
+                snprintf(rng, sizeof rng, "%s-%s", r0, r1);
+                int rc = utf_cells(rng);
+                int rx = x + w - vc - 2 - rc;
+                if (rx > x + 11)
+                    ui_putln(n, rx, y, rc + 1, rng, pal->muted, false);
+            }
             ui_putln(n, x + w - vc, y, vc + 1, cur,
-                     zone_color(cd[i].zone, last, pal), false);
+                     zone_color(cd[i].zone, last, pal), true);
         }
     }
     for (int i = 0; i < ninfo && i < avail - used; i++, y++)

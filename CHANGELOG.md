@@ -1,5 +1,34 @@
 # Changelog
 
+## 2026-10-29 — telem readability: spaced detail report + grid min–max ranges
+
+- User: the detail page text read "grid-sized", cramped and complex
+  ("çok sıkışık çok küçük ve karmaşık") — spread it, add breathing
+  room, and detail the grid a bit. (True font size is the terminal's
+  own setting; ctron can only re-layout — done with bold + spread +
+  spacing.)
+- **Detail page → spaced numeric report**: upper-case labels, the
+  unit-carrying "now" value BOLD in its zone colour, min/avg/max
+  spread across the full content width (dt_cols, capped at 40-cell
+  columns on ultrawide); a blank line after every series (pairs stay
+  together); "── live ──" and "── what these mean ──" separators
+  group the info block and the legend so mixed lines stop reading as
+  data. Short terminals fall back to the packed layout (roomy_n vs
+  avail check), then to tail clipping as before.
+- **Grid boxes gain min–max ranges**: each series row shows the
+  window's min–max in muted beside the now value ("temp 69.0-76.0
+  70.0 °C"), and values are now bold; flat/empty windows show no
+  range (honest).
+- Caught in review: fmt_num's U_W branch printed raw milliwatts
+  ("7840.00-8580.00" beside "8.11 W") — now watts, matching the now
+  column everywhere (detail columns + grid ranges); pair legend rows
+  align through the same 10-cell label column ("read/write …"), and
+  the label upper-casing is ASCII-only — toupper() under tr_TR
+  turned "write" into "WRiTE" (locale lesson joins LC_NUMERIC).
+- Verified: 0 warnings, make test, full tuitest, screen dumps at
+  160×50 (roomy) / 100×30 (roomy) / 100×22 (compact) / 60×24
+  (narrow), tui-telem.png re-shot, install in the same breath.
+
 ## 2026-10-29 — telem: wifi signal + load 5/15 + per-mount usage + 'r' stats reset
 
 - Source ideas cherry-picked from the user's standalone hwprobe.py
