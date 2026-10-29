@@ -1,6 +1,29 @@
 # Ctron Handoff
 
-Latest session — **2026-10-29 (9th round, telemetry = numbers only)**
+Latest session — **2026-10-29 (10th round, hwprobe cherry-picks + stats reset)**
+**GLM / Kerempkl / FA608PP**: user picked items 1+2+3 from the
+deneme2/hwprobe.py analysis plus a new reset feature — all landed in
+one pass: ① wifi link quality (new pure hw_parse_wireless over
+/proc/net/wireless → TS_WIFI_LINK ring + NET grid/detail/--status/
+--csv surfaces; level shown as dBm only when negative), ② load 5/15
+min (hw_parse_loadavg; CPU detail "load 1/5/15 min" + --status), ③
+per-mount disk usage (hw_parse_mounts + statvfs; STORAGE detail
+per-device rows with btrfs-subvolume dedupe + note), ④ 'r' stats
+reset — key on grid AND detail pages + a clickable "[r] reset stats"
+footer button clears every ring; title flashes "min/avg/max cleared"
+~3 s; purpose: measure after a clean window (reset → test → read).
+hwprobe itself stays standalone (Python dep ≠ ctron's one-C-binary
+rule). Parser lessons: wireless data rows carry a leading space;
+%lf swallows the fields' trailing dots (a literal '.' in the format
+then fails — first test run caught both). Smoke lesson: the footer
+button is emitted only on the FIRST grid frame (later transitions
+keep its cells unchanged — probe against the open mark). README's
+telemetry paragraph still described the chart era — rewritten for
+numbers-only + wifi/reset; HARDWARE.md sensor map + tui-telem.png
+synced. Verified: 0 warnings, make test (16 new checks), full
+tuitest, live screen dumps (reset proven: min=avg=max=now right
+after 'r', fresh stats 3.5 s later), --csv live (14 cols), install
+same breath. MINOR-grade, rides the next cut. Before that **2026-10-29 (9th round, telemetry = numbers only)**
 **GLM / Kerempkl / FA608PP**: user ended the chart era ("grafikleri
 kaldıralım, sadece sayılar + min/avg/max") — ALL chart machinery
 deleted from the 't' screen (wash/curves/sparklines/minis/axis/

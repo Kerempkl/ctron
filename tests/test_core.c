@@ -848,6 +848,83 @@ static void check_telem_hw(void)
               hw_net_if_whole("eth0"),
           "net classifier keeps physical");
 
+    /* /proc/net/wireless: real table shape (mac80211) */
+    {
+        static const char wt[] =
+            "Inter-| sta-|   Quality        |  Discarded  | Missed | WE\n"
+            " face | tus | link level noise | nwid crypt  | beacon |\n"
+            " wlan0: 0000   53.  -57.  -256        0      0        0\n"
+            " wlp1s0: 0000   70.  -42.  -256        0      0        0\n";
+        int link = -9, dbm = -9;
+        CHECK(hw_parse_wireless(wt, "wlan0", &link, &dbm) == 0 &&
+                  link == 53 && dbm == -57,
+              "wireless row link+dBm");
+        CHECK(hw_parse_wireless(wt, "wlp1s0", &link, &dbm) == 0 &&
+                  link == 70 && dbm == -42,
+              "wireless second iface");
+        link = -9;
+        dbm = -9;
+        CHECK(hw_parse_wireless(wt, "enp3s0", &link, &dbm) == -1 &&
+                  link == -1 && dbm == -1,
+              "wireless missing iface honest");
+        CHECK(hw_parse_wireless("wlan0: 0000   53.   42.  -256\n",
+                                "wlan0", &link, &dbm) == 0 &&
+                  link == 53 && dbm == -1,
+              "wireless positive level scale = unknown");
+        CHECK(hw_parse_wireless(NULL, "wlan0", &link, &dbm) == -1,
+              "wireless NULL text");
+    }
+
+    /* /proc/loadavg first three fields */
+    {
+        double l1 = -9, l5 = -9, l15 = -9;
+        CHECK(hw_parse_loadavg("0.52 0.58 0.59 1/123 4567",
+                               &l1, &l5, &l15) == 0 &&
+                  l1 == 0.52 && l5 == 0.58 && l15 == 0.59,
+              "loadavg three values");
+        CHECK(hw_parse_loadavg("1.5", &l1, &l5, &l15) == 0 &&
+                  l1 == 1.5 && l5 == -1 && l15 == -1,
+              "loadavg partial honest");
+        l1 = -9;
+        CHECK(hw_parse_loadavg("", &l1, &l5, &l15) == -1 && l1 == -1,
+              "loadavg empty");
+    }
+
+    /* /proc/<pid>/mounts: whole-disk filter + per-device dedupe */
+    {
+        static const char mt[] =
+            "/dev/nvme0n1p2 / btrfs rw,relatime 0 0\n"
+            "proc /proc proc rw 0 0\n"
+            "tmpfs /run tmpfs rw 0 0\n"
+            "/dev/nvme0n1p2 /home btrfs rw,relatime 0 0\n"
+            "/dev/nvme0n1p1 /boot/efi vfat rw 0 0\n"
+            "/dev/loop0 /var/lib/squash squashfs ro 0 0\n"
+            "/dev/sda1 /mnt/my\\040dir ext4 rw 0 0\n";
+        hw_mount_t m[HW_MOUNT_MAX];
+        int dup = -1;
+        int n = hw_parse_mounts(mt, m, HW_MOUNT_MAX, &dup);
+        CHECK(n == 3 && dup == 1, "mounts filter + dedupe counts");
+        CHECK(strcmp(m[0].dev, "/dev/nvme0n1p2") == 0 &&
+                  strcmp(m[0].point, "/") == 0 &&
+                  strcmp(m[0].fs, "btrfs") == 0,
+              "mounts first row");
+        CHECK(strcmp(m[1].point, "/boot/efi") == 0 &&
+                  strcmp(m[1].fs, "vfat") == 0,
+              "mounts order follows the table");
+        CHECK(strcmp(m[2].point, "/mnt/my dir") == 0,
+              "mounts octal escape decoded");
+        n = hw_parse_mounts(mt, m, 2, &dup);
+        CHECK(n == 2, "mounts max respected");
+        CHECK(hw_parse_mounts(NULL, m, HW_MOUNT_MAX, &dup) == 0,
+              "mounts NULL text");
+        CHECK(!hw_mount_whole("tmpfs", "tmpfs") &&
+                  !hw_mount_whole("/dev/loop2", "ext4") &&
+                  !hw_mount_whole("/dev/zram0", "ext4") &&
+                  !hw_mount_whole("/dev/nvme0n1p2", "squashfs") &&
+                  hw_mount_whole("/dev/mapper/cryptroot", "ext4"),
+              "mount classifier");
+    }
+
     /* pp_dpm_sclk: real driver output shape, '*' marks the active level */
     int dn, da, dm;
     hw_parse_pp_dpm("0: 400Mhz \n1: 2000Mhz *\n2: 2200Mhz \n",

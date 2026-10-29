@@ -29,6 +29,9 @@ typedef struct {
 
 #define TELEM_SEC_N ((int)(sizeof SECTIONS / sizeof SECTIONS[0]))
 
+/* mouse-target id of the footer reset button (section boxes use 0..7) */
+#define TELEM_TGT_RESET 0x100
+
 /* ---- small format helpers ------------------------------------------- */
 
 static void fmt_int(char *out, size_t n, const char *unit, int v)
@@ -169,6 +172,9 @@ static const chartdef_t CD_DISK[] = {
 static const chartdef_t CD_NET[] = {
     { "rx", U_MBPS, TS_NET_RX, "network rx/tx throughput (counted ifaces)",
       ZN_NONE, TS_NET_TX, "tx" },
+    { "signal", U_PCT, TS_WIFI_LINK,
+      "wifi link quality (percent of the driver's 0-70 scale)",
+      ZN_CHARGE, -1, NULL },
 };
 static const chartdef_t CD_FAN[] = {
     { "cpu", U_RPM, TS_FAN_CPU, "CPU / GPU fan speeds (rpm)",
@@ -434,7 +440,7 @@ static void sec_disk(struct ncplane *n, const rect_t *r)
 static void sec_net(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    char line[160];
+    char line[176];
     size_t w = 0;
     int len = snprintf(line, sizeof line, " ");
     if (len > 0)
@@ -446,6 +452,16 @@ static void sec_net(struct ncplane *n, const rect_t *r)
         if (len < 0 || (size_t)len >= sizeof line - w)
             break;
         w += (size_t)len;
+    }
+    if (hw->wifi_link_pct >= 0) {
+        len = snprintf(line + w, sizeof line - w, " · wifi %d%%",
+                       hw->wifi_link_pct);
+        if (len > 0 && (size_t)len < sizeof line - w &&
+            hw->wifi_level_dbm < 0) {
+            w += (size_t)len;
+            len = snprintf(line + w, sizeof line - w, " (%d dBm)",
+                           hw->wifi_level_dbm);
+        }
     }
     if (hw->net_n == 0)
         snprintf(line, sizeof line, " no counted interfaces");
@@ -522,9 +538,20 @@ static void detail_cpu(struct ncplane *n, const rect_t *r)
     snprintf(l2, sizeof l2, "%s  per-core ceilings (max %d MHz)",
              blk, hw->cpu_mhz_max);
 
-    const char *info[3] = { l0, l1, l2 };
-    detail_table(n, r, CD_CPU, CD_COUNT(CD_CPU), 
-                 info, 3);
+    /* 5/15-min load ride along the polled 1-min series (same source
+     * line, parsed together) */
+    char l3[96];
+    if (hw->load1 >= 0 && hw->load5 >= 0 && hw->load15 >= 0)
+        snprintf(l3, sizeof l3, " load 1/5/15 min: %.2f / %.2f / %.2f",
+                 hw->load1, hw->load5, hw->load15);
+    else if (hw->load1 >= 0)
+        snprintf(l3, sizeof l3, " load 1 min: %.2f", hw->load1);
+    else
+        snprintf(l3, sizeof l3, " load --");
+
+    const char *info[4] = { l0, l1, l2, l3 };
+    detail_table(n, r, CD_CPU, CD_COUNT(CD_CPU),
+                 info, 4);
 }
 
 static void detail_gpu(struct ncplane *n, const rect_t *r)
@@ -644,7 +671,7 @@ static void detail_ram(struct ncplane *n, const rect_t *r)
 static void detail_disk(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    char l0[128], l1[200];
+    char l0[128];
     if (hw->nvme_temp_n == 2)
         snprintf(l0, sizeof l0, " NVMe %d / %d °C · hottest %d / %d °C",
                  hw->nvme_temp[0], hw->nvme_temp[1],
@@ -659,30 +686,43 @@ static void detail_disk(struct ncplane *n, const rect_t *r)
                                             : hw->nvme_temp[0]);
     else
         snprintf(l0, sizeof l0, " no NVMe temp sensors");
-    if (hw->fs_total_mb > 0) {
-        char b[120];
-        int cells = r->w - 48;
-        if (cells < 8)
-            cells = 8;
-        if ((size_t)cells * 3 + 1 > sizeof b)
-            cells = (int)(sizeof b - 1) / 3;
-        bar(b, sizeof b, hw->fs_used_mb, hw->fs_total_mb, cells);
-        snprintf(l1, sizeof l1, " / %d%% %s",
-                 hw->fs_total_mb > 0
-                     ? hw->fs_used_mb * 100 / hw->fs_total_mb : 0, b);
-    } else {
-        snprintf(l1, sizeof l1, " / --");
+
+    /* per-mount usage (whole-disk mounts, one row per device — btrfs
+     * subvolumes of one device are deduped in the read layer) */
+    char ml[HW_MOUNT_MAX + 1][160];
+    const char *info[1 + HW_MOUNT_MAX + 1];
+    int ni = 0;
+    info[ni++] = l0;
+    for (int i = 0; i < hw->mnt_n && ni < (int)(sizeof info / sizeof info[0]);
+         i++) {
+        long tot = hw->mnt_total_mb[i], used = hw->mnt_used_mb[i];
+        int pct = tot > 0 ? (int)(used * 100 / tot) : 0;
+        char sz[48];
+        if (tot >= 1024)
+            snprintf(sz, sizeof sz, "%.0f/%.0f GB",
+                     used / 1024.0, tot / 1024.0);
+        else
+            snprintf(sz, sizeof sz, "%ld/%ld MB", used, tot);
+        snprintf(ml[i], sizeof ml[i], " %.52s · %s %.20s · %s · %d%%",
+                 hw->mnt[i].point, hw->mnt[i].fs, hw->mnt[i].dev, sz, pct);
+        info[ni++] = ml[i];
     }
-    const char *info[2] = { l0, l1 };
-    detail_table(n, r, CD_DISK, CD_COUNT(CD_DISK), 
-                 info, 2);
+    if (hw->mnt_dupes > 0 &&
+        ni < (int)(sizeof info / sizeof info[0])) {
+        snprintf(ml[HW_MOUNT_MAX], sizeof ml[HW_MOUNT_MAX],
+                 " %d more mount%s of an already-listed device share its space",
+                 hw->mnt_dupes, hw->mnt_dupes == 1 ? "" : "s");
+        info[ni++] = ml[HW_MOUNT_MAX];
+    }
+    detail_table(n, r, CD_DISK, CD_COUNT(CD_DISK),
+                 info, ni);
 }
 
 static void detail_net(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    char l[HW_NET_IF_MAX + 1][96];
-    const char *info[HW_NET_IF_MAX + 1];
+    char l[HW_NET_IF_MAX + 2][96];
+    const char *info[HW_NET_IF_MAX + 2];
     int ni = 0;
     for (int i = 0; i < hw->net_n && ni < HW_NET_IF_MAX; i++) {
         char rb[20], tb[20];
@@ -690,6 +730,16 @@ static void detail_net(struct ncplane *n, const rect_t *r)
         hw_fmt_bytes(tb, sizeof tb, hw->net_tx[i]);
         snprintf(l[ni], sizeof l[ni], " %s %s: rx %s · tx %s",
                  hw->net_if[i], hw->net_up[i] ? "up" : "down", rb, tb);
+        info[ni] = l[ni];
+        ni++;
+    }
+    if (hw->wifi_link_pct >= 0) {
+        if (hw->wifi_level_dbm < 0)
+            snprintf(l[ni], sizeof l[ni], " wifi %s: link %d%%",
+                     hw->wifi_if, hw->wifi_link_pct);
+        else
+            snprintf(l[ni], sizeof l[ni], " wifi %s: link %d%% · %d dBm",
+                     hw->wifi_if, hw->wifi_link_pct, hw->wifi_level_dbm);
         info[ni] = l[ni];
         ni++;
     }
@@ -704,7 +754,7 @@ static void detail_net(struct ncplane *n, const rect_t *r)
     }
     info[ni] = l[ni];
     ni++;
-    detail_table(n, r, CD_NET, CD_COUNT(CD_NET), 
+    detail_table(n, r, CD_NET, CD_COUNT(CD_NET),
                  info, ni);
 }
 
@@ -753,6 +803,33 @@ static void detail_power(struct ncplane *n, const rect_t *r)
                  info, hw->pd_n > 0 ? 3 : 2);
 }
 
+/* 'r' key / footer button: clear every series ring. min/avg/max then
+ * rebuild from a clean window — old samples cannot colour a fresh
+ * measurement run (workflow: reset, run the test, read the stats).
+ * "now" values refill on the next poll tick (<= 250 ms). */
+static void telem_stats_reset(void)
+{
+    telem_reset();
+    g_ui.telem_ack = 12; /* ~3 s title confirmation at the 4 Hz poll */
+}
+
+/* overlay footer: key hints left, a clickable "[r] reset stats" button
+ * right (drawn only when the two cannot collide; the 'r' key works on
+ * every width) */
+static void telem_footer(struct ncplane *n, const rect_t *r, const char *hint)
+{
+    const palette_t *pal = ui_palette(g_prefs.theme);
+    int y = r->y + r->h - 2;
+    ui_putln(n, r->x + 2, y, r->w - 4, hint, pal->muted, false);
+    static const char btn[] = "[r] reset stats";
+    int bw = (int)strlen(btn);
+    int bx = r->x + r->w - 2 - bw;
+    if (bx > r->x + 4 + utf_cells(hint)) {
+        ui_putln(n, bx, y, bw + 1, btn, pal->accent, false);
+        tgt_register(bx, y, bw, 1, TGT(TGT_PANEL_TELEM, TELEM_TGT_RESET));
+    }
+}
+
 /* ---- the registry: order here is order on screen -------------------- */
 
 static const telem_section_t SECTIONS[] = {
@@ -768,7 +845,6 @@ static const telem_section_t SECTIONS[] = {
 
 void panel_telem_full_draw(struct ncplane *n, const rect_t *r)
 {
-    const palette_t *pal = ui_palette(g_prefs.theme);
     int nsec = TELEM_SEC_N;
     int det = g_ui.telem_detail;
     if (det < 0 || det >= nsec)
@@ -779,15 +855,20 @@ void panel_telem_full_draw(struct ncplane *n, const rect_t *r)
         snprintf(title, sizeof title, "TELEMETRY");
     else
         snprintf(title, sizeof title, "TELEMETRY · %s", SECTIONS[det].title);
+    /* the reset acknowledgement rides the title: draw-side countdown,
+     * no timer anywhere */
+    if (g_ui.telem_ack > 0) {
+        g_ui.telem_ack--;
+        snprintf(title, sizeof title, "TELEMETRY · min/avg/max cleared");
+    }
     ui_window(n, r, title);
 
     if (det >= 0) {
         rect_t ir = { r->x + 1, r->y + 1, r->w - 2, r->h - 3 };
         if (ir.w > 4 && ir.h > 2)
             SECTIONS[det].detail(n, &ir);
-        ui_putln(n, r->x + 2, r->y + r->h - 2, r->w - 4,
-                 " esc grid · h/l section · 1-8 jump · t close · q quit · read-only",
-                 pal->muted, false);
+        telem_footer(n, r,
+                     " esc grid · h/l section · 1-8 jump · r reset · t close · q quit");
         return;
     }
 
@@ -818,9 +899,8 @@ void panel_telem_full_draw(struct ncplane *n, const rect_t *r)
         SECTIONS[i].draw(n, &sr);
     }
 
-    ui_putln(n, r->x + 2, r->y + r->h - 2, r->w - 4,
-             " j/k select · enter detail · 1-8 jump · t close · q quit · read-only",
-             pal->muted, false);
+    telem_footer(n, r,
+                 " j/k select · enter detail · 1-8 jump · r reset · t close · q quit");
 }
 
 /* ---- input: grid navigation + detail pages ---------------------------- */
@@ -848,6 +928,13 @@ void panel_telem_full_key(uint32_t key)
 
     if (key >= '1' && (int)key < '1' + n) {
         telem_detail_open((int)(key - '1'));
+        return;
+    }
+
+    /* works on the grid AND every detail page: the stats tables are
+     * the thing being reset */
+    if (key == 'r' || key == 'R') {
+        telem_stats_reset();
         return;
     }
 
@@ -919,9 +1006,14 @@ void panel_telem_full_key(uint32_t key)
 }
 
 /* click a section box: first click selects, second opens the detail
- * (the presets-modal convention); the detail page has no targets yet */
+ * (the presets-modal convention); the footer button resets the stats
+ * on both the grid and the detail pages */
 void panel_telem_full_act(int id)
 {
+    if (id == TELEM_TGT_RESET) {
+        telem_stats_reset();
+        return;
+    }
     if (g_ui.telem_detail >= 0 || id < 0 || id >= TELEM_SEC_N)
         return;
     if (g_ui.telem_sel == id)
@@ -997,4 +1089,5 @@ void telem_poll(hw_state_t *hw, long now_ms)
     telem_push(TS_PD_MW, hw->pd_in_mw > 0 ? hw->pd_in_mw : -1);
     telem_push(TS_NET_RX, rx_bs);
     telem_push(TS_NET_TX, tx_bs);
+    telem_push(TS_WIFI_LINK, hw->wifi_link_pct);
 }

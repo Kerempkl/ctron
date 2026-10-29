@@ -30,7 +30,7 @@ piped output never opens the TUI.
 | **Display** | Refresh-rate control via compositor backends (KDE, Hyprland), panel overdrive |
 | **Lighting** | Keyboard backlight, AURA effects, optional daeboard LED daemon control + binds editor |
 | **Automation** | Shortcut modes (`modes.ini`), hardware snapshots (save / rename / note / apply / export) |
-| **Telemetry** | Temps, fan RPM, frequencies, watts, network rx/tx, battery — live in the TUI, one line under `--watch` |
+| **Telemetry** | Temps, fan RPM, frequencies, watts, network rx/tx + wifi signal, battery — live in the TUI, one line under `--watch` |
 
 Working principles, enforced in code:
 
@@ -96,15 +96,18 @@ are listed in the HELP view and the footer while you use them.
 
 `t` opens a **fullscreen read-only telemetry screen**: eight live
 sections (CPU / GPU / iGPU / RAM / storage / network / fans / power),
-each with rolling wash-fill charts over a ~60 s window — CPU & GPU
+each showing live numbers with zone colouring — CPU & GPU
 temperatures, clocks, load, fan RPMs, dGPU power/utilisation/VRAM,
-iGPU temp/clock/power, RAM use + module temps, NVMe temps + disk I/O +
-fill bar, per-interface network rx/tx, battery draw/charge.
+iGPU temp/clock/power, RAM use + module temps, NVMe temps + disk I/O,
+per-mount disk usage, per-interface network rx/tx, wifi signal
+quality, battery draw/charge.
 `j`/`k` walk the section grid and `Enter` (or `1`–`8`) opens a
-section's **detail page**: full-width multi-row charts with min/max/last
-stats plus info lines from a fresh live snapshot (PPT/EPP, per-core
-ceilings, GPU pstate & throttle reasons, VRAM/clock lock, battery
-health …); `h`/`l` flips sections, `esc` backs out to the grid.
+section's **detail page**: a numeric now/min/avg/max table over the
+~60 s window plus info lines from a fresh live snapshot (PPT/EPP,
+per-core ceilings, GPU pstate & throttle reasons, VRAM/clock lock,
+battery health, load 1/5/15 min …); `h`/`l` flips sections, `esc`
+backs out to the grid, and `r` (or the footer button) clears every
+window — a fresh measurement then starts from zero history.
 Unknown sensors stay `--`; the screen never writes hardware.
 
 ![ctron TUI — POWER view](docs/tui-power.png)

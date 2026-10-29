@@ -625,6 +625,13 @@ def flow_telem_full():
                 fail("telem_full", f"section {sec!r} missing")
                 return
         ok("telem_full", "all sections render")
+        # the footer button draws with the FIRST grid frame; later
+        # transitions keep its cells unchanged so the render diff never
+        # re-emits it — probe it against the open mark, not later ones
+        if not s.wait_for(b"reset stats", since=m, timeout=6.0):
+            fail("telem_full", "footer reset-stats button missing")
+            return
+        ok("telem_full", "footer carries the [r] reset-stats button")
         # navigation is SPATIAL on the 2-column grid (7 sections = 4
         # rows): j = one row down, l = one column right. CPU -> iGPU ->
         # RAM proves it (linear j/j/l would have landed elsewhere)
@@ -659,6 +666,12 @@ def flow_telem_full():
             fail("telem_full", "digit jump did not open the NET detail")
             return
         ok("telem_full", "1-8 digits jump straight to a detail page")
+        m6b = s.mark()
+        s.key(b"r")                # 'r' clears every min/avg/max ring
+        if not s.wait_for(b"cleared", since=m6b, timeout=6.0):
+            fail("telem_full", "'r' stats-reset acknowledgement missing")
+            return
+        ok("telem_full", "'r' resets the stats (title flash)")
         m7 = s.mark()
         s.key(b"\x1b")             # esc: detail -> grid (not closed)
         if not s.wait_for(b"j/k", since=m7, timeout=6.0):

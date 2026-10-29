@@ -144,14 +144,20 @@ Notes:
     `!>55`).
   - **Storage**: NVMe composite (`temp1`) plus Sensor 1/2
     (`temp2/3` — the components run hotter than the composite),
-    `/` usage via statvfs, disk I/O from /proc/diskstats (whole
+    `/` usage via statvfs, per-mount usage from
+    `/proc/self/mounts` (whole-disk mounts only, one row per
+    device — btrfs subvolumes share the device's space and are
+    deduped with a note), disk I/O from /proc/diskstats (whole
     disks only — partitions/loops excluded so bytes are never
     counted twice).
   - **NET**: `/sys/class/net/*/statistics` for physical + wifi
     interfaces only (lo, veth*, docker*, br-*, virbr*, tap*, tun*,
     wg*, tailscale* excluded — the same double-count guard); rx/tx
     are byte-counter deltas between ticks, so an interface
-    disappearing reads as one unknown tick, not a spike.
+    disappearing reads as one unknown tick, not a spike. Wifi link
+    quality comes from `/proc/net/wireless` (mac80211 0-70 scale,
+    shown as %; the level is dBm only when the driver reports a
+    negative value — other scales stay unknown).
   - **Power**: battery %/status/voltage/current, health from
     `charge_full(_design)` (this pack has no battery temperature
     sensor and `cycle_count` reports 0 — unsupported, never
@@ -297,13 +303,19 @@ Notlar:
     yüzeye çıkar (limiti aşan modül grid satırını `!>55` işaretler).
   - **Depolama**: NVMe bileşik (`temp1`) + Sensor 1/2 (`temp2/3` —
     bileşenler bileşikten daha sıcak çalışır), statvfs ile `/`
-    doluluk, /proc/diskstats'tan disk I/O (yalnız bütün diskler —
+    doluluk, `/proc/self/mounts`'tan mount başına doluluk (yalnız
+    gerçek disk mountları, cihaz başına tek satır — btrfs alt
+    birimleri aynı cihazın alanını paylaşır, notla teklenir),
+    /proc/diskstats'tan disk I/O (yalnız bütün diskler —
     bölüm/loop'lar hariç, baytlar iki kez sayılmaz).
   - **NET**: `/sys/class/net/*/statistics` yalnız fiziksel + wifi
     arayüzler için (lo, veth*, docker*, br-*, virbr*, tap*, tun*,
     wg*, tailscale* hariç — aynı çift-sayım koruması); rx/tx tik
     arası bayt-sayaç deltalarıdır, arayüz kaybolursa tek bilinmeyen
-    tik okunur, spayk değil.
+    tik okunur, spayk değil. Wifi sinyal kalitesi
+    `/proc/net/wireless`'ten (mac80211 0-70 ölçeği, yüzde
+    gösterilir; seviye yalnız sürücü negatif (dBm) raporlarken
+    okunur — diğer ölçekler bilinmiyor kalır).
   - **Güç**: batarya %/durum/gerilim/akım, sağlık
     `charge_full(_design)`'dan (bu pakette batarya sıcaklık sensörü
     yok ve `cycle_count` 0 raporlar — desteklenmiyor, asla

@@ -154,11 +154,22 @@ static int cmd_status(hw_state_t *hw)
         hw_fmt_bytes(rb, sizeof rb, hw->net_rx_tot);
         hw_fmt_bytes(tb, sizeof tb, hw->net_tx_tot);
         if (len > 0 && (size_t)len < sizeof line)
-            snprintf(line + len, sizeof line - len,
-                     " · rx %s · tx %s total", rb, tb);
+            len += snprintf(line + len, sizeof line - len,
+                            " · rx %s · tx %s total", rb, tb);
+        if (hw->wifi_link_pct >= 0 && len > 0 && (size_t)len < sizeof line) {
+            len += snprintf(line + len, sizeof line - len,
+                            " · wifi %d%%", hw->wifi_link_pct);
+            if (hw->wifi_level_dbm < 0 && len > 0 &&
+                (size_t)len < sizeof line)
+                len += snprintf(line + len, sizeof line - len,
+                                " (%d dBm)", hw->wifi_level_dbm);
+        }
         printf("  NET            : %s\n", line);
     }
-    if (hw->load1 >= 0)
+    if (hw->load1 >= 0 && hw->load5 >= 0 && hw->load15 >= 0)
+        printf("  Load           : %.2f / %.2f / %.2f (1/5/15 min)\n",
+               hw->load1, hw->load5, hw->load15);
+    else if (hw->load1 >= 0)
         printf("  Load           : %.2f\n", hw->load1);
     printf("  Fan RPM        : %s / %s (cpu/gpu)\n",
            dash_if(v3, sizeof(v3), hw->rpm_cpu), dash_if(v4, sizeof(v4), hw->rpm_gpu));
@@ -277,7 +288,8 @@ static int cmd_csv(hw_state_t *hw, const char *path)
     setvbuf(f, NULL, _IOLBF, 0);
     if (new)
         fprintf(f, "epoch,cpu_temp_c,igpu_temp_c,gpu_temp_c,cpu_mhz,gpu_mhz,"
-                   "gpu_util_pct,gpu_mw,fan_cpu_rpm,fan_gpu_rpm,bat_pct,bat_mw,load1\n");
+                   "gpu_util_pct,gpu_mw,fan_cpu_rpm,fan_gpu_rpm,bat_pct,bat_mw,"
+                   "load1,wifi_signal_pct\n");
 
     struct sigaction sa = {0};
     sa.sa_handler = watch_stop;
@@ -288,7 +300,7 @@ static int cmd_csv(hw_state_t *hw, const char *path)
             new ? "new file" : "appending");
     while (s_watch_run) {
         char t[16], ti[16], tg[16], mc[16], mg[16], gu[16], gw[16],
-             fc[16], fg[16], bp[16], bm[16], l1[16];
+             fc[16], fg[16], bp[16], bm[16], l1[16], wl[16];
         hw_refresh_fast(hw);
         csv_val(t, sizeof t, hw->cpu_temp);
         csv_val(ti, sizeof ti, hw->igpu_temp);
@@ -305,8 +317,9 @@ static int cmd_csv(hw_state_t *hw, const char *path)
             snprintf(l1, sizeof l1, "%.2f", hw->load1);
         else
             l1[0] = '\0';
-        fprintf(f, "%ld,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
-                time(NULL), t, ti, tg, mc, mg, gu, gw, fc, fg, bp, bm, l1);
+        csv_val(wl, sizeof wl, hw->wifi_link_pct);
+        fprintf(f, "%ld,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
+                time(NULL), t, ti, tg, mc, mg, gu, gw, fc, fg, bp, bm, l1, wl);
         usleep((useconds_t)g_prefs.poll_ms * 1000);
     }
     fclose(f);

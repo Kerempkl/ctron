@@ -1,5 +1,47 @@
 # Changelog
 
+## 2026-10-29 — telem: wifi signal + load 5/15 + per-mount usage + 'r' stats reset
+
+- Source ideas cherry-picked from the user's standalone hwprobe.py
+  (Projeler/deneme2) into the 't' telemetry screen — all rootless
+  procfs reads, honest-reads rule intact:
+- **Wifi link quality**: new pure hw_parse_wireless over
+  /proc/net/wireless (data rows carry a leading space; %lf swallows
+  the fields' trailing dots so the format has no literal dots).
+  mac80211 0-70 link scale shown as % (new TS_WIFI_LINK ring series,
+  zone-coloured like battery charge), level as dBm only when the
+  driver reports a negative value — positive raw scales stay unknown.
+  NET grid info "wifi 65% (-64 dBm)", NET detail signal row +
+  per-if wifi line, --status NET line, --csv wifi_signal_pct column.
+- **Load 5/15 min**: hw_parse_loadavg parses all three averages from
+  the same /proc/loadavg read; CPU detail gains "load 1/5/15 min",
+  --status prints "0.52 / 0.58 / 0.59 (1/5/15 min)".
+- **Per-mount disk usage**: hw_parse_mounts + hw_mount_whole over
+  /proc/self/mounts (real /dev/ mounts only; loop/zram/squashfs
+  excluded; btrfs subvolumes of one device deduped with a "N more
+  mounts share its space" note; octal escapes decoded) + statvfs per
+  mount. STORAGE detail lists "point · fs dev · used/total · %"
+  per device.
+- **'r' stats reset** (user workflow: reset → run the test → read
+  min/avg/max without history): 'r'/'R' on the grid AND every detail
+  page, plus a clickable "[r] reset stats" footer button (drawn when
+  wide enough; tgt id 0x100), clears every series ring via
+  telem_reset(); the title flashes "min/avg/max cleared" ~3 s
+  (draw-side countdown, no timer). "now" values refill on the next
+  poll tick.
+- 16 new unit checks (wireless rows incl. missing iface + positive
+  level, loadavg partial, mounts dedupe/escape/classifier); smoke
+  flow pins the footer button + the 'r' title flash (button probed
+  against the grid-open mark — later transitions keep its cells
+  unchanged so the render diff never re-emits it).
+- README telemetry paragraph rewritten for the numbers-only era (it
+  still said "wash-fill charts") + wifi/reset mentioned; HARDWARE.md
+  sensor map (EN+TR) gained the wifi/mounts sources; tui-telem.png
+  re-shot. Verified: 0 warnings, make test, full tuitest, live dumps
+  (reset → min=avg=max=now, then fresh window stats), --csv live run
+  (14 cols), install in the same breath. MINOR-grade — rides the
+  next version cut.
+
 ## 2026-10-29 — telem: charts removed — numbers-only table (now/min/avg/max)
 
 - User: "grafikleri kaldıralım, sadece sayılar ve gerekli yerlerde

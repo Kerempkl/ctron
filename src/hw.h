@@ -34,6 +34,36 @@ int hw_metrics_gfx_mw(const unsigned char *buf, size_t n);
  * never double-counted (same spirit as the diskstats whole-disk rule) */
 bool hw_net_if_whole(const char *name);
 
+/* /proc/net/wireless row for `ifname`: link quality (raw units, the
+ * mac80211 scale is 0-70) and the level in dBm when the driver reports
+ * dBm (negative; drivers with a positive raw scale leave it -1 — we
+ * cannot interpret those honestly). 0 when the link parsed, -1 when
+ * the interface has no row. */
+int hw_parse_wireless(const char *text, const char *ifname,
+                      int *link, int *level_dbm);
+
+/* /proc/<pid>/mounts row classifier: real disk mounts only (source
+ * under /dev/, loop/zram devices and squashfs excluded). */
+bool hw_mount_whole(const char *dev, const char *fs);
+
+/* one whole-disk mount row */
+typedef struct {
+    char dev[24];
+    char point[72];
+    char fs[8];
+} hw_mount_t;
+#define HW_MOUNT_MAX 6
+
+/* Parse whole /proc/<pid>/mounts text into whole-disk mounts. One row
+ * per device: btrfs subvolumes of the same device share its space, so
+ * later mounts of a known device are skipped and counted in *dupes
+ * (NULL = ignore). Octal escapes (\040 space) are decoded. Returns the
+ * stored mount count. */
+int hw_parse_mounts(const char *text, hw_mount_t *out, int max, int *dupes);
+
+/* /proc/loadavg: the 1/5/15-minute averages; missing fields stay -1. */
+int hw_parse_loadavg(const char *s, double *l1, double *l5, double *l15);
+
 /* pstate/throttle-reason labels, bit i = 1u<<i in hw->gpu_throttle,
  * in the same order as the nvidia-smi query field list */
 #define HW_GPU_REASON_N 10
@@ -157,8 +187,16 @@ typedef struct hw_state {
 
     /* telemetry extras (refresh_fast reads; -1/0 = unknown) */
     double load1;                              /* /proc/loadavg 1-min */
+    double load5, load15;                      /* 5/15-min, -1 unknown */
     int mem_total_mb, mem_avail_mb, mem_used_mb;   /* /proc/meminfo */
     int swap_total_mb, swap_used_mb;
+    char wifi_if[16];                          /* counted wifi iface, "" none */
+    int wifi_link_pct;                         /* 0-100, -1 unknown */
+    int wifi_level_dbm;                        /* driver level, dBm (-1 unknown) */
+    int mnt_n;                                 /* statvfs'd whole-disk mounts */
+    hw_mount_t mnt[HW_MOUNT_MAX];
+    int mnt_used_mb[HW_MOUNT_MAX], mnt_total_mb[HW_MOUNT_MAX];
+    int mnt_dupes;                             /* same-device mounts skipped */
     int igpu_temp, igpu_mhz, igpu_mw;          /* amdgpu hwmon */
     int igpu_vddgfx_mv, igpu_vddnb_mv;         /* amdgpu in0/in1_input */
     int igpu_busy;                             /* drm gpu_busy_percent */

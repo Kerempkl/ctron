@@ -770,6 +770,144 @@ bool hw_net_if_whole(const char *name)
     return true;
 }
 
+/* /proc/net/wireless (mac80211): rows look like
+ *   "wlan0: 0000   53.  -57.  -256        0      0 ..."
+ * — status is hex, link/level/noise carry a trailing '.'. Link is raw
+ * quality (0-70 on this driver family); level is dBm only when
+ * negative, other scales are reported as unknown. */
+int hw_parse_wireless(const char *text, const char *ifname,
+                      int *link, int *level_dbm)
+{
+    if (link)
+        *link = -1;
+    if (level_dbm)
+        *level_dbm = -1;
+    if (!text || !ifname || !ifname[0])
+        return -1;
+    size_t nlen = strlen(ifname);
+    const char *p = text;
+    while (p && *p) {
+        const char *e = strchr(p, '\n');
+        const char *ln = p; /* data rows carry one leading space */
+        while (*ln == ' ' || *ln == '\t')
+            ln++;
+        if (strncmp(ln, ifname, nlen) == 0 && ln[nlen] == ':') {
+            unsigned status;
+            double lk = -1, lv = 0;
+            /* %lf consumes the fields' trailing '.', so no literal
+             * dots in the format (a literal would have to match the
+             * NEXT char, which is a space) */
+            if (sscanf(ln + nlen + 1, " %x %lf %lf", &status, &lk, &lv) == 3 &&
+                lk >= 0 && lk <= 1000) {
+                if (link)
+                    *link = (int)lk;
+                if (level_dbm && lv < 0)
+                    *level_dbm = (int)lv;
+                return 0;
+            }
+            return -1;
+        }
+        p = e ? e + 1 : NULL;
+    }
+    return -1;
+}
+
+/* /proc/loadavg: "0.52 0.58 0.59 1/123 456" — the first three fields */
+int hw_parse_loadavg(const char *s, double *l1, double *l5, double *l15)
+{
+    if (l1)
+        *l1 = -1;
+    if (l5)
+        *l5 = -1;
+    if (l15)
+        *l15 = -1;
+    if (!s)
+        return -1;
+    double a = -1, b = -1, c = -1;
+    int n = sscanf(s, "%lf %lf %lf", &a, &b, &c);
+    if (n < 1 || a < 0)
+        return -1;
+    if (l1)
+        *l1 = a;
+    if (n >= 2 && b >= 0 && l5)
+        *l5 = b;
+    if (n >= 3 && c >= 0 && l15)
+        *l15 = c;
+    return 0;
+}
+
+bool hw_mount_whole(const char *dev, const char *fs)
+{
+    if (!dev || !fs || !dev[0] || !fs[0])
+        return false;
+    if (strncmp(dev, "/dev/", 5) != 0)
+        return false;
+    if (!strncmp(dev, "/dev/loop", 9) || !strncmp(dev, "/dev/zram", 9))
+        return false;
+    if (!strcmp(fs, "squashfs"))
+        return false;
+    return true;
+}
+
+/* \040-style octal escapes of /proc/mounts field text, decoded in
+ * place (\040 space, \011 tab, \012 newline, \134 backslash) */
+static void mounts_unescape(char *s)
+{
+    char *w = s;
+    for (const char *r = s; *r;) {
+        if (r[0] == '\\' && r[1] >= '0' && r[1] <= '7' &&
+            r[2] >= '0' && r[2] <= '7' && r[3] >= '0' && r[3] <= '7') {
+            int v = (r[1] - '0') * 64 + (r[2] - '0') * 8 + (r[3] - '0');
+            if (v > 0 && v < 256) {
+                *w++ = (char)v;
+                r += 4;
+                continue;
+            }
+        }
+        *w++ = *r++;
+    }
+    *w = '\0';
+}
+
+int hw_parse_mounts(const char *text, hw_mount_t *out, int max, int *dupes)
+{
+    if (dupes)
+        *dupes = 0;
+    if (!text || !out || max <= 0)
+        return 0;
+    int n = 0, dup = 0;
+    const char *p = text;
+    while (p && *p) {
+        const char *e = strchr(p, '\n');
+        char dev[64], point[160], fs[16];
+        if (sscanf(p, "%63s %159s %15s", dev, point, fs) == 3 &&
+            hw_mount_whole(dev, fs)) {
+            int seen = -1;
+            for (int i = 0; i < n; i++) {
+                if (!strcmp(out[i].dev, dev)) {
+                    seen = i;
+                    break;
+                }
+            }
+            if (seen >= 0) {
+                dup++;
+            } else {
+                mounts_unescape(point);
+                snprintf(out[n].dev, sizeof out[n].dev, "%.23s", dev);
+                snprintf(out[n].point, sizeof out[n].point, "%.71s", point);
+                snprintf(out[n].fs, sizeof out[n].fs, "%.7s", fs);
+                n++;
+                if (n == max)
+                    break;
+            }
+        }
+        p = e ? e + 1 : NULL;
+    }
+    if (dupes)
+        *dupes = dup;
+    return n;
+}
+
 /* Counted network interfaces (hw_net_if_whole): cumulative byte
  * counters + operstate from sysfs. Rates are derived in the telemetry
  * sampler from the deltas — nothing is stored twice. */
@@ -837,6 +975,29 @@ static void read_net_ifs(hw_state_t *hw)
         hw->net_rx_tot = rx;
         hw->net_tx_tot = tx;
     }
+
+    /* wifi link quality for the first counted iface present in
+     * /proc/net/wireless — one proc read, no per-iface opens */
+    hw->wifi_if[0] = '\0';
+    hw->wifi_link_pct = -1;
+    hw->wifi_level_dbm = -1;
+    if (hw->net_n > 0) {
+        char w[2048];
+        if (ut_read_file_all("/proc/net/wireless", w, sizeof(w)) == 0) {
+            for (int i = 0; i < hw->net_n; i++) {
+                int link = -1, dbm = -1;
+                if (hw_parse_wireless(w, hw->net_if[i], &link, &dbm) == 0 &&
+                    link >= 0) {
+                    snprintf(hw->wifi_if, sizeof(hw->wifi_if), "%s",
+                             hw->net_if[i]);
+                    int pct = link * 100 / 70;
+                    hw->wifi_link_pct = pct > 100 ? 100 : pct;
+                    hw->wifi_level_dbm = dbm;
+                    break;
+                }
+            }
+        }
+    }
 }
 
 static void read_telem_extras(hw_state_t *hw)
@@ -845,8 +1006,15 @@ static void read_telem_extras(hw_state_t *hw)
     long v;
 
     hw->load1 = -1;
-    if (ut_read_file("/proc/loadavg", buf, 32) == 0)
-        hw->load1 = strtod(buf, NULL);
+    hw->load5 = hw->load15 = -1;
+    if (ut_read_file("/proc/loadavg", buf, 64) == 0) {
+        double l1 = -1, l5 = -1, l15 = -1;
+        if (hw_parse_loadavg(buf, &l1, &l5, &l15) == 0) {
+            hw->load1 = l1;
+            hw->load5 = l5;
+            hw->load15 = l15;
+        }
+    }
 
     hw->mem_total_mb = hw->mem_avail_mb = hw->mem_used_mb = -1;
     hw->swap_total_mb = hw->swap_used_mb = -1;
@@ -1006,6 +1174,30 @@ static void read_telem_extras(hw_state_t *hw)
             (int)((long long)st.f_blocks * st.f_frsize / (1024 * 1024));
         hw->fs_used_mb = (int)((long long)(st.f_blocks - st.f_bfree) *
                                st.f_frsize / (1024 * 1024));
+    }
+
+    /* whole-disk mounts from /proc/self/mounts (one row per device —
+     * btrfs subvolumes deduped); statvfs per mount for live usage */
+    hw->mnt_n = 0;
+    hw->mnt_dupes = 0;
+    if (ut_read_file_all("/proc/self/mounts", buf, sizeof(buf)) == 0) {
+        hw_mount_t m[HW_MOUNT_MAX];
+        int dup = 0;
+        int n = hw_parse_mounts(buf, m, HW_MOUNT_MAX, &dup);
+        for (int i = 0; i < n; i++) {
+            struct statvfs ms;
+            if (statvfs(m[i].point, &ms) != 0 || ms.f_frsize == 0 ||
+                ms.f_blocks == 0)
+                continue;
+            hw->mnt[hw->mnt_n] = m[i];
+            hw->mnt_total_mb[hw->mnt_n] =
+                (int)((long long)ms.f_blocks * ms.f_frsize / (1024 * 1024));
+            hw->mnt_used_mb[hw->mnt_n] =
+                (int)((long long)(ms.f_blocks - ms.f_bfree) * ms.f_frsize /
+                      (1024 * 1024));
+            hw->mnt_n++;
+        }
+        hw->mnt_dupes = dup;
     }
 
     read_pd_ports(hw);

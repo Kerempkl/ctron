@@ -33,7 +33,8 @@
     X(TS_BAT_PCT, "bat_pct", 0, 100)                                       \
     X(TS_PD_MW, "pd_in_mw", TELEM_AUTO, TELEM_AUTO)                        \
     X(TS_NET_RX, "net_rx_bs", TELEM_AUTO, TELEM_AUTO)                      \
-    X(TS_NET_TX, "net_tx_bs", TELEM_AUTO, TELEM_AUTO)
+    X(TS_NET_TX, "net_tx_bs", TELEM_AUTO, TELEM_AUTO)                      \
+    X(TS_WIFI_LINK, "wifi_link_pct", 0, 100)
 
 typedef enum {
 #define TELEM_ENUM(id, key, mn, mx) id,
