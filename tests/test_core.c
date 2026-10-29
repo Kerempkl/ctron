@@ -942,6 +942,17 @@ static void check_telem_hw(void)
               "cpu_stat null/empty honest");
     }
 
+    /* APU split: CPU+SoC = package − gfx rail, honest edges */
+    {
+        CHECK(hw_split_cpu_soc_mw(26410, 10000) == 16410,
+              "split plain difference");
+        CHECK(hw_split_cpu_soc_mw(-1, 10000) == -1 &&
+                  hw_split_cpu_soc_mw(26410, -1) == -1,
+              "split unknown side stays unknown");
+        CHECK(hw_split_cpu_soc_mw(8000, 10000) == 0,
+              "split cross-instant skew clamps to zero");
+    }
+
     /* /proc/<pid>/mounts: whole-disk filter + per-device dedupe */
     {
         static const char mt[] =

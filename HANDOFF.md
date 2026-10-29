@@ -1,6 +1,44 @@
 # Ctron Handoff
 
-Latest session — **2026-10-29 (16th round, per-core NOW table +
+Latest session — **2026-10-29 (17th round, APU power split SHIPPED)**
+
+**GLM / Kerempkl / FA608PP** — user: "apu watt değerini cpu igpu
+olarak nasıl ayırabiliriz şimdi ayırabilir misin" → the 15a research
+is now code. **CPU+SoC (est) = amdgpu power1_input − gpu_metrics gfx
+rail**, both sides real sensors, the difference derived:
+
+- **Two new rings**: TS_IGPU_GFXMW ("gfx rail", the iGPU side,
+  straight from gpu_metrics) and TS_CPU_SOCMW ("CPU+SoC", the
+  derived CPU side). CPU section carries CPU+SoC right under APU PPT;
+  iGPU section carries gfx rail under APU PPT; both get the full
+  series treatment (grid row + window range, detail now/min/avg/max,
+  's', 'r', legend). iGPU detail's live line now reads
+  "split: CPU+SoC 18.8 W + gfx rail 10.0 W (est)".
+- **hw_split_cpu_soc_mw()** (pure, unit-tested): either side unknown
+  → -1; a negative difference (the two counters sample on different
+  clocks — power1_input is instant SMU, gfx is a ~1 Hz table) clamps
+  to 0. Computed in read_telem_extras into hw->cpu_soc_mw.
+- **--csv grew to 17 columns** (cpu_soc_mw, igpu_gfx_mw appended;
+  guard updated). Live-verified under the EGL shader probe: gfx rail
+  pegged at 9.9-10.0 W (its budget ceiling), CPU+SoC ~30 W, TUI dump
+  showed APU PPT 28.24 = CPU+SoC 18.24 + gfx 10.00.
+- Honest-label notes (HARDWARE.md EN+TR updated): the value is
+  CPU+SoC+uncore (SoC rides the CPU side), gfx saturates at ~10 W
+  under load and reads true 0 W when gated, single instants can
+  wobble (ring averages smooth it). A MEASURED per-core watt is
+  still root-gated (rapl_probe rebuilt in build/ — see below).
+- **`make clean` = `rm -rf build` wiped the research probes** —
+  lesson recorded; apuload.c and rapl_probe.c were recreated from
+  the HANDOFF record (proxytest/proxyan analysis scripts are gone;
+  their results live in this file and the memory notes). The
+  user-facing validation command stands: `sudo build/rapl_probe
+  cores 3` (+ `pkg 3`), ideally under load.
+- Verified: 0 warnings (one -Wformat-truncation in the core-table
+  cell buffers fixed by widening), make test (+3 split checks), full
+  tuitest, live dumps of CPU + iGPU detail under real iGPU shader
+  load, tui-telem.png re-shot, install in the same breath.
+
+Before that **2026-10-29 (16th round, per-core NOW table +
 busiest series; before it two read-only research turns)**
 
 **GLM / Kerempkl / FA608PP** — the day's research-to-code arc, in

@@ -18,6 +18,7 @@
     X(TS_CPU_MHZ, "cpu_mhz", TELEM_AUTO, TELEM_AUTO)                       \
     X(TS_CPU_LOAD, "cpu_load", TELEM_AUTO, TELEM_AUTO)                     \
     X(TS_BUSIEST_UTIL, "busiest_util", 0, 100)                             \
+    X(TS_CPU_SOCMW, "cpu_soc_mw", TELEM_AUTO, TELEM_AUTO)                   \
     X(TS_GPU_TEMP, "gpu_temp", 0, 100)                                     \
     X(TS_GPU_MHZ, "gpu_mhz", TELEM_AUTO, TELEM_AUTO)                       \
     X(TS_GPU_MW, "gpu_mw", TELEM_AUTO, TELEM_AUTO)                         \
@@ -25,6 +26,7 @@
     X(TS_IGPU_TEMP, "igpu_temp", 0, 100)                                   \
     X(TS_IGPU_MHZ, "igpu_mhz", TELEM_AUTO, TELEM_AUTO)                     \
     X(TS_IGPU_MW, "igpu_mw", TELEM_AUTO, TELEM_AUTO)                       \
+    X(TS_IGPU_GFXMW, "igpu_gfx_mw", TELEM_AUTO, TELEM_AUTO)                 \
     X(TS_FAN_CPU, "fan_cpu_rpm", TELEM_AUTO, TELEM_AUTO)                   \
     X(TS_FAN_GPU, "fan_gpu_rpm", TELEM_AUTO, TELEM_AUTO)                   \
     X(TS_MEM_USED, "mem_used_mb", TELEM_AUTO, TELEM_AUTO)                  \

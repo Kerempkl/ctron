@@ -836,6 +836,15 @@ int hw_parse_loadavg(const char *s, double *l1, double *l5, double *l15)
     return 0;
 }
 
+/* APU package split — see the hw.h comment. Pure — tested. */
+int hw_split_cpu_soc_mw(int apu_mw, int gfx_mw)
+{
+    if (apu_mw < 0 || gfx_mw < 0)
+        return -1;
+    int d = apu_mw - gfx_mw;
+    return d > 0 ? d : 0;
+}
+
 /* /proc/stat per-cpu jiffies: "cpuN user nice system idle iowait irq
  * softirq steal ...". busy = user+nice+system+irq+softirq+steal (guest
  * is already folded into user on the host), total = busy+idle+iowait —
@@ -1119,6 +1128,7 @@ static void read_telem_extras(hw_state_t *hw)
             }
         }
     }
+    hw->cpu_soc_mw = hw_split_cpu_soc_mw(hw->igpu_mw, hw->igpu_gfx_mw);
 
     /* Tccd sensors: k10temp temp3/temp4, verified once against their
      * labels so a different chip layout never shows a wrong name */

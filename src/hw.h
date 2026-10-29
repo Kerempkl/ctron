@@ -67,6 +67,11 @@ int hw_parse_loadavg(const char *s, double *l1, double *l5, double *l15);
  * total = busy+idle+iowait). Returns highest cpu id seen + 1. Pure. */
 int hw_parse_cpu_stat(const char *s, long long *busy, long long *total,
                       int max_cpu);
+/* APU package split: the CPU-side estimate is whole-package minus the
+ * iGPU gfx rail. Either side unknown -> -1; a negative difference
+ * (cross-instant sampling skew — the two counters update on different
+ * clocks) clamps to 0. Pure. */
+int hw_split_cpu_soc_mw(int apu_mw, int gfx_mw);
 
 /* pstate/throttle-reason labels, bit i = 1u<<i in hw->gpu_throttle,
  * in the same order as the nvidia-smi query field list */
@@ -215,6 +220,7 @@ typedef struct hw_state {
     int igpu_busy;                             /* drm gpu_busy_percent */
     int igpu_dpm, igpu_dpm_n, igpu_dpm_mhz;    /* active pp_dpm_sclk level */
     int igpu_gfx_mw;                           /* gpu_metrics gfx field */
+    int cpu_soc_mw;                            /* APU PPT − gfx rail (est) */
     int cpu_temp_ccd1, cpu_temp_ccd2;          /* k10temp Tccd1/2, °C */
     int ram_temp_n, ram_temp[2];               /* spd5118 modules, °C */
     int ram_thresh_max, ram_thresh_crit;       /* spd5118 limits, °C */

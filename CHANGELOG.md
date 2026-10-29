@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-10-29 — telem: APU power split (CPU+SoC est + iGPU gfx rail)
+
+- User ask: split the APU watt value into CPU and iGPU — the
+  researched formula is now shipped. **CPU+SoC (est) = amdgpu
+  power1_input − gpu_metrics gfx rail**: both sides real sensors,
+  the difference derived (hw_split_cpu_soc_mw, pure, unit-tested;
+  unknown side stays "--", cross-instant skew clamps to 0).
+- Two new ring series: "gfx rail" in the iGPU section (straight
+  from gpu_metrics — the only live per-rail power this silicon
+  reports) and "CPU+SoC" in the CPU section beside APU PPT; both
+  with the full stats treatment (grid range, detail min/avg/max,
+  's' window↔since-reset, 'r' reset). iGPU detail live line shows
+  the split summary. --csv grew to 17 columns (cpu_soc_mw,
+  igpu_gfx_mw; append guard updated).
+- Honest labelling (HARDWARE.md EN+TR): the CPU side includes
+  SoC/uncore, the gfx rail saturates at its ~10 W budget under load
+  and reads true 0 W when power-gated, and the two source counters
+  sample on different clocks so single instants can wobble — ring
+  averages smooth it. Live-verified under the EGL shader probe:
+  APU PPT 28.24 W = CPU+SoC 18.24 W + gfx 10.00 W.
+- Side fix: -Wformat-truncation in the per-core table cell buffers
+  (widened). Research probes wiped by `make clean` (rm -rf build)
+  were recreated from the HANDOFF record (apuload, rapl_probe).
+- Verified: 0 warnings, make test (+3 checks), full tuitest, live
+  dumps under real iGPU load, tui-telem.png re-shot, install in the
+  same breath.
+
 ## 2026-10-29 — telem: per-core NOW table + busiest-core series
 
 - User ask: the per-core proxy research (util/C-state/freq, verified

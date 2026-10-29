@@ -140,9 +140,15 @@ Notes:
     `gpu_busy_percent` and the active `pp_dpm_sclk` level.
     `gpu_metrics`: the only live power slice on Dragon Range is the
     gfx field (signature-gated read) — the CPU blocks of that blob
-    are permanently 0xFF (probed live 2026-10-27) and RAPL
-    `energy_uj` is root-only, so there is **no honest sudoless CPU
-    watt on FA608PP**.
+    are permanently 0xFF (probed live 2026-10-27). The APU split
+    shown in the TUI is **CPU+SoC (est) = power1_input − gfx
+    rail** (both sides real sensors, the difference derived; the
+    gfx rail saturates at its ~10 W budget under load and reads
+    true 0 W when gated, and the two counters sample on different
+    clocks, so single instants can wobble — the ring averages
+    smooth it). A MEASURED per-core/CPU watt still needs root:
+    RAPL `energy_uj` is 0400 and the per-core `power_core` perf
+    PMU (kernel 6.14+) is gated by perf_event_paranoid.
   - **RAM**: spd5118 module temps are uncommon hardware — most
     laptops have none and show `--`. Where present, the limits
     (`temp1_max`/`temp1_crit`) and the kernel `max_alarm` flag
@@ -309,8 +315,14 @@ Notlar:
     etkin `pp_dpm_sclk` kademesini ekler. `gpu_metrics`: Dragon
     Range'de tek canlı güç dilimi gfx alanıdır (imza-kapılı okuma) —
     o bloğun CPU kısımları kalıcı 0xFF (2026-10-27'de canlı
-    yoklandı) ve RAPL `energy_uj` root-only olduğundan FA608PP'de
-    **sudo'suz dürüst CPU watt yoktur**.
+    yoklandı). TUI'deki APU ayrıştırması **CPU+SoC (est) =
+    power1_input − gfx rayı** (iki taraf da gerçek sensör, fark
+    türetilmiş; gfx rayı yük altında ~10 W bütçesinde doyar,
+    kapılandığında gerçek 0 W okur, iki sayaç farklı saatlerde
+    örneklendiğinden tek anlar titreyebilir — halka ortalaması
+    yumuşatır). ÖLÇÜLMÜŞ çekirdek/CPU watt'ı hâlâ root ister:
+    RAPL `energy_uj` 0400, çekirdek başına `power_core` perf PMU
+    (kernel 6.14+) perf_event_paranoid ardında.
   - **RAM**: spd5118 modül sıcaklıkları nadir donanımdır — çoğu
     laptop'ta yoktur, `--` görünür. Varsa limitler
     (`temp1_max`/`temp1_crit`) ve çekirdeğin `max_alarm` bayrağı da

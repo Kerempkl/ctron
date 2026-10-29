@@ -148,6 +148,12 @@ static const chartdef_t CD_CPU[] = {
      * storage — watching a CPU test wants the package power beside */
     { "APU PPT", U_W, TS_IGPU_MW,
      "whole-APU package power: CPU + iGPU", ZN_NONE, -1, NULL },
+    /* the split's CPU side: package minus the iGPU gfx rail. Label
+     * says the truth — SoC/uncore ride along, and both source
+     * counters sample on different clocks (est, short wobble) */
+    { "CPU+SoC", U_W, TS_CPU_SOCMW,
+     "estimated CPU side: APU PPT minus the iGPU gfx rail",
+     ZN_NONE, -1, NULL },
     /* the per-core table below is a NOW snapshot with no stats by
      * design (16 cores x min/avg/max x 2 modes would bury the page);
      * the time dimension of "how busy do the cores get" lives here,
@@ -169,7 +175,13 @@ static const chartdef_t CD_IGPU[] = {
     /* amdgpu power1_input is the SoC PPT: the WHOLE APU package
      * (CPU cores + iGPU + fabric), not the iGPU rail alone */
     { "APU PPT", U_W, TS_IGPU_MW,
-      "whole-APU package power: CPU + iGPU", ZN_NONE, -1, NULL },
+     "whole-APU package power: CPU + iGPU", ZN_NONE, -1, NULL },
+    /* the split's iGPU side, straight from gpu_metrics — the only
+     * live per-rail power this silicon reports (caps at the ~10 W
+     * gfx rail budget under load, reads true 0 W when gated) */
+    { "gfx rail", U_W, TS_IGPU_GFXMW,
+     "iGPU rail power (gpu_metrics; caps at the rail budget)",
+     ZN_NONE, -1, NULL },
     { "clock", U_MHZ, TS_IGPU_MHZ, "iGPU graphics clock",
       ZN_NONE, -1, NULL },
 };
@@ -713,7 +725,7 @@ static int core_now_table(struct ncplane *n, int x, int y, int w, int rows)
             if (cx + 15 >= x + w)
                 break;
             int u = hw->core_util[i + c], m = hw->core_mhz[i + c];
-            char id[8], uv[8], mv[8];
+            char id[16], uv[16], mv[16];
             snprintf(id, sizeof id, "c%d", hw->core_cpu[i + c]);
             if (u >= 0)
                 snprintf(uv, sizeof uv, "%d%%", u);
@@ -843,10 +855,10 @@ static void detail_igpu(struct ncplane *n, const rect_t *r)
     if (hw->igpu_dpm >= 0 && (size_t)blen < sizeof l1)
         snprintf(l1 + blen, sizeof l1 - blen, " · sclk DPM %d/%d @ %d MHz",
                  hw->igpu_dpm + 1, hw->igpu_dpm_n, hw->igpu_dpm_mhz);
-    if (hw->igpu_gfx_mw >= 0)
+    if (hw->cpu_soc_mw >= 0)
         snprintf(l2, sizeof l2,
-                 " APU PPT = whole-package (CPU+iGPU) · gfx rail %.1f W",
-                 hw->igpu_gfx_mw / 1000.0);
+                 " split: CPU+SoC %.1f W + gfx rail %.1f W (est)",
+                 hw->cpu_soc_mw / 1000.0, hw->igpu_gfx_mw / 1000.0);
     else
         snprintf(l2, sizeof l2, " APU PPT = whole-package power (CPU+iGPU)");
     const char *info[3] = { l0, l1, l2 };
@@ -1338,6 +1350,8 @@ void telem_poll(hw_state_t *hw, long now_ms)
     telem_push(TS_IGPU_TEMP, hw->igpu_temp);
     telem_push(TS_IGPU_MHZ, hw->igpu_mhz);
     telem_push(TS_IGPU_MW, hw->igpu_mw);
+    telem_push(TS_IGPU_GFXMW, hw->igpu_gfx_mw);
+    telem_push(TS_CPU_SOCMW, hw->cpu_soc_mw);
     telem_push(TS_FAN_CPU, hw->rpm_cpu);
     telem_push(TS_FAN_GPU, hw->rpm_gpu);
     telem_push(TS_MEM_USED, hw->mem_used_mb);
