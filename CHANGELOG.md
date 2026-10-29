@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-10-29 — telem: per-core ceilings block bar → numeric summary
+
+- User report: the one-block-per-thread ceiling bar in the CPU
+  detail live block read as one solid rectangle — a single cell per
+  thread is too small to tell the 8 block levels apart at real font
+  sizes, so the shape carried no information.
+- Replaced with a readable summary over the same scaling_max_freq
+  sweep (source unchanged): "all 32 threads @ 5386 MHz" when uniform
+  ("hw max N" appended when the threads sit uniformly below it —
+  quiet's 2401 lock), "2401-5386 MHz · 30/32 @ hw max 5386" when
+  mixed, "--" when nothing reads; partial reads counted honestly.
+- Grid box untouched (it never showed ceilings); HARDWARE.md sensor
+  map unchanged (still scaling_max_freq — presentation only).
+- Verified: 0 warnings, make test, full tuitest, live CPU-detail
+  dump ("all 32 threads @ 5386 MHz"), tui-telem.png re-shot,
+  install in the same breath.
+
 ## 2026-10-29 — correction: gpu_metrics gfx field is ACTIVITY — APU split reverted
 
 - The user caught two contradictions in the split feature shipped

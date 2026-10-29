@@ -1,6 +1,37 @@
 # Ctron Handoff
 
-Latest session — **2026-10-29 (18th round, CORRECTION: gpu_metrics
+Latest session — **2026-10-29 (19th round, per-core ceilings display
+fixed: block bar → numeric summary)**
+
+**GLM / Kerempkl / FA608PP** — user asked what the gauge left of
+"per-core ceilings" in the CPU detail shows, then named the real
+problem: it reads as one flat rectangle. Root cause: one
+single-cell block glyph (8 levels, U+2581..88) per thread — at real
+font sizes adjacent cells and neighbouring levels are
+indistinguishable, and in the common case (every thread at the hw
+max) it is literally a solid bar.
+
+- Fix follows the numbers-over-graphics doctrine (6a71073):
+  detail_cpu's live line is now a summary over the SAME
+  hw->cpu_mhz_core sweep — "per-core ceilings: all 32 threads @
+  5386 MHz" (uniform; "(hw max N)" appended when uniformly below
+  it, the quiet/2401 case), "per-core ceilings: 2401-5386 MHz ·
+  30/32 @ hw max 5386" (mixed ceilings), "--" (nothing read);
+  partial reads counted honestly (seen vs cpu_n).
+- Nothing else moved: the grid box never showed ceilings, the CORE
+  LIMITS editor and write layer still consume the same sweep,
+  HARDWARE.md EN/TR sensor map unchanged (still scaling_max_freq —
+  presentation only).
+- Live-verified the uniform branch on the real CPU detail page
+  (build/dump_cpu.py, one-off text dumper reusing
+  tui_screenshot's Session+Screen — wiped by make clean). The
+  mixed branch needs a profile flip (system side effect — not run
+  on the user's machine; plain snprintf branches).
+- Verified: 0 warnings, make test, full tuitest, live CPU-detail
+  dump, tui-telem.png re-shot (grid view, per CHANGELOG
+  precedent), install in the same breath.
+
+Before that **2026-10-29 (18th round, CORRECTION: gpu_metrics
 field is ACTIVITY, not watts — the APU split was wrong and is
 reverted)**
 

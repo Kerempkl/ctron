@@ -755,27 +755,39 @@ static void detail_cpu(struct ncplane *n, const rect_t *r)
         snprintf(l1, sizeof l1, " PPT -- · fans %d / %d rpm%s",
                  hw->rpm_cpu, hw->rpm_gpu, cc);
 
-    /* per-core ceilings: one 8-level block per thread, scaled to the
-     * hardware max (a pinned core reads its ceiling, not live clock) */
-    char blk[HW_CPU_MAX * 3 + 8];
-    size_t wb = 0;
-    blk[wb++] = ' ';
-    for (int i = 0; i < hw->cpu_n && wb + 4 < sizeof blk; i++) {
+    /* per-core ceilings as a numeric summary: the old one-block-per-
+     * thread bar read as one solid rectangle at real font sizes (a
+     * single cell is too small to tell the 8 levels apart — user
+     * report), so the shape carried no information. The hw max rides
+     * along whenever the threads are not all sitting on it. */
+    int clo = 0, chi = 0, at_max = 0, seen = 0;
+    for (int i = 0; i < hw->cpu_n; i++) {
         int mhz = hw->cpu_mhz_core[hw->cpu_ids[i]];
-        if (mhz <= 0 || hw->cpu_mhz_max <= 0) {
-            blk[wb++] = '.';
+        if (mhz <= 0)
             continue;
-        }
-        double f = (double)mhz / (double)hw->cpu_mhz_max;
-        if (f > 1)
-            f = 1;
-        blk[wb++] = (char)0xE2;
-        blk[wb++] = (char)0x96;
-        blk[wb++] = (char)(0x81 + (int)(f * 7.999));
+        seen++;
+        if (clo == 0 || mhz < clo)
+            clo = mhz;
+        if (mhz > chi)
+            chi = mhz;
+        if (hw->cpu_mhz_max > 0 && mhz >= hw->cpu_mhz_max)
+            at_max++;
     }
-    blk[wb] = '\0';
-    snprintf(l2, sizeof l2, "%s  per-core ceilings (max %d MHz)",
-             blk, hw->cpu_mhz_max);
+    if (seen == 0)
+        snprintf(l2, sizeof l2, " per-core ceilings: --");
+    else if (clo == chi && (hw->cpu_mhz_max <= 0 || clo == hw->cpu_mhz_max))
+        snprintf(l2, sizeof l2, " per-core ceilings: all %d threads @ %d MHz",
+                 seen, clo);
+    else if (clo == chi)
+        snprintf(l2, sizeof l2,
+                 " per-core ceilings: all %d threads @ %d MHz (hw max %d)",
+                 seen, clo, hw->cpu_mhz_max);
+    else if (hw->cpu_mhz_max > 0)
+        snprintf(l2, sizeof l2,
+                 " per-core ceilings: %d-%d MHz · %d/%d @ hw max %d",
+                 clo, chi, at_max, seen, hw->cpu_mhz_max);
+    else
+        snprintf(l2, sizeof l2, " per-core ceilings: %d-%d MHz", clo, chi);
 
     /* 5/15-min load ride along the polled 1-min series (same source
      * line, parsed together) */
