@@ -115,6 +115,85 @@ static const char *const PW_PRESET_NAMES[3] = { " Q45 ", " B60 ", " P80 " };
  * sensible laptop caps; 't' stages any exact value in between */
 static const int PW_GPU_STEPS[] = { 0, 800, 1000, 1200, 1400, 1600, 1800, 2100 };
 
+/* three visual groups; a header line sits above each group's first row
+ * and is never itself selectable (row order is unchanged — headers only
+ * insert extra lines, so every row-index consumer stays as it is) */
+static const struct { int first; const char *name; } PW_GROUPS[] = {
+    { 0, "PROFILE" },
+    { PW_PRESET, "POWER LIMITS" },
+    { PW_GPUCLOCK, "GPU + SYSTEM" },
+};
+#define PW_GROUPS_N ((int)(sizeof(PW_GROUPS) / sizeof(PW_GROUPS[0])))
+
+static const char *pw_group_name(int row)
+{
+    for (int g = 0; g < PW_GROUPS_N; g++)
+        if (PW_GROUPS[g].first == row)
+            return PW_GROUPS[g].name;
+    return NULL;
+}
+
+/* line index of a row within the [headers + rows] render sequence */
+static int pw_slot(int row)
+{
+    int s = row;
+    for (int g = 0; g < PW_GROUPS_N; g++)
+        if (PW_GROUPS[g].first <= row)
+            s++;
+    return s;
+}
+
+/* keep the selection (and its group header when the selection starts a
+ * group) inside the visible window; runs every draw, so resizes
+ * re-clamp too and j/k need no viewport logic of their own */
+static void pw_view_clamp(int budget)
+{
+    int total = PW_ROWS + PW_GROUPS_N;
+    if (budget >= total) {
+        g_ui.pw_top = 0;
+        return;
+    }
+    int top = (g_ui.pw_top >= 0 && g_ui.pw_top < PW_ROWS) ? g_ui.pw_top : 0;
+    int sel = pw_slot(g_ui.pw_sel);
+    for (int guard = 0; guard < PW_ROWS + 2; guard++) {
+        int tl = pw_slot(top) - (pw_group_name(top) ? 1 : 0);
+        if (sel < tl)
+            top = g_ui.pw_sel;
+        else if (sel > tl + budget - 1)
+            top++;
+        else
+            break;
+    }
+    /* never scroll past the last full page */
+    for (int t = PW_ROWS - 1; t >= 0; t--) {
+        int tl = pw_slot(t) - (pw_group_name(t) ? 1 : 0);
+        if (tl + budget - 1 >= total - 1 || t == 0) {
+            if (top > t)
+                top = t;
+            break;
+        }
+    }
+    g_ui.pw_top = top;
+}
+
+/* one-line "what this row does" for the selected row, in row-index
+ * order (PW_PROFILE .. PW_CPUFREQ); drawn above the buttons */
+static const char *const PW_DESCS[PW_ROWS] = {
+    "firmware power profile — fan, clock and EPP defaults follow it",
+    "asusd re-applies this profile on AC power events (off = no takeover)",
+    "asusd re-applies this profile on battery events (off = no takeover)",
+    "scheduler energy-vs-performance hint (amd-pstate)",
+    "one pick stages the whole watt triple; custom = anything else",
+    "long-term watt ceiling — the main knob for thermals and battery",
+    "watt ceiling during longer boosts (seconds-scale)",
+    "watt ceiling for short bursts (sub-second)",
+    "off removes the SMU caps (platform maxima) until reboot",
+    "dGPU clock lock; driver default = no lock (session-only)",
+    "faster LCD pixel response, costs a little battery",
+    "off disables turbo frequencies entirely",
+    "MHz ceiling for all cores; per-core ceilings via 'c'",
+};
+
 /* which preset the staged triple equals, or -1 (custom) */
 static int pw_preset_match(int spl, int sppt, int fppt)
 {
@@ -755,6 +834,18 @@ static void draw_power(struct ncplane *n, const rect_t *r)
         "Panel overdrive", "CPU boost", "CPU clock limit",
     };
 
+    /* while the toast is up, one list row yields its place to it; with
+     * room to spare, a description line (h-4) and the preview/toast slot
+     * (h-3) stay reserved — very short panels fall back to the old
+     * toast-only layout */
+    bool toast = g_ui.pw_msg_ms > 0 && now_ms() - g_ui.pw_msg_ms < PW_TOAST_MS;
+    bool extras = r->h >= 13;
+    int budget = r->h - (extras ? 6 : (toast ? 5 : 4));
+    if (budget < 0)
+        budget = 0;
+    pw_view_clamp(budget);
+    int top_line = pw_slot(g_ui.pw_top) - (pw_group_name(g_ui.pw_top) ? 1 : 0);
+
     if (g_ui.pw_typing) {
         char line[144], rng[32];
         pw_row_range(g_ui.pw_sel, rng, sizeof rng, "");
@@ -768,17 +859,43 @@ static void draw_power(struct ncplane *n, const rect_t *r)
                      labels[g_ui.pw_sel], g_ui.pw_input.buf);
         ui_putln(n, x, r->y + 1, w, line, pal->accent, true);
     } else {
-        ui_putln(n, x, r->y + 1, w,
-                 "h/l stage · t exact value · Enter apply · r revert · c cores",
+        /* ▲▼ pinned to the right edge so narrow panels still show them */
+        ui_putln(n, x, r->y + 1, w - 2,
+                 "j/k select · h/l change · t exact · Enter apply · r revert · c cores",
                  pal->muted, false);
+        bool more_below = top_line + budget - 1 < PW_ROWS + PW_GROUPS_N - 1;
+        if (g_ui.pw_top > 0 || more_below) {
+            char mk[8] = "";
+            if (g_ui.pw_top > 0)
+                strcat(mk, "▲");
+            if (more_below)
+                strcat(mk, "▼");
+            ui_putln(n, x + w - 2, r->y + 1, 3, mk, pal->muted, false);
+        }
     }
-    /* while the toast is up, one list row yields its place to it */
-    bool toast = g_ui.pw_msg_ms > 0 && now_ms() - g_ui.pw_msg_ms < PW_TOAST_MS;
-    int rows = r->h - (toast ? 5 : 4);
-    if (rows < 0)
-        rows = 0;
-    for (int i = 0; i < PW_ROWS && i < rows; i++) {
-        int y = r->y + 2 + i;
+
+    int ln = 0;
+    for (int i = g_ui.pw_top; i < PW_ROWS && ln < budget; i++) {
+        int y = r->y + 2 + ln;
+        const char *gn = pw_group_name(i);
+        if (gn) {
+            /* group header: accent title, muted rule filling the rest */
+            ui_putln(n, x, y, w, gn, pal->accent, true);
+            int rule_w = w - (int)strlen(gn) - 1;
+            if (rule_w > 0) {
+                char rule[128];
+                int rc = rule_w > 40 ? 40 : rule_w;
+                for (int c = 0; c < rc; c++)
+                    memcpy(rule + c * 3, "─", 3);
+                rule[rc * 3] = '\0';
+                ui_putln(n, x + (int)strlen(gn) + 1, y, rc, rule,
+                         pal->muted, false);
+            }
+            ln++;
+            if (ln >= budget)
+                break;
+            y = r->y + 2 + ln;
+        }
         bool sel = (i == g_ui.pw_sel);
         if (i == PW_PRESET) {
             /* one row, three side-by-side preset buttons; the armed
@@ -789,21 +906,39 @@ static void draw_power(struct ncplane *n, const rect_t *r)
                 btns[b] = (ui_btndef_t){ PW_PRESET_NAMES[b], b == armed,
                                          TGT(TGT_PANEL_WORKSPACE,
                                              ACT_WS_PW_PRESET_BASE + b) };
-            ui_btn_row(n, y, x + 24, w - 24, btns, 3);
-            if (armed < 0)
-                ui_putln(n, x + 44, y, 10, "custom", pal->muted, false);
+            int cx = ui_btn_row(n, y, x + 24, w - 24, btns, 3);
+            /* "custom" follows the buttons instead of a fixed x, so it
+             * only shows when they all fit (narrow panels lose it) */
+            if (armed < 0 && cx >= x + 24 + 17 && cx + 7 <= x + w)
+                ui_putln(n, cx, y, 7, "custom", pal->muted, false);
             tgt_register(x, y, 22, 1,
                          TGT(TGT_PANEL_WORKSPACE, ACT_WS_PW_BASE + i));
         } else {
             ui_row(n, x, y, w, labels[i], vals[i], sel);
             tgt_register(x, y, w, 1, TGT(TGT_PANEL_WORKSPACE, ACT_WS_PW_BASE + i));
         }
+        ln++;
     }
 
-    /* apply toast: what the last Apply changed, fading after PW_TOAST_MS */
-    if (toast)
+    /* selected-row description, then the h-3 slot: the apply toast while
+     * it is up, otherwise the pre-apply preview of what Enter writes.
+     * Gated on the summary itself (not pw_dirty): the summary mirrors
+     * the write gates, and a touched watt triple with stale live reads
+     * (PPT 0 cache) writes on Enter without setting pw_dirty */
+    if (extras)
+        ui_putln(n, x, r->y + r->h - 4, w, PW_DESCS[g_ui.pw_sel],
+                 pal->muted, false);
+    if (toast) {
         ui_putln(n, x, r->y + r->h - 3, w, g_ui.pw_msg,
                  g_ui.pw_msg_fail ? PW_ERR_RGB : PW_OK_RGB, true);
+    } else if (extras) {
+        char sum[160], prev[176];
+        pw_diff_summary(sum, sizeof sum);
+        if (sum[0]) {
+            snprintf(prev, sizeof prev, "will write: %s", sum);
+            ui_putln(n, x, r->y + r->h - 3, w, prev, pal->muted, false);
+        }
+    }
 
     int by = r->y + r->h - 2;
     ui_btn(n, x, by, " Apply ", g_ui.pw_dirty, false,
@@ -965,12 +1100,13 @@ static void draw_help(struct ncplane *n, const rect_t *r)
         "  j k          move · h l change value · Enter apply",
         "",
         "POWER",
-        "  j k          move · h/l (or arrows) stage the value (nothing writes)",
+        "  j k          move · h/l (or arrows) change the value (nothing writes)",
         "  auto-profile rows: what asusd re-applies on AC/battery events",
         "  ceiling moving on its own at high temp = firmware (expected)",
         "  presets      h/l walks Q45/B60/P80 and stages; click a button too",
         "  t            type an exact value for the selected row",
         "  Enter/w      apply all staged edits · r reverts to live values",
+        "  above the buttons: selected-row note · 'will write:' preview",
         "  c            per-core frequency editor (CORE LIMITS overlay)",
         "  q            quits; with staged edits pending it asks twice",
         "",

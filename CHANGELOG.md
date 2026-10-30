@@ -1,5 +1,42 @@
 # Changelog
 
+## 2026-10-30 — POWER panel readability: groups + scroll viewport + row notes + pre-apply preview
+
+- Presentation-only round (no write path touched): the flat 13-row list
+  gained three non-selectable group headers (PROFILE / POWER LIMITS /
+  GPU + SYSTEM, accent title + muted rule). Row order and every
+  row-index consumer unchanged — headers only insert lines.
+- Hint line reworded jargon-free and finally names navigation:
+  "j/k select · h/l change · t exact · Enter apply · r revert · c cores";
+  ▲▼ scroll markers pinned to the hint's right edge (visible even when
+  the hint itself truncates).
+- Scroll viewport (pw_top): short panels no longer clip rows while the
+  selection walks into the invisible — the draw pass clamps the window
+  so the selection (and its group header when it starts a group) stays
+  visible; ▲/▼ mark more rows above/below. Row budget constant h-6;
+  panels shorter than 13 lines drop the new lines and fall back to the
+  old toast-only layout.
+- Selected-row description: one muted line above the buttons explaining
+  what the highlighted row does (13 English one-liners; stays during
+  't' typing).
+- Pre-apply preview: the toast slot now shows "will write: …" whenever
+  the diff summary is non-empty — BEFORE Enter, reusing pw_diff_summary
+  as-is. Gated on the summary, not pw_dirty: the summary mirrors the
+  write gates, so a touched watt triple with stale live PPT reads
+  (0-cache, rows show "(?)") previews honestly even though ●/Apply
+  stay unlit (pre-existing dirty-vs-writegate asymmetry, recorded in
+  NEXT.md item 19 with the deferred CORE LIMITS unification the user
+  parked).
+- Preset "custom" tag follows the button row instead of a fixed x+44
+  (narrow panels no longer lose or displace it).
+- HELP view POWER block reworded to match (stage→change, preview line).
+- Verified: 0 warnings, make test, full tuitest, text dumps at 160×50 /
+  100×30 / 80×24 (full list, fits, scrolled ▼, j-to-bottom keeps the
+  selection + its note visible), staged dump showing
+  "will write: SPL →50 W", typing prompt with the note line;
+  docs/tui-power.png re-shot. Rides the v0.9.0 candidate stack (no
+  version bump — cut stays with the user).
+
 ## 2026-10-30 — README refresh: stale screenshots re-shot + --csv in the flag list
 
 - docs/tui-fan.png + docs/tui-power.png re-shot from the current

@@ -1,6 +1,47 @@
 # Ctron Handoff
 
-Latest session — **2026-10-30 (21st round, README refresh — stale
+Latest session — **2026-10-30 (22nd round, POWER panel readability —
+groups + scroll viewport + row notes + pre-apply preview)**
+
+**GLM / Kerempkl / FA608PP** — user asked to make the POWER panel more
+user-friendly; after an option round (in-place regrouping chosen over
+quick/advanced layers and a fullscreen power dashboard) plus a plan
+self-review round, this landed presentation-only — no write path, no
+row-order/index change, no key-model change.
+
+- **Groups**: three non-selectable headers (PROFILE / POWER LIMITS /
+  GPU + SYSTEM; accent title + muted rule) insert lines into the
+  unchanged row order, so pw_nudge_row/pw_commit_typed/mouse ACT/smoke
+  all stayed untouched. Plan-review catch: the "new" order was already
+  the existing order — only headers were missing.
+- **Viewport (pw_top)**: short panels used to clip bottom rows while
+  j/k walked the selection into the invisible; the draw pass now clamps
+  the window (selection visible, its group header too when it starts a
+  group), ▲▼ pinned to the hint line's right edge so they survive hint
+  truncation (ui_putln reserves its last cell — a width-1 call renders
+  nothing, the markers go out as one width-3 call). Budget constant
+  h-6; h<13 falls back to the old toast-only layout. j/k handler needed
+  NO change — clamp rides the draw.
+- **Row notes + pre-apply preview**: one muted line above the buttons
+  explains the selected row (13 English one-liners; stays during 't');
+  the toast slot shows "will write: …" from pw_diff_summary whenever
+  non-empty. Gate is the SUMMARY, not pw_dirty — live PPT reads were
+  stale (0-cache, "(?)" rows) during verification and exposed the
+  pre-existing asymmetry: a touched watt triple writes on Enter without
+  lighting ●/Apply. Preview is write-gate honest; the ● asymmetry is
+  recorded in NEXT.md 19 together with the deferred CORE LIMITS↔Apply
+  unification (user: park it, don't forget it).
+- Hint line reworded ("stage" jargon out, j/k finally named); preset
+  "custom" tag follows the button row (was fixed x+44, fell off narrow
+  panels); HELP POWER block synced.
+- Verified side-effect-free (no Apply pressed, no profile flips):
+  0 warnings, make test, full tuitest, text dumps 160×50 / 100×30 /
+  80×24 (full / fits / scrolled with ▼) + j-to-bottom (selection + note
+  visible, ▲), staged dump ("will write: SPL →50 W" live), 't' prompt
+  with the note line; docs/tui-power.png re-shot (same harness).
+  Rides the v0.9.0 candidate stack; no bump, cut stays with the user.
+
+Before that **2026-10-30 (21st round, README refresh — stale
 screenshots re-shot + flag-list csv fix)**
 
 **GLM / Kerempkl / FA608PP** — user asked to refresh the README,

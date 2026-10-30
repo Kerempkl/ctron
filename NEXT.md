@@ -55,6 +55,20 @@ Kullanıcı sürüm numaralandırmasını agent'a devretti. Şema: semver.
    dokümante edilen toolchain). Bu makinede nix YOK → derleme
    doğrulaması FA507NVR'da (Arcioth): `nix build`, `nix develop`
    içinde `make`, ilk koşuda `flake.lock` üretilip commit edilmeli.
+19. **CORE LIMITS ↔ POWER Apply birliği (10-30 POWER okunabilirlik
+    turundan bilinçli erteleme — kullanıcı kararı):** bugün 'c' editörü
+    'w' ile SENKRON yazar, POWER Apply ise global CPU limitini tüm
+    çekirdeklere yazar → per-core staging ezilir (editör durum satırı
+    uyarır: "POWER all-apply overwrites per-core"). İki biçim: hafif
+    (Apply, staged per-core değerleri global'den sonra yazar; 'w' kalır)
+    / tam (tek staging havuzu, 'w' kalkar, her şey işçi üzerinden).
+    Yazma yolu değişikliği — kendi turunda canlı yazma testiyle.
+    Aynı turda gözlenen akraba asimetri (önceki durum, hâlâ açık):
+    `pw_dirty` yalnız bilinen-farkı sayar ama PPT yazma kapısı
+    `PW_T_PPT` touched'ı da kabul eder → live PPT bayatken (0 cache)
+    Enter watt'ları yazar fakat başlıkta ● yanmaz, Apply düğmesi sönük
+    kalır (10-30'da will-write önizlemesi pw_dirty yerine doğrudan özet
+    kapısına bağlandı — önizleme dürüst; ●/düğme aynı).
 
 ## FAZ 2 — Saha & doğrulama borcu (makineli, paralel yürür)
 

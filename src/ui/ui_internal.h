@@ -120,6 +120,8 @@ typedef struct ui_ctx {
     /* power view */
     int pw_sel;
     int pw_preset_sel;     /* 0..2: cursor on the Q45/B60/P80 button row */
+    int pw_top;            /* first visible POWER row (list scrolls when
+                            * the panel is shorter than rows + headers) */
     /* staged edits — h/arrows only mutate these; nothing is written
      * until Apply (Enter / w / button) */
     int pwv_spl, pwv_sppt, pwv_fppt;   /* W */
