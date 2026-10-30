@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-10-30 — README refresh: stale screenshots re-shot + --csv in the flag list
+
+- docs/tui-fan.png + docs/tui-power.png re-shot from the current
+  build (both were from 10-26; the fan-editor and POWER views are
+  structurally unchanged since, so this is fresh live values).
+  tui-telem.png was already current (ccca5e0) and untouched.
+- Full flag list gained the `--csv <file>` line that real --help
+  has carried since fa36fe6 (the quick-start example existed; this
+  block was missed).
+- "What it does" Telemetry row now names per-core load, PSI and
+  the CSV log — the fullscreen-'t' paragraph was already current.
+- Docs-only session: no code touched, badge stays v0.8.1.
+
 ## 2026-10-30 — telem: series fill (8 new) + PSI + csv 15→22 columns
 
 - Assessment round (user: "şuan yapabileceklerini yaparmısın")

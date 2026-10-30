@@ -30,7 +30,7 @@ piped output never opens the TUI.
 | **Display** | Refresh-rate control via compositor backends (KDE, Hyprland), panel overdrive |
 | **Lighting** | Keyboard backlight, AURA effects, optional daeboard LED daemon control + binds editor |
 | **Automation** | Shortcut modes (`modes.ini`), hardware snapshots (save / rename / note / apply / export) |
-| **Telemetry** | Temps, fan RPM, frequencies, watts, network rx/tx + wifi signal, battery — live in the TUI, one line under `--watch` |
+| **Telemetry** | Temps, fan RPM, frequencies, watts, per-core load, memory/IO pressure (PSI), network rx/tx + wifi signal, battery — live in the TUI, one line under `--watch`, CSV log under `--csv` |
 
 Working principles, enforced in code:
 
@@ -147,6 +147,7 @@ No arguments opens the fullscreen TUI (needs a terminal).
 Information:
   --status, -s        live hardware snapshot
   --watch, -w         rolling one-line telemetry (Ctrl-C stops)
+  --csv <file>        append telemetry rows to a CSV (Ctrl-C stops)
   --doctor            capability report
   --help, -h          this help
   --version, -V       version

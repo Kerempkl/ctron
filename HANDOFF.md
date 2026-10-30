@@ -1,6 +1,33 @@
 # Ctron Handoff
 
-Latest session — **2026-10-30 (20th round, telemetry assessment →
+Latest session — **2026-10-30 (21st round, README refresh — stale
+screenshots re-shot + flag-list csv fix)**
+
+**GLM / Kerempkl / FA608PP** — user asked to refresh the README,
+suspecting stale visuals ("readme yi yenilermisin görseller eski
+olabilir emin değilim"). Audit result: text drifted in exactly one
+place, visuals in two files.
+
+- docs/tui-fan.png + docs/tui-power.png re-shot with the current
+  build (both were from 10-26; those two views are structurally
+  unchanged since, so the refresh is fresh live values — CPU 51°C,
+  fan 3200/2500, POWER presets + GPU-clock-limit rows all render).
+  docs/tui-telem.png was already current (re-shot with ccca5e0
+  today) and was left alone.
+- README full flag list gained the missing `--csv <file>` line —
+  real --help has carried it since fa36fe6; the quick-start example
+  was added then but this block was missed.
+- "What it does" Telemetry row now names per-core load, PSI and
+  the --csv log (the 't' fullscreen paragraph below it was already
+  current from ccca5e0).
+- Version badge stays v0.8.1 (matches --version; the v0.9.0
+  candidate stack still awaits the user's cut).
+- No code touched. Verified: make (nothing to do, tree was
+  current), real --help diff = exactly the one csv line, both new
+  PNGs viewed at full size, linked docs (PLAN/PLANS/NEXT/SECURITY/
+  HARDWARE/CHANGELOG/HANDOFF/AGENTS) all present.
+
+Before that **2026-10-30 (20th round, telemetry assessment →
 series fill + PSI + csv enrichment, all landed)**
 
 **GLM / Kerempkl / FA608PP** — user asked for an assessment of
