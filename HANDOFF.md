@@ -55,6 +55,12 @@ row-order/index change, no key-model change.
   from the left column land on the strip (caught via border-colour
   probing of the Screen grid). Verified live 4 directions with text
   discriminators + new smoke flow_focus_shift (5 assertions).
+- **Release: v0.9.0 cut at session end** (user picked it from the
+  suggestion round): 19 commits since v0.8.1 — the telem numbers era
+  (charts out, since-reset stats), 22→30 series + PSI, --csv 15→22,
+  POWER readability + strip-Enter + shift-arrow focus, security
+  passes 2-3. Version trio (main.c + README badge + flake) in the one
+  release commit per policy, annotated tag on it; main + tag pushed.
 
 Before that **2026-10-30 (21st round, README refresh — stale
 screenshots re-shot + flag-list csv fix)**

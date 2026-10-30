@@ -35,7 +35,11 @@ Kullanıcı sürüm numaralandırmasını agent'a devretti. Şema: semver.
   blokları kalıcı 0xFF, kanıtlı NO-GO); **v0.8.0** atıldı 10-28 —
   MINOR: FAN telemetri bölümü (8.; RPM halkaları artık grafikli) +
   ctron-toggle TERM→KILL tırmanışı (10-27 olayından) + HARDWARE.md
-  sensör haritası.)*
+  sensör haritası; **v0.8.1** atıldı 10-28 — PATCH: profile_set_note
+  stack overflow; **v0.9.0** atıldı 10-30 — MINOR: sayılar-çağı
+  telemetri (grafikler kalktı, since-reset istatistikleri) + 22→30
+  seri + PSI + --csv 15→22 kolon + POWER okunabilirlik turu +
+  şerit-Enter + shift+ok odak taşıma; güvenlik turları 2-3.)*
 
 ## FAZ 1 — Bakım & dürüstlük (kısa vade)
 

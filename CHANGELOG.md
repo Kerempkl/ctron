@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-10-30 — telem numbers era + csv + POWER readability (v0.9.0)
+
+- **Numbers-only telemetry** ('t'): charts removed — grid value rows
+  with window min-max ranges, detail pages as spaced numeric reports
+  (6a71073, aab6c4d); since-reset lifetime stats, df-exact disk
+  percent, 'r' reset (9d55a59, 5659aa6); 8c/16t labelling fix
+  (03a085f); per-core ceilings summary (8d02aab).
+- **New sensors/series (22 → 30)**: wifi signal + load 1/5/15 +
+  per-mount usage (9d55a59), per-core NOW table + busiest series
+  (8634044), APU PPT mirrored into CPU (bcaa5af), CPU avg, RAM
+  temp/swap, STORAGE temp, iGPU util and PSI ×3 (ccca5e0) — plus the
+  APU split roundtrip c74a2f1 → ba059e2 (gpu_metrics u32@28 is
+  activity, not watts) as the standing lesson.
+- **--csv telemetry logger** (fa36fe6): one row per tick for external
+  graphing, 15 → 22 columns with net/disk rates + APU PPT (ccca5e0).
+- **POWER readability round** (aceb4f8): group headers, scroll
+  viewport, selected-row notes, pre-apply "will write:" preview;
+  LIVE-strip Enter/Space opens fullscreen telemetry (a47e66e);
+  shift+arrows move the focus geometrically (e7d6e39).
+- **Security passes 2-3** (49d3cd9, 1d53638): mode-name guards at
+  both creation sites, shadow/extra-warning cleanliness, mouse joins
+  the apply-busy lock, uninit/parse-clamp fixes.
+- README landing-page refresh + re-shot screenshots (1da3157).
+
 ## 2026-10-30 — shift+arrows: geometric focus movement
 
 - User ask: hold Shift and press an arrow — the focus moves to the

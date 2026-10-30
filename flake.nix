@@ -15,7 +15,7 @@
             pname = "ctron";
             # keep in sync with src/main.c VERSION — bumps ride the
             # release commit (see NEXT.md "Sürüm politikası")
-            version = "0.8.1";
+            version = "0.9.0";
             src = self;
             nativeBuildInputs = [ pkgs.pkg-config ];
             buildInputs = [ pkgs.notcurses ];
