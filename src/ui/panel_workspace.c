@@ -1089,6 +1089,7 @@ static void draw_help(struct ncplane *n, const rect_t *r)
         "GLOBAL",
         "  q            quit (saves settings)",
         "  1..4 / Tab   focus: profiles, controls, workspace, telemetry",
+        "  shift+arrows focus the panel in that direction",
         "  5..8         workspace view: 5 fan · 6 power · 7 light · 8 help",
         "  t / T        fullscreen telemetry (T works everywhere)",
         "               hjkl/arrows walk the grid (2D) · enter detail",

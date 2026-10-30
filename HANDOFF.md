@@ -46,6 +46,15 @@ row-order/index change, no key-model change.
   "Enter/t telem"; smoke telem_full asserts 4+Enter. Debugging note:
   the first dump "failure" was the one-off dumper's shell quoting
   (literal "\r"), not the app — space dump + real-CR smoke both open.
+- Second follow-up (user ask, own commit): shift+arrows move the
+  focus geometrically (focus_move in ui.c, beside-you span-overlap
+  pass before nearest-centre). Two lessons pinned: the startup
+  default focus is CONTROLS (view_hotkeys comment right; telem_full
+  flow comment's "focus = profiles" parenthetical is misleading), and
+  the LIVE strip is FULL-WIDTH — pure nearest-centre made shift+right
+  from the left column land on the strip (caught via border-colour
+  probing of the Screen grid). Verified live 4 directions with text
+  discriminators + new smoke flow_focus_shift (5 assertions).
 
 Before that **2026-10-30 (21st round, README refresh — stale
 screenshots re-shot + flag-list csv fix)**

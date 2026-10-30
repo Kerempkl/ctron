@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-10-30 — shift+arrows: geometric focus movement
+
+- User ask: hold Shift and press an arrow — the focus moves to the
+  panel in that direction. Rect-driven (swap_left / telem_top layout
+  variants need no special cases), collapsed panels never targeted,
+  no wrap; plain arrows stay with the focused panel's rows/grid.
+- Nearest-centre alone was wrong: the LIVE strip is full-width, so
+  shift+right from the left column lost the workspace to it (caught
+  live via border-colour probing). Fix: a beside-you pass first —
+  candidates must overlap the current panel's span on the
+  perpendicular axis; only then nearest centre (diagonal fallback).
+- Interception sits after the overlay/typing handlers; gate uses the
+  non-deprecated ncinput_shift_p/alt_p/ctrl_p helpers. HELP GLOBAL
+  line added ("shift+arrows focus the panel in that direction").
+- Smoke: new flow_focus_shift (5 assertions; text discriminators:
+  profiles 's' = save prompt, fan 'p' = pwm typing, else 's' =
+  SETTINGS). Note pinned: the startup default focus is CONTROLS.
+- Verified: 0 warnings, make test, full tuitest, live four-direction
+  probe (profiles → workspace → telemetry → controls → profiles).
+
 ## 2026-10-30 — LIVE strip: 4-focus + Enter/Space opens fullscreen telemetry
 
 - User ask: focusing the telemetry strip (4) left Enter/Space dead

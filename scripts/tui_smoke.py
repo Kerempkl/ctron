@@ -830,6 +830,79 @@ def flow_fan_presets():
 
 
 
+def flow_focus_shift():
+    """Shift+arrows move the focus between panels (geometric, nearest
+    rect in the arrow's direction). 's' discriminates the focus in
+    plain text: the focused SNAPSHOTS panel owns it (save prompt),
+    anywhere else it opens the SETTINGS overlay (asserted via its
+    LAYOUT header)."""
+    s = Session("focus_shift")
+    try:
+        s.wait_render()
+        s.key(b"1")                # pin focus to SNAPSHOTS (the startup
+        time.sleep(0.3)            # default is CONTROLS)
+        # 's' is the save prompt while SNAPSHOTS owns the focus
+        m = s.mark()
+        s.key(b"s")
+        if not s.wait_for(b"save:", since=m, timeout=6.0):
+            fail("focus_shift", "'s' did not open the profiles save prompt")
+            return
+        ok("focus_shift", "profiles focus: 's' = save")
+        s.key(b"\x1b")            # cancel the prompt
+        time.sleep(0.3)
+        # shift+right -> WORKSPACE: 'p' is the fan editor's pwm typing
+        # (the full-width telemetry strip is NOT the "panel to the
+        # right" — the beside-you rule must skip it)
+        m = s.mark()
+        s.key(b"\x1b[1;2C")
+        time.sleep(0.3)
+        s.key(b"p")
+        if not s.wait_for(b"P[", since=m, timeout=6.0):
+            fail("focus_shift", "shift+right did not reach the workspace")
+            return
+        ok("focus_shift", "shift+right moves profiles -> workspace")
+        s.key(b"\x1b")            # cancel pwm typing
+        time.sleep(0.3)
+        # shift+left -> back to PROFILES
+        m = s.mark()
+        s.key(b"\x1b[1;2D")
+        time.sleep(0.3)
+        s.key(b"s")
+        if not s.wait_for(b"save:", since=m, timeout=6.0):
+            fail("focus_shift", "shift+left did not move focus back")
+            return
+        ok("focus_shift", "shift+left moves workspace -> profiles")
+        s.key(b"\x1b")            # cancel the prompt
+        time.sleep(0.3)
+        # shift+down -> CONTROLS: 's' now opens the settings overlay
+        m = s.mark()
+        s.key(b"\x1b[1;2B")
+        time.sleep(0.3)
+        s.key(b"s")
+        if not s.wait_for(b"LAYOUT", since=m, timeout=6.0):
+            fail("focus_shift", "shift+down did not move focus (no SETTINGS)")
+            return
+        ok("focus_shift", "shift+down moves profiles -> controls")
+        s.key(b"\x1b")            # close settings
+        time.sleep(0.3)
+        # shift+up -> back to PROFILES
+        m = s.mark()
+        s.key(b"\x1b[1;2A")
+        time.sleep(0.3)
+        s.key(b"s")
+        if not s.wait_for(b"save:", since=m, timeout=6.0):
+            fail("focus_shift", "shift+up did not move focus back")
+            return
+        ok("focus_shift", "shift+up moves controls -> profiles")
+        s.key(b"\x1b")
+        time.sleep(0.3)
+        rc = s.quit_expect0()
+        if rc != 0:
+            fail("focus_shift", f"q exit {rc!r}")
+    finally:
+        s.close()
+
+
 def main():
     if not os.access(BIN, os.X_OK):
         print(f"no executable at {BIN} (run make first)")
@@ -839,7 +912,8 @@ def main():
              flow_power_stage_apply, flow_corefreq_overlay,
              flow_fan_buttons, flow_fan_staging, flow_fan_presets,
              flow_telem_full,
-             flow_view_hotkeys, flow_mode_drift, flow_fan_grid,
+             flow_view_hotkeys, flow_focus_shift, flow_mode_drift,
+             flow_fan_grid,
              flow_snapshots]
 
     for f in flows:

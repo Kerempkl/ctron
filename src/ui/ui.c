@@ -781,6 +781,55 @@ static void try_quit(void)
     g_ui.running = false;
 }
 
+/* shift+arrows: focus the panel in that direction — panels BESIDE the
+ * current one first (perpendicular span overlap, so shift+right from
+ * the left column lands on the workspace, not the full-width telemetry
+ * strip below it), else the nearest centre diagonally. The swap_left /
+ * telem_top layout variants need no special cases; collapsed panels
+ * (zero rect) are never targets; no wrap — an arrow pointing off the
+ * layout keeps the focus where it is */
+static bool fw_span_overlap(const rect_t *a, const rect_t *b, bool vertical)
+{
+    if (vertical)
+        return a->y < b->y + b->h && b->y < a->y + a->h;
+    return a->x < b->x + b->w && b->x < a->x + a->w;
+}
+
+static void focus_move(int dx, int dy)
+{
+    const rect_t *r[FOC_COUNT];
+    r[FOC_PROFILES] = &g_ui.rc_prof;
+    r[FOC_CONTROLS] = &g_ui.rc_ctl;
+    r[FOC_WORKSPACE] = &g_ui.rc_ws;
+    r[FOC_TELEM] = &g_ui.rc_telem;
+    const rect_t *cur = r[g_ui.focus];
+    int ccx = cur->x + cur->w / 2, ccy = cur->y + cur->h / 2;
+    for (int pass = 0; pass < 2; pass++) {
+        int best = -1;
+        long bestd = 0;
+        for (int i = 0; i < FOC_COUNT; i++) {
+            if (i == (int)g_ui.focus || r[i]->w <= 0 || r[i]->h <= 0)
+                continue;
+            int cx = r[i]->x + r[i]->w / 2, cy = r[i]->y + r[i]->h / 2;
+            if ((dx < 0 && cx >= ccx) || (dx > 0 && cx <= ccx) ||
+                (dy < 0 && cy >= ccy) || (dy > 0 && cy <= ccy))
+                continue;
+            if (pass == 0 && !fw_span_overlap(cur, r[i], dx != 0))
+                continue;
+            long d = (long)(cx - ccx) * (cx - ccx) +
+                     (long)(cy - ccy) * (cy - ccy);
+            if (best < 0 || d < bestd) {
+                best = i;
+                bestd = d;
+            }
+        }
+        if (best >= 0) {
+            g_ui.focus = (focus_t)best;
+            return;
+        }
+    }
+}
+
 static void dispatch_key(uint32_t key, const struct ncinput *ni)
 {
     /* a running apply owns the machine's write path: only q gets
@@ -916,6 +965,28 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
         return;
     default:
         break;
+    }
+
+    /* shift+arrows move the focus between panels; plain arrows stay
+     * with the focused panel's rows/grid (the modifier helpers are
+     * the non-deprecated route — ncinput's bool shift is 4.0 fodder) */
+    if (ncinput_shift_p(ni) && !ncinput_alt_p(ni) && !ncinput_ctrl_p(ni)) {
+        if (key == NCKEY_LEFT) {
+            focus_move(-1, 0);
+            return;
+        }
+        if (key == NCKEY_RIGHT) {
+            focus_move(1, 0);
+            return;
+        }
+        if (key == NCKEY_UP) {
+            focus_move(0, -1);
+            return;
+        }
+        if (key == NCKEY_DOWN) {
+            focus_move(0, 1);
+            return;
+        }
     }
 
     switch (g_ui.focus) {
