@@ -10,9 +10,12 @@
 #include <string.h>
 
 /* Per-core frequency editor overlay (daeboard pattern). Limits stage
- * per thread id in cf_staged[]; 'w' writes only the changed ones via
- * ctrl_set_cpu_max_mhz_core (read-back verified there). Closing keeps
- * staged values in memory; POWER's all-cores apply overwrites them.
+ * per thread id in cf_staged[] and SURVIVE closing — they ride the
+ * POWER Apply (single write door): the worker's write half is
+ * cf_apply_staged (read-back verified in ctrl_set_cpu_max_mhz_core);
+ * 'w'/Apply here just closes the overlay and spawns that apply.
+ * POWER's global CPU-limit row writes first, then these — the specific
+ * intent wins, nothing is overwritten.
  *
  * Two presentations:
  *  - CORE mode (topology known): physical cores as c0·16 cells under
@@ -46,6 +49,13 @@ static void cf_revert(void)
         int id = hw->cpu_ids[c];
         g_ui.cf_staged[id] = hw->cpu_mhz_core[id];
     }
+}
+
+/* POWER's revert drops core staging too — one pool, one revert */
+void cf_reset_staging(void)
+{
+    cf_revert();
+    pw_recompute_dirty();
 }
 
 /* ---- entry walk (navigation + mouse share one numbering) ---------------
@@ -126,9 +136,12 @@ static bool cf_scope_diff(int k)
 {
     hw_state_t *hw = g_ui.hw;
     int a = cf_core_a(k), b = cf_core_b(k);
-    if (g_ui.cf_staged[a] != hw->cpu_mhz_core[a])
+    /* 0 = never staged/seeded (app start): NOT a pending write —
+     * cf_staged is zero-initialised and the editor seeds on open */
+    if (g_ui.cf_staged[a] != 0 && g_ui.cf_staged[a] != hw->cpu_mhz_core[a])
         return true;
-    return b >= 0 && g_ui.cf_staged[b] != hw->cpu_mhz_core[b];
+    return b >= 0 && g_ui.cf_staged[b] != 0 &&
+           g_ui.cf_staged[b] != hw->cpu_mhz_core[b];
 }
 
 /* value of the current selection; a header borrows its first core */
@@ -172,7 +185,7 @@ static void cf_group_stage(int g, int v)
 
 /* ---- counts / write ------------------------------------------------------ */
 
-static int cf_staged_count(void)
+int cf_staged_n(void)
 {
     hw_state_t *hw = g_ui.hw;
     int n = 0;
@@ -183,7 +196,8 @@ static int cf_staged_count(void)
     } else {
         for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
             int id = hw->cpu_ids[c];
-            if (g_ui.cf_staged[id] != hw->cpu_mhz_core[id])
+            if (g_ui.cf_staged[id] != 0 &&
+                g_ui.cf_staged[id] != hw->cpu_mhz_core[id])
                 n++;
         }
     }
@@ -209,59 +223,86 @@ static int cf_capped_count(void)
     return n;
 }
 
-static void cf_write(void)
+/* Capture the per-core write set BEFORE any other POWER write runs:
+ * "staged != live" is the user's explicit intent only against the
+ * baseline at apply START — the global CPU-limit write legitimately
+ * moves hw->cpu_mhz_core underneath, and a core whose staging merely
+ * echoes the old baseline must not be "restored" over the new value
+ * (live-caught: global 2200 + CCD1 2000 ended with CCD2 back at the
+ * stale 2401). */
+void cf_capture_staged(hw_state_t *hw, int ids[HW_CPU_MAX],
+                       int vals[HW_CPU_MAX], int *n_out)
 {
-    hw_state_t *hw = g_ui.hw;
-    int wrote = 0, fails = 0;
-    ui_flash("applying core limits...");
+    int n = 0;
     if (cf_core_mode()) {
-        for (int k = 0; k < hw->core_n; k++) {
+        for (int k = 0; k < hw->core_n && n + 1 < HW_CPU_MAX; k++) {
             if (!cf_scope_diff(k))
                 continue;
             /* the cpufreq policy is per thread — write both siblings;
              * when the kernel propagates anyway the second write is an
              * idempotent same-value write */
-            if (ctrl_set_cpu_max_mhz_core(hw, cf_core_a(k),
-                                          g_ui.cf_staged[cf_core_a(k)]) == 0)
-                wrote++;
-            else
-                fails++;
+            ids[n] = cf_core_a(k);
+            vals[n] = g_ui.cf_staged[cf_core_a(k)];
+            n++;
             int b = cf_core_b(k);
             if (b >= 0) {
-                if (ctrl_set_cpu_max_mhz_core(hw, b, g_ui.cf_staged[b]) == 0)
-                    wrote++;
-                else
-                    fails++;
+                ids[n] = b;
+                vals[n] = g_ui.cf_staged[b];
+                n++;
             }
         }
     } else {
         for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
             int id = hw->cpu_ids[c];
-            if (g_ui.cf_staged[id] != hw->cpu_mhz_core[id]) {
-                if (ctrl_set_cpu_max_mhz_core(hw, id, g_ui.cf_staged[id]) == 0)
-                    wrote++;
-                else
-                    fails++;
+            if (g_ui.cf_staged[id] != 0 &&
+                g_ui.cf_staged[id] != hw->cpu_mhz_core[id]) {
+                ids[n] = id;
+                vals[n] = g_ui.cf_staged[id];
+                n++;
             }
         }
     }
-    if (wrote == 0 && fails == 0)
-        ut_log("core limits: nothing staged");
-    else if (fails)
-        ut_log("core limits: %d written · %d FAILED", wrote, fails);
-    else
-        ut_log("core limits: %d written · verified", wrote);
+    *n_out = n;
+}
+
+/* the WRITE half, called from the POWER apply worker over the captured
+ * set; read-back verified inside ctrl_set_cpu_max_mhz_core. Touches hw
+ * + the write layer only (reads of g_ui are gated-while-busy safe) */
+int cf_apply_list(hw_state_t *hw, const int ids[HW_CPU_MAX],
+                  const int vals[HW_CPU_MAX], int n, int *fails_out)
+{
+    int wrote = 0, fails = 0;
+    for (int i = 0; i < n; i++) {
+        if (ctrl_set_cpu_max_mhz_core(hw, ids[i], vals[i]) == 0)
+            wrote++;
+        else
+            fails++;
+    }
+    if (wrote || fails)
+        ut_log("core limits: %d written · %s", wrote,
+               fails ? "FAILED entries above" : "verified");
+    *fails_out = fails;
+    return wrote;
 }
 
 /* ---- open / draw --------------------------------------------------------- */
 
 void editor_corefreq_open(void)
 {
-    cf_revert();
+    /* seed only never-touched cores: staging survives close/open, or
+     * the will-write preview in POWER would promise something the
+     * reopened editor silently drops */
+    hw_state_t *hw = g_ui.hw;
+    for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
+        int id = hw->cpu_ids[c];
+        if (g_ui.cf_staged[id] == 0)
+            g_ui.cf_staged[id] = hw->cpu_mhz_core[id];
+    }
     g_ui.cf_input_active = 0;
     if (g_ui.cf_sel >= cf_entries())
         g_ui.cf_sel = 0;
     g_ui.cf_overlay = true;
+    pw_recompute_dirty();
 }
 
 static const char *cf_group_label(int g)
@@ -311,6 +352,10 @@ void editor_corefreq_draw(struct ncplane *n, const rect_t *r)
     hw_state_t *hw = g_ui.hw;
     int x = r->x + 2, w = r->w - 4;
 
+    /* staging here feeds pw_dirty (title ●, Apply light, quit guard);
+     * recomputed on draw — the draw-time rising-edge precedent */
+    pw_recompute_dirty();
+
     ui_window(n, r, "CORE LIMITS");
 
     if (g_ui.cf_input_active) {
@@ -334,11 +379,11 @@ void editor_corefreq_draw(struct ncplane *n, const rect_t *r)
         ui_putln(n, x, r->y + 1, w, line, pal->accent, true);
     } else if (cf_core_mode()) {
         ui_putln(n, x, r->y + 1, w,
-                 "h/l ±100 · j/k select · t value · a CCD · A all · o max · w write · r revert · Esc close",
+                 "h/l ±100 · j/k select · t value · a CCD · A all · o max · w apply · r revert · Esc close",
                  pal->muted, false);
     } else {
         ui_putln(n, x, r->y + 1, w,
-                 "h/l ±100 · j/k select · t value · a all · o max · w write · r revert · Esc close",
+                 "h/l ±100 · j/k select · t value · a all · o max · w apply · r revert · Esc close",
                  pal->muted, false);
     }
 
@@ -359,7 +404,8 @@ void editor_corefreq_draw(struct ncplane *n, const rect_t *r)
             bool sel = (i == g_ui.cf_sel);
             bool capped = hw->cpu_mhz_max > 0 &&
                           g_ui.cf_staged[id] < hw->cpu_mhz_max;
-            bool staged = g_ui.cf_staged[id] != hw->cpu_mhz_core[id];
+            bool staged = g_ui.cf_staged[id] != 0 &&
+                          g_ui.cf_staged[id] != hw->cpu_mhz_core[id];
             char cell[24];
             snprintf(cell, sizeof(cell), "%sc%02d %4d%s",
                      sel ? "▸" : " ", id, g_ui.cf_staged[id],
@@ -425,13 +471,13 @@ void editor_corefreq_draw(struct ncplane *n, const rect_t *r)
     }
 
     int by = r->y + r->h - 2;
-    char st[96];
-    snprintf(st, sizeof(st), "%d/%d capped · %d staged — POWER all-apply overwrites per-core",
+    char st[112];
+    snprintf(st, sizeof(st), "%d/%d capped · %d staged — cores ride POWER Apply (global first, then per-core)",
              cf_capped_count(),
              cf_core_mode() ? hw->core_n : hw->cpu_n,
-             cf_staged_count());
+             cf_staged_n());
     ui_putln(n, x, by - 1, w, st, pal->muted, false);
-    ui_btn(n, x, by, " Write ", cf_staged_count() > 0, false,
+    ui_btn(n, x, by, " Apply ", g_ui.pw_dirty, false,
            TGT(TGT_PANEL_COREFREQ, ACT_CF_WRITE));
     ui_btn(n, x + 10, by, " Revert ", false, false,
            TGT(TGT_PANEL_COREFREQ, ACT_CF_REVERT));
@@ -519,7 +565,10 @@ void editor_corefreq_key(uint32_t key)
             return;
         case 'w': case 'W':
         case NCKEY_ENTER: case '\r': case '\n': case ' ':
-            cf_write();
+            /* one write door: close and let the POWER apply worker do
+             * it (progress line, toast, read-back verify) */
+            g_ui.cf_overlay = false;
+            ui_spawn_apply(APPLY_POWER, "power settings", "");
             return;
         default:
             return;
@@ -564,7 +613,9 @@ void editor_corefreq_key(uint32_t key)
         return;
     case 'w': case 'W':
     case NCKEY_ENTER: case '\r': case '\n': case ' ':
-        cf_write();
+        /* one write door: close and let the POWER apply worker do it */
+        g_ui.cf_overlay = false;
+        ui_spawn_apply(APPLY_POWER, "power settings", "");
         return;
     default:
         return;
@@ -593,7 +644,10 @@ void editor_corefreq_act(int id_)
         return;
     }
     switch (id_) {
-    case ACT_CF_WRITE: cf_write(); break;
+    case ACT_CF_WRITE:
+        g_ui.cf_overlay = false;
+        ui_spawn_apply(APPLY_POWER, "power settings", "");
+        break;
     case ACT_CF_REVERT: cf_revert(); break;
     default:
         break;

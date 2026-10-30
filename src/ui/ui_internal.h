@@ -263,6 +263,8 @@ void panel_workspace_act(int id);
  * reads keep the current staged value. Callers: TUI start, mode/profile
  * apply, power Apply/Revert. */
 void pw_sync_from_hw(void);
+void pw_recompute_dirty(void); /* dirty = the would-write mask; editor
+                                * core staging calls it after mutations */
 /* Worker-side WRITE half of a POWER apply (see ui_spawn_apply): reads
  * the staged pwv_* values (inputs are gated while busy), performs all
  * writes, ends with hw_refresh_live; result via *fails_out and sum. */
@@ -293,6 +295,12 @@ void editor_corefreq_open(void);
 void editor_corefreq_draw(struct ncplane *n, const rect_t *r);
 void editor_corefreq_key(uint32_t key);
 void editor_corefreq_act(int id);
+int  cf_staged_n(void);        /* cores whose staged ceiling != live */
+void cf_capture_staged(hw_state_t *hw, int ids[HW_CPU_MAX],
+                       int vals[HW_CPU_MAX], int *n_out); /* pre-apply set */
+int  cf_apply_list(hw_state_t *hw, const int ids[HW_CPU_MAX],
+                   const int vals[HW_CPU_MAX], int n, int *fails_out);
+void cf_reset_staging(void);   /* reseed all staging from live (POWER revert) */
 
 void editor_daeboard_open(void);
 void editor_daeboard_draw(struct ncplane *n, const rect_t *r);

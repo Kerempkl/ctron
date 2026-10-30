@@ -1,5 +1,44 @@
 # Changelog
 
+## 2026-10-30 — power honesty: dirty = write-gate mask + CORE LIMITS single-apply
+
+- One truth for "would Apply write this": the new PW_W_* mask is read
+  by pw_dirty (title ●, Apply light, quit guard), by every write gate
+  in pw_apply_writes and by the diff summary (will-write preview +
+  toast). Closes the pre-existing asymmetry where a touched watt
+  triple with stale live PPT reads (0-cache, "(?)" rows) wrote on
+  Enter with no ● and a dim Apply button. Net-zero touched staging now
+  previews as a "PPT S/P/F W" re-assert.
+- The mask gave the asusd WRITE side the -2 guard dirty already had:
+  with unreadable asusd.ron an Apply no longer attempts a takeover
+  write (latent FAILED-toast bug on asusd-less machines).
+- **CORE LIMITS ↔ POWER unification (NEXT.md 19, full form)**: the
+  editor is pure staging that SURVIVES close/open (open seeds only
+  never-touched cores); 'w'/Apply closes the overlay and runs the
+  POWER apply worker — one write door, progress line + toast +
+  read-back verification for per-core ceilings too. Order: global CPU
+  limit first, then per-core (the specific intent wins); POWER
+  'r'/Revert clears the whole pool (watt staging + core staging).
+- Two bugs caught live the same round, both fixed immediately:
+  (1) cf_staged zero-init made the cores mask dirty from app start —
+  the smoke run's Apply attempted 0 MHz writes the kernel clamped to
+  the range minimum (all ceilings manually restored; fix: 0 = never
+  staged is not a pending write); (2) stale-baseline echo — the
+  global write updates hw->cpu_mhz_core, so baseline-seeded per-core
+  staging looked like an explicit edit and echoed the old ceiling back
+  (combo test: global 2200 + CCD1 2000 left CCD2 at the stale 2401);
+  fix: the per-core write set is captured BEFORE any write runs.
+- Live-verified on FA608PP (real writes, everything restored): SPL
+  stage lights ● + "will write:" with stale PPT reads; per-core
+  stage → apply → exact read-back (quiet-clamped case included) →
+  restore; global+CCD1 order proof stable across seconds. External
+  profile churn (Quiet↔Performance↔Balanced) rode along all evening —
+  honest reads tracked it throughout.
+- HELP/hints/status lines updated (w apply · staged cores ride Apply);
+  smoke gained the staged-core-survives-close assertion. The FAN
+  editor's sync 'w' stays by design (apply-worker rule). 0 warnings,
+  make test, full tuitest.
+
 ## 2026-10-30 — telem numbers era + csv + POWER readability (v0.9.0)
 
 - **Numbers-only telemetry** ('t'): charts removed — grid value rows

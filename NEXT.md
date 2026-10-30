@@ -59,20 +59,23 @@ Kullanıcı sürüm numaralandırmasını agent'a devretti. Şema: semver.
    dokümante edilen toolchain). Bu makinede nix YOK → derleme
    doğrulaması FA507NVR'da (Arcioth): `nix build`, `nix develop`
    içinde `make`, ilk koşuda `flake.lock` üretilip commit edilmeli.
-19. **CORE LIMITS ↔ POWER Apply birliği (10-30 POWER okunabilirlik
-    turundan bilinçli erteleme — kullanıcı kararı):** bugün 'c' editörü
-    'w' ile SENKRON yazar, POWER Apply ise global CPU limitini tüm
-    çekirdeklere yazar → per-core staging ezilir (editör durum satırı
-    uyarır: "POWER all-apply overwrites per-core"). İki biçim: hafif
-    (Apply, staged per-core değerleri global'den sonra yazar; 'w' kalır)
-    / tam (tek staging havuzu, 'w' kalkar, her şey işçi üzerinden).
-    Yazma yolu değişikliği — kendi turunda canlı yazma testiyle.
-    Aynı turda gözlenen akraba asimetri (önceki durum, hâlâ açık):
-    `pw_dirty` yalnız bilinen-farkı sayar ama PPT yazma kapısı
-    `PW_T_PPT` touched'ı da kabul eder → live PPT bayatken (0 cache)
-    Enter watt'ları yazar fakat başlıkta ● yanmaz, Apply düğmesi sönük
-    kalır (10-30'da will-write önizlemesi pw_dirty yerine doğrudan özet
-    kapısına bağlandı — önizleme dürüst; ●/düğme aynı).
+19. **[KAPANDI 10-30 — aynı günün dürüstlük turu]** CORE LIMITS ↔
+    POWER Apply birliği TAM biçimde land etti: editör saf staging
+    (kapanışta yaşıyor), 'w'/Apply = overlay kapat + POWER işçisi —
+    tek yazma kapısı (ilerleme + toast + geri-okuma doğrulaması
+    per-core'a da geldi); sıra global önce → per-core sonra (spesifik
+    kazanır); POWER 'r' tüm havuzu temizler. Birlikte pw_dirty = yazma
+    kapısı maskesi (PW_W_*; ●/Apply ışığı/çıkış guard'ı/önizleme/toast
+    aynı tek gerçeği okur; asusd -2 yazma guard'ı da geldi —
+    ron-okunamayan makinede Apply artık takeover denemiyor). Aynı turda
+    canlı yakalanan iki hata anında kapatıldı: (1) cf_staged
+    sıfır-başlangıç → maske açılışta hep kirliydi (smoke Apply'sı
+    0 MHz yazdı, kernel min'e kelepçeledi — tavanlar elle 5386'ya
+    geri açıldı; fix: 0 = hiç stage'lenmedi, pending yazma değil);
+    (2) bayat-baseline yankısı: global yazı hw->cpu_mhz_core'u
+    güncellediği için eski tohumlu per-core staging "explicit edit"
+    görünüyordu → apply-ÖNCESİ yakalama listesiyle kapatıldı. FAN 'w'
+    senkron EC yazması bilinçli duruyor (apply-worker kuralı).
 
 ## FAZ 2 — Saha & doğrulama borcu (makineli, paralel yürür)
 

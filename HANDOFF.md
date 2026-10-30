@@ -1,6 +1,54 @@
 # Ctron Handoff
 
-Latest session — **2026-10-30 (22nd round, POWER panel readability —
+Latest session — **2026-10-30 (23rd round, power honesty: dirty =
+write-gate mask + CORE LIMITS single-apply — NEXT.md 19 closed)**
+
+**GLM / Kerempkl / FA608PP** — user picked suggestion 2 after the
+v0.9.0 cut; plan approved with the embedded recommendations (full
+unification, live tests = CPU ceilings only). Presentation layer
+untouched; this round was write-path semantics.
+
+- **PW_W_* mask** (panel_workspace.c): pw_dirty, every write gate in
+  pw_apply_writes and pw_diff_summary read one predicate set — a lit
+  ● always means Enter writes. The stale-PPT asymmetry (touched watt
+  triple writes with no ●) is closed; net-zero touched staging
+  previews as a "PPT S/P/F W" re-assert; the asusd write side gained
+  the -2 guard (no takeover attempt with unreadable ron — latent
+  FAILED-toast bug). Mask is re-read per gate so sequential write
+  semantics survive.
+- **CORE LIMITS full unification**: editor = pure staging surviving
+  close/open (open seeds only never-touched cores); 'w'/Apply closes
+  the overlay and spawns the POWER worker (one write door: progress +
+  toast + read-back for per-core ceilings); order global-then-per-core;
+  POWER 'r' clears the whole pool (cf_reset_staging); editor draw
+  recomputes dirty (draw-time rising-edge precedent).
+- **Two live-caught bugs, fixed in-round**: (1) cf_staged zero-init →
+  cores mask dirty from startup — the smoke suite's Apply attempted
+  0 MHz writes the kernel clamped to range-min, locking all ceilings
+  (manually restored to max; fix: 0 = never staged, not pending);
+  (2) stale-baseline echo — ctrl_set_cpu_max_mhz updates
+  hw->cpu_mhz_core on success, so baseline-seeded per-core staging
+  re-diffed as explicit edits and echoed old ceilings over the fresh
+  global value (combo live test: global 2200 + CCD1 2000 left CCD2 at
+  the stale 2401); fix: cf_capture_staged snapshots the write set
+  BEFORE any write, cf_apply_list writes that set.
+- **Live verification** (real writes, all restored): SPL stage lights
+  ● + "will write:" with stale PPT reads; per-core stage → apply →
+  exact read-back (incl. the quiet-clamped 2401−400 case) → restore;
+  global+CCD1 order proof stable across seconds; clean single-q quits.
+  The machine's profile churned externally all evening
+  (Quiet↔Performance↔Balanced — not this session; ctron reads tracked
+  it honestly). Final machine state: Balanced, all ceilings 5386.
+- Test-harness lessons (recorded in memory): notcurses diff rendering
+  never re-emits unchanged cells — byte-needle marks must precede the
+  input that FIRST produces the text, and ● arrives as its own hunk
+  (assert via screen dump); smoke Session's wait_for(since=None) only
+  watches NEW bytes.
+- Verified: 0 warnings, make test, full tuitest (new assertion:
+  staged core survives close → POWER preview). FAN 'w' sync write
+  stays by design. Rides the post-v0.9.0 stack; next cut candidate.
+
+Before that **2026-10-30 (22nd round, POWER panel readability —
 groups + scroll viewport + row notes + pre-apply preview)**
 
 **GLM / Kerempkl / FA608PP** — user asked to make the POWER panel more

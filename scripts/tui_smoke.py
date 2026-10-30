@@ -284,13 +284,23 @@ def flow_corefreq_overlay():
             else:
                 fail("corefreq", "CCD header but no core cells")
                 return
+        # stage +100 on the selected core, then close WITHOUT writing:
+        # the staging must survive and show up in POWER's will-write
+        # preview (single apply pool); POWER 'r' then reverts the pool
         s.key(b"j")                # move selection
         s.key(b"l")                # stage +100 (no write)
-        s.key(b"l")
-        s.key(b"r")                # revert staging
         m = s.mark()
-        s.key(b"\x1b")             # ESC closes
-        time.sleep(0.3)
+        s.key(b"\x1b")             # ESC closes (staging kept)
+        time.sleep(0.4)
+        if s.wait_for(b"cores: 1 staged", since=m, timeout=6.0):
+            ok("corefreq", "staged core survives close -> POWER preview")
+            s.key(b"r")            # POWER revert: one pool, one revert
+            time.sleep(0.3)
+        elif s.wait_for(b"capped", since=m, timeout=1.0):
+            fail("corefreq", "staged core not shown in POWER preview")
+            return
+        # (no cpufreq policies -> no cells, staging silently skipped)
+        m = s.mark()
         if not s.alive():
             fail("corefreq", "process died in the overlay")
             return

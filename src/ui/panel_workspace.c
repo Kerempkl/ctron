@@ -204,23 +204,68 @@ static int pw_preset_match(int spl, int sppt, int fppt)
     return -1;
 }
 
-static void pw_recompute_dirty(void)
+/* ---- the single "would Apply write this?" truth ------------------------
+ * pw_dirty, the write gates in pw_apply_writes and the diff summary
+ * all read these bits: a lit ● always means Enter writes, and vice
+ * versa. (Before this, dirty counted only known-diffs while the PPT
+ * write gate also honoured PW_T_PPT — with stale live reads (PPT 0
+ * cache) Enter wrote watts with no ● and a dim Apply button.) */
+enum {
+    PW_W_PROFILE = 1 << 0,
+    PW_W_AC      = 1 << 1,
+    PW_W_BAT     = 1 << 2,
+    PW_W_EPP     = 1 << 3,
+    PW_W_PPT_OFF = 1 << 4,
+    PW_W_PPT     = 1 << 5,
+    PW_W_GPU     = 1 << 6,
+    PW_W_OD      = 1 << 7,
+    PW_W_BOOST   = 1 << 8,
+    PW_W_CPUFREQ = 1 << 9,
+    PW_W_CORES   = 1 << 10,   /* per-core staged ceilings ('c' editor) */
+};
+
+static unsigned pw_write_mask(const hw_state_t *hw)
 {
-    const hw_state_t *hw = g_ui.hw;
-    g_ui.pw_dirty =
-        g_ui.pwv_profile != (int)hw->profile ||
-        (hw->asusd_ac != -2 && g_ui.pwv_asusd_ac != hw->asusd_ac) ||
-        (hw->asusd_bat != -2 && g_ui.pwv_asusd_bat != hw->asusd_bat) ||
-        g_ui.pwv_epp != (int)hw->epp ||
-        (hw->ppt_spl > 0 && g_ui.pwv_spl != hw->ppt_spl) ||
-        (hw->ppt_sppt > 0 && g_ui.pwv_sppt != hw->ppt_sppt) ||
-        (hw->ppt_fppt > 0 && g_ui.pwv_fppt != hw->ppt_fppt) ||
-        g_ui.pwv_ppt_off != hw->ppt_off ||
-        g_ui.pwv_gpuclock != hw->gpu_clock_lock ||
-        g_ui.pwv_panel_od != hw->panel_od ||
-        g_ui.pwv_cpuboost != hw->cpu_boost ||
-        ((g_ui.pw_touched & PW_T_CPUFREQ) &&
-         hw->cpu_mhz_limit > 0 && g_ui.pwv_mhz != hw->cpu_mhz_limit);
+    unsigned m = 0;
+    if (g_ui.pwv_profile != (int)hw->profile)
+        m |= PW_W_PROFILE;
+    /* -2 = asusd.ron unreadable: nothing to compare against, and the
+     * write side must not attempt a takeover write either */
+    if (hw->asusd_ac != -2 && g_ui.pwv_asusd_ac != hw->asusd_ac)
+        m |= PW_W_AC;
+    if (hw->asusd_bat != -2 && g_ui.pwv_asusd_bat != hw->asusd_bat)
+        m |= PW_W_BAT;
+    if (g_ui.pwv_epp != (int)hw->epp)
+        m |= PW_W_EPP;
+    if (g_ui.pwv_ppt_off != hw->ppt_off)
+        m |= PW_W_PPT_OFF;
+    if (!g_ui.pwv_ppt_off &&
+        ((g_ui.pw_touched & PW_T_PPT) ||
+         (hw->ppt_spl > 0 && g_ui.pwv_spl != hw->ppt_spl) ||
+         (hw->ppt_sppt > 0 && g_ui.pwv_sppt != hw->ppt_sppt) ||
+         (hw->ppt_fppt > 0 && g_ui.pwv_fppt != hw->ppt_fppt)))
+        m |= PW_W_PPT;
+    if (g_ui.pwv_gpuclock != hw->gpu_clock_lock)
+        m |= PW_W_GPU;
+    if (g_ui.pwv_panel_od != hw->panel_od)
+        m |= PW_W_OD;
+    if (g_ui.pwv_cpuboost != hw->cpu_boost)
+        m |= PW_W_BOOST;
+    /* exactly the write gate: touched (the live limit oscillates under
+     * amd-pstate, so a diff alone is not a write request) plus the
+     * unknown-live exclusion from ctrl_set_cpu_max_mhz */
+    if ((g_ui.pw_touched & PW_T_CPUFREQ) &&
+        g_ui.pwv_mhz > 0 && g_ui.pwv_mhz != hw->cpu_mhz_limit &&
+        !(hw->cpu_mhz_limit <= 0 && g_ui.pwv_mhz >= hw->cpu_mhz_max))
+        m |= PW_W_CPUFREQ;
+    if (cf_staged_n() > 0)
+        m |= PW_W_CORES;
+    return m;
+}
+
+void pw_recompute_dirty(void)
+{
+    g_ui.pw_dirty = pw_write_mask(g_ui.hw) != 0;
 }
 
 void pw_sync_from_hw(void)
@@ -398,47 +443,60 @@ static const char *pw_asusd_name(int v)
 static void pw_diff_summary(char *out, size_t n)
 {
     const hw_state_t *hw = g_ui.hw;
+    unsigned wm = pw_write_mask(hw);
     char e[48];
     int off = 0;
     out[0] = '\0';
 
-    if (g_ui.pwv_profile != (int)hw->profile) {
+    if (wm & PW_W_PROFILE) {
         snprintf(e, sizeof(e), "profile %s",
                  hw_profile_name((hw_profile_t)g_ui.pwv_profile));
         pw_app(out, n, &off, e);
     }
-    if (g_ui.pwv_asusd_ac != hw->asusd_ac) {
+    if (wm & PW_W_AC) {
         snprintf(e, sizeof(e), "AC auto %s", pw_asusd_name(g_ui.pwv_asusd_ac));
         pw_app(out, n, &off, e);
     }
-    if (g_ui.pwv_asusd_bat != hw->asusd_bat) {
+    if (wm & PW_W_BAT) {
         snprintf(e, sizeof(e), "bat auto %s", pw_asusd_name(g_ui.pwv_asusd_bat));
         pw_app(out, n, &off, e);
     }
-    if (g_ui.pwv_epp != (int)hw->epp) {
+    if (wm & PW_W_EPP) {
         snprintf(e, sizeof(e), "EPP %s", hw_epp_name((hw_epp_t)g_ui.pwv_epp));
         pw_app(out, n, &off, e);
     }
-    if (g_ui.pwv_ppt_off != hw->ppt_off) {
+    if (wm & PW_W_PPT_OFF) {
         pw_app(out, n, &off, g_ui.pwv_ppt_off ? "PPT limits off" : "PPT limits on");
-    } else if (!g_ui.pwv_ppt_off && (g_ui.pw_touched & PW_T_PPT)) {
+    } else if (wm & PW_W_PPT) {
+        int watts = 0;
         if (hw->ppt_spl > 0 && g_ui.pwv_spl != hw->ppt_spl) {
             snprintf(e, sizeof(e), "SPL %d→%d W", hw->ppt_spl, g_ui.pwv_spl);
             pw_app(out, n, &off, e);
+            watts++;
         } else if (hw->ppt_spl <= 0 && g_ui.pwv_spl > 0) {
             snprintf(e, sizeof(e), "SPL →%d W", g_ui.pwv_spl);
             pw_app(out, n, &off, e);
+            watts++;
         }
         if (hw->ppt_sppt > 0 && g_ui.pwv_sppt != hw->ppt_sppt) {
             snprintf(e, sizeof(e), "SPPT %d→%d W", hw->ppt_sppt, g_ui.pwv_sppt);
             pw_app(out, n, &off, e);
+            watts++;
         }
         if (hw->ppt_fppt > 0 && g_ui.pwv_fppt != hw->ppt_fppt) {
             snprintf(e, sizeof(e), "FPPT %d→%d W", hw->ppt_fppt, g_ui.pwv_fppt);
             pw_app(out, n, &off, e);
+            watts++;
+        }
+        /* touched with no per-watt diff (net-zero staging, or live
+         * reads stale): Apply re-asserts the whole triple — say so */
+        if (!watts) {
+            snprintf(e, sizeof(e), "PPT %d/%d/%d W",
+                     g_ui.pwv_spl, g_ui.pwv_sppt, g_ui.pwv_fppt);
+            pw_app(out, n, &off, e);
         }
     }
-    if (g_ui.pwv_gpuclock != hw->gpu_clock_lock) {
+    if (wm & PW_W_GPU) {
         if (g_ui.pwv_gpuclock > 0 && hw->gpu_clock_lock > 0)
             snprintf(e, sizeof(e), "GPU %d→%d MHz", hw->gpu_clock_lock,
                      g_ui.pwv_gpuclock);
@@ -448,13 +506,19 @@ static void pw_diff_summary(char *out, size_t n)
             snprintf(e, sizeof(e), "GPU lock reset");
         pw_app(out, n, &off, e);
     }
-    if (g_ui.pwv_panel_od != hw->panel_od)
+    if (wm & PW_W_OD)
         pw_app(out, n, &off, g_ui.pwv_panel_od ? "panel OD on" : "panel OD off");
-    if (g_ui.pwv_cpuboost != hw->cpu_boost)
+    if (wm & PW_W_BOOST)
         pw_app(out, n, &off, g_ui.pwv_cpuboost ? "CPU boost on" : "CPU boost off");
-    if ((g_ui.pw_touched & PW_T_CPUFREQ) &&
-        hw->cpu_mhz_limit > 0 && g_ui.pwv_mhz != hw->cpu_mhz_limit) {
-        snprintf(e, sizeof(e), "CPU %d→%d MHz", hw->cpu_mhz_limit, g_ui.pwv_mhz);
+    if (wm & PW_W_CPUFREQ) {
+        if (hw->cpu_mhz_limit > 0)
+            snprintf(e, sizeof(e), "CPU %d→%d MHz", hw->cpu_mhz_limit, g_ui.pwv_mhz);
+        else
+            snprintf(e, sizeof(e), "CPU →%d MHz", g_ui.pwv_mhz);
+        pw_app(out, n, &off, e);
+    }
+    if (wm & PW_W_CORES) {
+        snprintf(e, sizeof(e), "cores: %d staged", cf_staged_n());
         pw_app(out, n, &off, e);
     }
 }
@@ -473,9 +537,11 @@ void pw_apply_writes(hw_state_t *hw, int *fails_out, char *sum, size_t sumn)
     pw_diff_summary(sum, sumn);
     ut_progress("power: applying");
 
+    /* the mask is re-read at every gate so the sequential semantics
+     * survive (a write updates hw, the next gate sees the new state) */
     /* profile first: it can move the EPP too, and an explicitly staged
      * EPP must win over the profile-implied one */
-    if (g_ui.pwv_profile != (int)hw->profile) {
+    if (pw_write_mask(hw) & PW_W_PROFILE) {
         if (ctrl_set_profile(hw, (hw_profile_t)g_ui.pwv_profile) != 0)
             fails++;
         /* warn at the moment of action: with the takeover on, asusd
@@ -488,11 +554,11 @@ void pw_apply_writes(hw_state_t *hw, int *fails_out, char *sum, size_t sumn)
             strncat(sum, note, sumn - strlen(sum) - 1);
         }
     }
-    if (g_ui.pwv_epp != (int)hw->epp) {
+    if (pw_write_mask(hw) & PW_W_EPP) {
         if (ctrl_set_epp(hw, (hw_epp_t)g_ui.pwv_epp) != 0)
             fails++;
     }
-    if (g_ui.pwv_ppt_off != hw->ppt_off) {
+    if (pw_write_mask(hw) & PW_W_PPT_OFF) {
         if (g_ui.pwv_ppt_off) {
             if (ctrl_ppt_off(hw) != 0)
                 fails++;
@@ -501,17 +567,13 @@ void pw_apply_writes(hw_state_t *hw, int *fails_out, char *sum, size_t sumn)
                 fails++;
         }
     }
-    /* the watt triple only when touched or known-different — a stale
-     * nb-wmi read (0 W) must not turn defaults into writes */
-    if (!g_ui.pwv_ppt_off &&
-        ((g_ui.pw_touched & PW_T_PPT) ||
-         (hw->ppt_spl > 0 && g_ui.pwv_spl != hw->ppt_spl) ||
-         (hw->ppt_sppt > 0 && g_ui.pwv_sppt != hw->ppt_sppt) ||
-         (hw->ppt_fppt > 0 && g_ui.pwv_fppt != hw->ppt_fppt))) {
+    /* the watt triple: touched or known-different — a stale nb-wmi
+     * read (0 W) must not turn defaults into writes (mask comment) */
+    if (pw_write_mask(hw) & PW_W_PPT) {
         if (ctrl_set_ppt(hw, g_ui.pwv_spl, g_ui.pwv_sppt, g_ui.pwv_fppt) != 0)
             fails++;
     }
-    if (g_ui.pwv_gpuclock != hw->gpu_clock_lock) {
+    if (pw_write_mask(hw) & PW_W_GPU) {
         if (g_ui.pwv_gpuclock > 0) {
             if (ctrl_gpu_clock_lock(hw, g_ui.pwv_gpuclock) != 0)
                 fails++;
@@ -519,31 +581,47 @@ void pw_apply_writes(hw_state_t *hw, int *fails_out, char *sum, size_t sumn)
             fails++;
         }
     }
-    if (g_ui.pwv_panel_od != hw->panel_od) {
+    if (pw_write_mask(hw) & PW_W_OD) {
         if (ctrl_set_panel_od(hw, g_ui.pwv_panel_od) != 0)
             fails++;
     }
-    if (g_ui.pwv_cpuboost != hw->cpu_boost) {
+    if (pw_write_mask(hw) & PW_W_BOOST) {
         if (ctrl_set_cpu_boost(hw, g_ui.pwv_cpuboost) != 0)
             fails++;
     }
+    /* capture the per-core write set BEFORE the global write mutates
+     * hw->cpu_mhz_core — after it, a stale-baseline staging would look
+     * like an explicit edit and echo the old ceiling back */
+    int cf_ids[HW_CPU_MAX], cf_vals[HW_CPU_MAX], cf_n = 0;
+    cf_capture_staged(hw, cf_ids, cf_vals, &cf_n);
     /* the CPU clock limit only when the user actually staged it: the
      * live limit oscillates on its own under load (amd-pstate
      * renegotiates per-core ceilings), so a staged-vs-live difference
      * without a touch is NOT an apply request — writing it would fight
      * the kernel and fail its own verification mid-load */
-    if ((g_ui.pw_touched & PW_T_CPUFREQ) &&
-        g_ui.pwv_mhz > 0 && g_ui.pwv_mhz != hw->cpu_mhz_limit &&
-        !(hw->cpu_mhz_limit <= 0 && g_ui.pwv_mhz >= hw->cpu_mhz_max)) {
+    if (pw_write_mask(hw) & PW_W_CPUFREQ) {
         if (ctrl_set_cpu_max_mhz(hw, g_ui.pwv_mhz) != 0)
             fails++;
     }
+    /* per-core staged ceilings AFTER the global limit: the specific
+     * intent wins over the blanket one. Gated on the CAPTURED set (the
+     * mask re-read after a global write would see stale-baseline
+     * echoes as diffs) */
+    if (cf_n > 0) {
+        ut_progress("core limits: writing");
+        int cfails = 0;
+        cf_apply_list(hw, cf_ids, cf_vals, cf_n, &cfails);
+        fails += cfails;
+    }
 
     /* asusd takeover LAST: it re-asserts the daemon's own profile
-     * state, so every other write must already be done */
-    if (g_ui.pwv_asusd_ac != hw->asusd_ac || g_ui.pwv_asusd_bat != hw->asusd_bat) {
-        int ac = g_ui.pwv_asusd_ac != hw->asusd_ac ? g_ui.pwv_asusd_ac : -2;
-        int bat = g_ui.pwv_asusd_bat != hw->asusd_bat ? g_ui.pwv_asusd_bat : -2;
+     * state, so every other write must already be done. -2 = the ron
+     * side is unreadable — no takeover attempt for that side */
+    if (pw_write_mask(hw) & (PW_W_AC | PW_W_BAT)) {
+        int ac = (hw->asusd_ac != -2 && g_ui.pwv_asusd_ac != hw->asusd_ac)
+                     ? g_ui.pwv_asusd_ac : -2;
+        int bat = (hw->asusd_bat != -2 && g_ui.pwv_asusd_bat != hw->asusd_bat)
+                      ? g_ui.pwv_asusd_bat : -2;
         if (ctrl_set_asusd_auto(hw, ac, bat) != 0)
             fails++;
     }
@@ -1114,8 +1192,8 @@ static void draw_help(struct ncplane *n, const rect_t *r)
         "CORE LIMITS",
         "  j k h l      select a core · step its ceiling ±100 MHz",
         "  t a o        exact value · value to all cores · back to max",
-        "  w r          write changed cores (verified) · revert staging",
-        "  Esc/q        close (staged values stay in memory)",
+        "  w r          apply (POWER pool: global first, per-core after) · revert",
+        "  Esc/q        close (staged cores ride the next POWER Apply)",
         "",
         "FAN EDITOR",
         "  c g          switch cpu/gpu curve",
@@ -1246,7 +1324,10 @@ void panel_workspace_key(uint32_t key)
         case 'w': case 'W':
             pw_apply();
             return;
-        case 'r': case 'R': pw_sync_from_hw(); return; /* revert staged */
+        case 'r': case 'R':  /* revert staged: one pool, one revert */
+            pw_sync_from_hw();
+            cf_reset_staging();
+            return;
         case 'c': case 'C': editor_corefreq_open(); return;
         case 't': /* lowercase only: 'T' is the global telemetry key */
             if (pw_row_numeric(g_ui.pw_sel)) {
@@ -1335,7 +1416,10 @@ void panel_workspace_act(int id)
     }
     switch (id) {
     case ACT_WS_PW_APPLY: pw_apply(); return;
-    case ACT_WS_PW_REVERT: pw_sync_from_hw(); return;
+    case ACT_WS_PW_REVERT:
+        pw_sync_from_hw();
+        cf_reset_staging();
+        return;
     case ACT_WS_PW_CORES: editor_corefreq_open(); return;
     default:
         break;
