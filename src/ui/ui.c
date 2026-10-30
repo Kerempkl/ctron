@@ -922,7 +922,14 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
     case FOC_PROFILES:  panel_profiles_key(key); break;
     case FOC_CONTROLS:  panel_controls_key(key); break;
     case FOC_WORKSPACE: panel_workspace_key(key); break;
-    default: break; /* telemetry: nothing to type */
+    case FOC_TELEM:
+        /* the strip has no rows to walk; Enter/Space opens the
+         * fullscreen view — same as 't', completing the 4-then-act
+         * story the other focused panels have */
+        if (key == NCKEY_ENTER || key == '\r' || key == '\n' || key == ' ')
+            g_ui.telem_full = true;
+        break;
+    default: break;
     }
 }
 

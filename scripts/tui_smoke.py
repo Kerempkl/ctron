@@ -589,6 +589,16 @@ def flow_telem_full():
         ok("telem_full", "'t' opens at startup (no editor owns it)")
         s.key(b"t")                # close
         time.sleep(0.4)
+        # 4 (focus the LIVE strip) + Enter opens the fullscreen view too
+        m = s.mark()
+        s.key(b"4")
+        s.key(b"\r")
+        if not s.wait_for(b"TELEMETRY", since=m, timeout=6.0):
+            fail("telem_full", "4 + Enter does not open TELEMETRY")
+            return
+        ok("telem_full", "4 + Enter opens from the LIVE-strip focus")
+        s.key(b"t")                # close
+        time.sleep(0.4)
         # workspace FOCUSED in the default FAN view: lowercase 't' is
         # the fan editor's exact-value key — the settled keymap must win
         s.key(b"3")

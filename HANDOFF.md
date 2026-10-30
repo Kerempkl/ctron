@@ -40,6 +40,12 @@ row-order/index change, no key-model change.
   visible, ▲), staged dump ("will write: SPL →50 W" live), 't' prompt
   with the note line; docs/tui-power.png re-shot (same harness).
   Rides the v0.9.0 candidate stack; no bump, cut stays with the user.
+- Same-session follow-up (user ask, own commit): focusing the LIVE
+  strip (4) then Enter/Space now opens the fullscreen telemetry —
+  those keys were dead on the strip's focus case; hint updated to
+  "Enter/t telem"; smoke telem_full asserts 4+Enter. Debugging note:
+  the first dump "failure" was the one-off dumper's shell quoting
+  (literal "\r"), not the app — space dump + real-CR smoke both open.
 
 Before that **2026-10-30 (21st round, README refresh — stale
 screenshots re-shot + flag-list csv fix)**

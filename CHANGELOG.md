@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-10-30 — LIVE strip: 4-focus + Enter/Space opens fullscreen telemetry
+
+- User ask: focusing the telemetry strip (4) left Enter/Space dead
+  ("telemetry: nothing to type"). They now open the fullscreen 't'
+  view — the strip's own open action, completing the 4-then-act story
+  the other focused panels have. Idle hint updated: "Enter/t telem".
+- Smoke: telem_full flow asserts 4 + Enter opens the overlay.
+- Verified: 0 warnings, make test, full tuitest, text dump of
+  4 + Space opening the grid (first attempt "failed" only because the
+  one-off dumper's shell quoting sent a literal "\r" — the app was
+  fine; space and the real-CR smoke path both open).
+
 ## 2026-10-30 — POWER panel readability: groups + scroll viewport + row notes + pre-apply preview
 
 - Presentation-only round (no write path touched): the flat 13-row list
