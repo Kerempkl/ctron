@@ -1,6 +1,53 @@
 # Ctron Handoff
 
-Latest session — **2026-10-29 (19th round, per-core ceilings display
+Latest session — **2026-10-30 (20th round, telemetry assessment →
+series fill + PSI + csv enrichment, all landed)**
+
+**GLM / Kerempkl / FA608PP** — user asked for an assessment of
+what telemetry could still do ("telemetry kısmı ile neler
+yapabileceğimizi değerlendirirmisin"), then said do the doable
+ones now ("şuan yapabileceklerini yaparmısın"). The three
+doable-now items from the assessment landed in one round; parked
+stay: longer ring window (marginal — 's' since-reset covers long
+runs), per-core measured watts (root-gated, rapl_probe validation
+still the user's call), smartctl (root), and the closed doors
+(no new sections — grid is 4×2 full; no new chart types — the
+numbers-only decision stands; no CPU/iGPU power split — disproved
+10-29).
+
+- **8 new series (22 → 30)**: CPU `avg` (mean core util; pure
+  hw_core_avg_util rounds to nearest %, unknown cores skipped),
+  CPU/RAM/STORAGE `psi` (see below), RAM `temp` (hottest spd5118
+  module), RAM `swap` (SwapTotal−SwapFree), STORAGE `temp`
+  (hottest NVMe sensor incl. temp2/3), iGPU `util`
+  (gpu_busy_percent — desc spells out "utilisation, NOT power",
+  the u32@28 lesson stays visible where the number is shown).
+  CD_CPU rows APPENDED after busiest so existing grid-row order is
+  unchanged (grid@100x30 still shows temp/clock/load/APU PPT).
+- **PSI**: /proc/pressure/{cpu,memory,io} some avg10 — rootless,
+  CONFIG_PSI-gated (absent kernel = honest --). Live values on
+  this desktop: CPU/mem 0.00 %, IO ~3.2 % (real signal). Pure
+  hw_parse_psi (+5 checks); U_PSI unit prints %.2f (sub-1 % is
+  the interesting range). No zone thresholds — the number IS the
+  signal.
+- **csv 15 → 22** columns (apu_ppt_mw, mem_used_mb, swap_used_mb,
+  disk_rd/wr_bs, net_rx/tx_bs): rates mirror the TUI delta rule
+  (first tick empty, reset = unknown tick, monotonic dt). Guard
+  live-tested: old 15-col file refused rc 1. Live run: net
+  rx/tx real values from row 2, APU PPT 43-57 W live.
+- Docs: HARDWARE.md EN+TR sensor map gained the PSI bullet (+
+  hottest/avg derivation notes in CPU/RAM/Storage/iGPU bullets),
+  README telemetry enumeration updated (incl. busiest/avg fix),
+  docs/tui-telem.png re-shot (grid now shows psi rows).
+- Verified: 0 warnings, make test (+9 checks: 5 psi parse, 4
+  avg-util), full tuitest, text dumps CPU/RAM/STORAGE/iGPU detail
+  at 160×50 + CPU at 100×30 (packed keeps the cores table, clips
+  legend — by design), grid dump at 160×50, live csv + guard,
+  install in the same breath.
+- Stack note: this rides the v0.9.0 candidate stack; version cut
+  stays with the user.
+
+Before that **2026-10-29 (19th round, per-core ceilings display
 fixed: block bar → numeric summary)**
 
 **GLM / Kerempkl / FA608PP** — user asked what the gauge left of

@@ -97,18 +97,20 @@ are listed in the HELP view and the footer while you use them.
 `t` opens a **fullscreen read-only telemetry screen**: eight live
 sections (CPU / GPU / iGPU / RAM / storage / network / fans / power),
 each showing live numbers with zone colouring — CPU & GPU
-temperatures, clocks, load, APU package power, fan RPMs, dGPU
-power/utilisation/VRAM, iGPU temp/clock/power, RAM use + module
-temps, NVMe temps + disk I/O, per-mount disk usage, per-interface
-network rx/tx, wifi signal quality, battery draw/charge.
+temperatures, clocks, load, mean + busiest core utilisation,
+CPU/memory/IO pressure (PSI stall %), APU package power, fan RPMs,
+dGPU power/utilisation/VRAM, iGPU temp/clock/power/activity,
+RAM use + swap + module temps, NVMe temps + disk I/O, per-mount
+disk usage, per-interface network rx/tx, wifi signal quality,
+battery draw/charge.
 `j`/`k` walk the section grid and `Enter` (or `1`–`8`) opens a
 section's **detail page**: a numeric now/min/avg/max table over the
 ~60 s window plus info lines from a fresh live snapshot (PPT/EPP,
 per-core ceilings, GPU pstate & throttle reasons, VRAM/clock lock,
 battery health, load 1/5/15 min …); the CPU page adds a per-core
 `now` grid (util% + live clock per physical core, SMT merged) plus
-a `busiest` series — the only per-core stat kept over time, so the
-grid stays a snapshot instead of a wall of numbers; `h`/`l` flips
+`busiest`/`avg` series — the only per-core stats kept over time, so
+the grid stays a snapshot instead of a wall of numbers; `h`/`l` flips
 sections, `esc` backs out to the grid, `r` (or the footer button)
 clears every window and the lifetime stats — a fresh measurement
 then starts from zero history — and `s` flips the MIN/AVG/MAX

@@ -17,7 +17,9 @@
     X(TS_CPU_TEMP, "cpu_temp", 0, 100)                                     \
     X(TS_CPU_MHZ, "cpu_mhz", TELEM_AUTO, TELEM_AUTO)                       \
     X(TS_CPU_LOAD, "cpu_load", TELEM_AUTO, TELEM_AUTO)                     \
+    X(TS_CPU_AVG_UTIL, "cpu_avg_util", 0, 100)                             \
     X(TS_BUSIEST_UTIL, "busiest_util", 0, 100)                             \
+    X(TS_PSI_CPU, "psi_cpu", 0, 100)                                       \
     X(TS_GPU_TEMP, "gpu_temp", 0, 100)                                     \
     X(TS_GPU_MHZ, "gpu_mhz", TELEM_AUTO, TELEM_AUTO)                       \
     X(TS_GPU_MW, "gpu_mw", TELEM_AUTO, TELEM_AUTO)                         \
@@ -25,11 +27,17 @@
     X(TS_IGPU_TEMP, "igpu_temp", 0, 100)                                   \
     X(TS_IGPU_MHZ, "igpu_mhz", TELEM_AUTO, TELEM_AUTO)                     \
     X(TS_IGPU_MW, "igpu_mw", TELEM_AUTO, TELEM_AUTO)                       \
+    X(TS_IGPU_UTIL, "igpu_util", 0, 100)                                   \
     X(TS_FAN_CPU, "fan_cpu_rpm", TELEM_AUTO, TELEM_AUTO)                   \
     X(TS_FAN_GPU, "fan_gpu_rpm", TELEM_AUTO, TELEM_AUTO)                   \
     X(TS_MEM_USED, "mem_used_mb", TELEM_AUTO, TELEM_AUTO)                  \
+    X(TS_SWAP_USED, "swap_used_mb", TELEM_AUTO, TELEM_AUTO)                \
+    X(TS_RAM_TEMP, "ram_temp", 0, 100)                                     \
+    X(TS_PSI_MEM, "psi_mem", 0, 100)                                       \
     X(TS_DISK_RD, "disk_rd_bs", TELEM_AUTO, TELEM_AUTO)                    \
     X(TS_DISK_WR, "disk_wr_bs", TELEM_AUTO, TELEM_AUTO)                    \
+    X(TS_NVME_TEMP, "nvme_temp", 0, 100)                                   \
+    X(TS_PSI_IO, "psi_io", 0, 100)                                         \
     X(TS_BAT_MW, "bat_mw", TELEM_AUTO, TELEM_AUTO)                         \
     X(TS_BAT_PCT, "bat_pct", 0, 100)                                       \
     X(TS_PD_MW, "pd_in_mw", TELEM_AUTO, TELEM_AUTO)                        \

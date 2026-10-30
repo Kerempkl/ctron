@@ -66,6 +66,13 @@ int hw_parse_loadavg(const char *s, double *l1, double *l5, double *l15);
  * total = busy+idle+iowait). Returns highest cpu id seen + 1. Pure. */
 int hw_parse_cpu_stat(const char *s, long long *busy, long long *total,
                       int max_cpu);
+/* /proc/pressure/{cpu,memory,io}: the "some" line's avg10 — the % of
+ * the last 10 s in which at least one task was stalled on that
+ * resource. -1 out on any parse failure. Pure. */
+int hw_parse_psi(const char *s, double *some_avg10);
+/* mean utilisation over the valid (>= 0) entries, rounded to nearest
+ * %; -1 when none are valid. Pure. */
+int hw_core_avg_util(const int *util, int n);
 
 /* pstate/throttle-reason labels, bit i = 1u<<i in hw->gpu_throttle,
  * in the same order as the nvidia-smi query field list */
@@ -199,6 +206,8 @@ typedef struct hw_state {
     /* telemetry extras (refresh_fast reads; -1/0 = unknown) */
     double load1;                              /* /proc/loadavg 1-min */
     double load5, load15;                      /* 5/15-min, -1 unknown */
+    double psi_cpu, psi_mem, psi_io;           /* /proc/pressure "some"
+                                                  avg10 stall %, -1 unknown */
     int mem_total_mb, mem_avail_mb, mem_used_mb;   /* /proc/meminfo */
     int swap_total_mb, swap_used_mb;
     char wifi_if[16];                          /* counted wifi iface, "" none */

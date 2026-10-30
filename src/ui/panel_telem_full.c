@@ -82,7 +82,8 @@ static void bar(char *out, size_t n, int used, int total, int cells)
 
 /* ---- detail-page charts ------------------------------------------------ */
 
-typedef enum { U_TEMP, U_MHZ, U_W, U_PCT, U_LOAD, U_MBPS, U_MB, U_RPM } unit_t;
+typedef enum { U_TEMP, U_MHZ, U_W, U_PCT, U_LOAD, U_MBPS, U_MB, U_RPM,
+               U_PSI } unit_t;
 
 static void fmt_val(char *out, size_t n, unit_t u, double v)
 {
@@ -98,6 +99,9 @@ static void fmt_val(char *out, size_t n, unit_t u, double v)
         case U_MBPS: fmt_bs(out, n, v); break;
         case U_MB:   snprintf(out, n, "%.0f MB", v); break;
         case U_RPM:  snprintf(out, n, "%.0f rpm", v); break;
+        /* pressure sits below 1 % most of the time — the decimals
+         * ARE the signal */
+        case U_PSI:  snprintf(out, n, "%.2f %%", v); break;
         }
     }
 }
@@ -154,6 +158,16 @@ static const chartdef_t CD_CPU[] = {
      * in one ordinary series with the usual window/since stats */
     { "busiest", U_PCT, TS_BUSIEST_UTIL,
      "highest single-core utilisation (busiest thread)", ZN_UTIL, -1, NULL },
+    /* mean beside the max: overall fill vs the hottest core; unknown
+     * cores are skipped, so the priming poll reads -- not 0 */
+    { "avg", U_PCT, TS_CPU_AVG_UTIL,
+     "mean core utilisation (physical cores, SMT merged)", ZN_UTIL, -1, NULL },
+    /* PSI: the stall signal utilisation cannot show — a runqueue full
+     * of IO-waiters reads 0% busy. No invented alarm thresholds: the
+     * number itself is the signal, colour would cry wolf at 1 % */
+    { "psi", U_PSI, TS_PSI_CPU,
+     "% of the last 10 s some task stalled on CPU (psi some)",
+     ZN_NONE, -1, NULL },
 };
 static const chartdef_t CD_GPU[] = {
     { "temp", U_TEMP, TS_GPU_TEMP, "dGPU temperature", ZN_TEMP, -1, NULL },
@@ -172,14 +186,32 @@ static const chartdef_t CD_IGPU[] = {
      "whole-APU package power: CPU + iGPU", ZN_NONE, -1, NULL },
     { "clock", U_MHZ, TS_IGPU_MHZ, "iGPU graphics clock",
       ZN_NONE, -1, NULL },
+    /* gfx ACTIVITY, not watts — the u32@28 confusion lesson of
+     * 2026-10-29 stays spelled out where the value is shown */
+    { "util", U_PCT, TS_IGPU_UTIL,
+     "iGPU activity (gpu_busy_percent) — utilisation, NOT power",
+     ZN_UTIL, -1, NULL },
 };
 static const chartdef_t CD_RAM[] = {
     { "used", U_MB, TS_MEM_USED,
-      "memory in use (total minus available)", ZN_NONE, -1, NULL },
+     "memory in use (total minus available)", ZN_NONE, -1, NULL },
+    /* hottest module: the detail page lists both, a series needs one
+     * number — the hot side is the one worth watching */
+    { "temp", U_TEMP, TS_RAM_TEMP,
+     "hottest RAM module temperature (spd5118)", ZN_TEMP, -1, NULL },
+    { "psi", U_PSI, TS_PSI_MEM,
+     "% of the last 10 s some task stalled on memory (psi some)",
+     ZN_NONE, -1, NULL },
 };
 static const chartdef_t CD_DISK[] = {
     { "read", U_MBPS, TS_DISK_RD, "NVMe read/write throughput (whole disks)",
       ZN_NONE, TS_DISK_WR, "write" },
+    { "temp", U_TEMP, TS_NVME_TEMP,
+     "hottest NVMe sensor across drives (composite + sensors 1/2)",
+     ZN_TEMP, -1, NULL },
+    { "psi", U_PSI, TS_PSI_IO,
+     "% of the last 10 s some task stalled on IO (psi some)",
+     ZN_NONE, -1, NULL },
 };
 static const chartdef_t CD_NET[] = {
     { "rx", U_MBPS, TS_NET_RX, "network rx/tx throughput (counted ifaces)",
@@ -237,6 +269,7 @@ static void fmt_num(char *out, size_t n, unit_t u, double v)
     case U_MBPS: snprintf(out, n, "%.0f", v / 1024.0); break; /* kB/s */
     case U_MB:   snprintf(out, n, "%.0f", v); break;
     case U_RPM:  snprintf(out, n, "%.0f", v); break;
+    case U_PSI:  snprintf(out, n, "%.2f", v); break;
     }
 }
 
@@ -1360,4 +1393,27 @@ void telem_poll(hw_state_t *hw, long now_ms)
     telem_push(TS_NET_RX, rx_bs);
     telem_push(TS_NET_TX, tx_bs);
     telem_push(TS_WIFI_LINK, hw->wifi_link_pct);
+
+    /* hottest-of readings: a series needs one number, the detail pages
+     * list every module/drive beside it */
+    int hot = -1;
+    for (int i = 0; i < hw->ram_temp_n; i++)
+        if (hw->ram_temp[i] > hot)
+            hot = hw->ram_temp[i];
+    telem_push(TS_RAM_TEMP, hot);
+    hot = -1;
+    for (int i = 0; i < hw->nvme_temp_n; i++) {
+        if (hw->nvme_temp[i] > hot)
+            hot = hw->nvme_temp[i];
+        if (hw->nvme_sensor_max[i] > hot)
+            hot = hw->nvme_sensor_max[i];
+    }
+    telem_push(TS_NVME_TEMP, hot);
+
+    telem_push(TS_CPU_AVG_UTIL, hw_core_avg_util(hw->core_util, hw->core_n));
+    telem_push(TS_IGPU_UTIL, hw->igpu_busy);
+    telem_push(TS_SWAP_USED, hw->swap_used_mb);
+    telem_push(TS_PSI_CPU, hw->psi_cpu);
+    telem_push(TS_PSI_MEM, hw->psi_mem);
+    telem_push(TS_PSI_IO, hw->psi_io);
 }

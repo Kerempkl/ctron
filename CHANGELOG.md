@@ -1,5 +1,40 @@
 # Changelog
 
+## 2026-10-30 — telem: series fill (8 new) + PSI + csv 15→22 columns
+
+- Assessment round (user: "şuan yapabileceklerini yaparmısın")
+  landed the three doable-now items in one breath: csv enrichment,
+  series fill for the thin sections, PSI.
+- **New series (22 → 30)**, all riding the established machinery
+  (X-macro row + extractor + CD_ entry, window/since stats, 's',
+  'r', zone colours where thresholds are real):
+  CPU `avg` (mean core utilisation, pure hw_core_avg_util, unknown
+  cores skipped — beside `busiest`, appended so grid rows keep
+  their order), RAM `temp` (hottest spd5118 module; detail lists
+  both), RAM `psi`, STORAGE `temp` (hottest NVMe sensor across
+  drives incl. Sensor 1/2), STORAGE `psi`, iGPU `util`
+  (gpu_busy_percent, labelled ACTIVITY per the u32@28 lesson),
+  CPU `psi`, RAM-section `swap` (meminfo SwapTotal−SwapFree, zram
+  is real swap).
+- **PSI** (`/proc/pressure/{cpu,memory,io}`, some avg10 %, rootless,
+  CONFIG_PSI-gated, absent kernel reads --): the stall signal
+  utilisation cannot show (IO-waiting runqueues read 0 % CPU busy).
+  No invented alarm thresholds — live desktop shows CPU/mem 0.00 %,
+  IO ~3 %. hw_parse_psi pure parser (+5 unit checks); new U_PSI
+  unit prints two decimals (the sub-1 % range IS the signal).
+- **--csv 15 → 22 columns**: apu_ppt_mw, mem_used_mb, swap_used_mb,
+  disk_rd_bs, disk_wr_bs, net_rx_bs, net_tx_bs — the "record a
+  network/disk test and graph it outside" scenario now works.
+  Rates use the same honest delta rule as the TUI sampler (first
+  tick empty, counter reset = unknown tick, monotonic dt); header
+  guard live-tested against an old 15-column file (refused, rc 1).
+- Verified live: CPU detail 160×50 fits 7 series + live block +
+  cores-now table + legend; 100×30 packed keeps the table, clips
+  the legend (as designed); grid boxes carry the new rows; csv run
+  shows rates from row 2 and APU PPT swinging 43-57 W; 0 warnings,
+  make test (+9 checks), full tuitest, tui-telem.png re-shot,
+  install in the same breath.
+
 ## 2026-10-29 — telem: per-core ceilings block bar → numeric summary
 
 - User report: the one-block-per-thread ceiling bar in the CPU

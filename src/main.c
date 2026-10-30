@@ -277,10 +277,18 @@ static void csv_val(char *out, size_t n, int v)
         snprintf(out, n, "%d", v);
 }
 
+static void csv_dval(char *out, size_t n, double v)
+{
+    if (v < 0)
+        out[0] = '\0';
+    else
+        snprintf(out, n, "%.0f", v);
+}
+
 static int cmd_csv(hw_state_t *hw, const char *path)
 {
     /* columns this build writes — the header and the row must agree */
-    enum { CSV_COLS = 15 };
+    enum { CSV_COLS = 22 };
     bool new = ut_path_exists(path) == false;
     int hdr_cols = 0;
     if (!new) {
@@ -316,7 +324,9 @@ static int cmd_csv(hw_state_t *hw, const char *path)
     if (new)
         fprintf(f, "epoch,cpu_temp_c,igpu_temp_c,gpu_temp_c,cpu_mhz,gpu_mhz,"
                    "gpu_util_pct,gpu_mw,fan_cpu_rpm,fan_gpu_rpm,bat_pct,bat_mw,"
-                   "load1,wifi_signal_pct,busiest_util_pct\n");
+                   "load1,wifi_signal_pct,busiest_util_pct,apu_ppt_mw,"
+                   "mem_used_mb,swap_used_mb,disk_rd_bs,disk_wr_bs,"
+                   "net_rx_bs,net_tx_bs\n");
 
     struct sigaction sa = {0};
     sa.sa_handler = watch_stop;
@@ -325,10 +335,49 @@ static int cmd_csv(hw_state_t *hw, const char *path)
 
     fprintf(stderr, "ctron csv — %s (%s) — Ctrl-C stops\n", path,
             new ? "new file" : "appending");
+    /* rate counters: the same delta rule as the TUI sampler — first
+     * tick has no baseline and stays empty, never a spike */
+    long long prev_rd = -1, prev_wr = -1, prev_rx = -1, prev_tx = -1;
+    long prev_ms = -1;
     while (s_watch_run) {
         char t[16], ti[16], tg[16], mc[16], mg[16], gu[16], gw[16],
-             fc[16], fg[16], bp[16], bm[16], l1[16], wl[16], bu[16];
+             fc[16], fg[16], bp[16], bm[16], l1[16], wl[16], bu[16],
+             ap[16], mu[16], su[16], rd[20], wr[20], rx[20], tx[20];
         hw_refresh_fast(hw);
+        struct timespec tsp;
+        clock_gettime(CLOCK_MONOTONIC, &tsp);
+        long now_ms = tsp.tv_sec * 1000L + tsp.tv_nsec / 1000000;
+        double rd_bs = -1, wr_bs = -1, rx_bs = -1, tx_bs = -1;
+        if (prev_ms > 0 && now_ms > prev_ms) {
+            double dt = (double)(now_ms - prev_ms) / 1000.0;
+            long long d;
+            if (hw->disk_rd_sectors >= 0 && prev_rd >= 0) {
+                d = hw->disk_rd_sectors - prev_rd;
+                if (d >= 0)
+                    rd_bs = (double)d * 512.0 / dt;
+            }
+            if (hw->disk_wr_sectors >= 0 && prev_wr >= 0) {
+                d = hw->disk_wr_sectors - prev_wr;
+                if (d >= 0)
+                    wr_bs = (double)d * 512.0 / dt;
+            }
+            if (hw->net_rx_tot >= 0 && prev_rx >= 0) {
+                d = hw->net_rx_tot - prev_rx;
+                if (d >= 0)
+                    rx_bs = (double)d / dt;
+            }
+            if (hw->net_tx_tot >= 0 && prev_tx >= 0) {
+                d = hw->net_tx_tot - prev_tx;
+                if (d >= 0)
+                    tx_bs = (double)d / dt;
+            }
+        }
+        prev_rd = hw->disk_rd_sectors;
+        prev_wr = hw->disk_wr_sectors;
+        prev_rx = hw->net_rx_tot;
+        prev_tx = hw->net_tx_tot;
+        prev_ms = now_ms;
+
         csv_val(t, sizeof t, hw->cpu_temp);
         csv_val(ti, sizeof ti, hw->igpu_temp);
         csv_val(tg, sizeof tg, hw->gpu_temp);
@@ -346,9 +395,17 @@ static int cmd_csv(hw_state_t *hw, const char *path)
             l1[0] = '\0';
         csv_val(wl, sizeof wl, hw->wifi_link_pct);
         csv_val(bu, sizeof bu, hw->busiest_util);
-        fprintf(f, "%ld,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
+        csv_val(ap, sizeof ap, hw->igpu_mw);
+        csv_val(mu, sizeof mu, hw->mem_used_mb);
+        csv_val(su, sizeof su, hw->swap_used_mb);
+        csv_dval(rd, sizeof rd, rd_bs);
+        csv_dval(wr, sizeof wr, wr_bs);
+        csv_dval(rx, sizeof rx, rx_bs);
+        csv_dval(tx, sizeof tx, tx_bs);
+        fprintf(f, "%ld,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
+                   "%s,%s,%s,%s,%s,%s,%s\n",
                 time(NULL), t, ti, tg, mc, mg, gu, gw, fc, fg, bp, bm, l1, wl,
-                bu);
+                bu, ap, mu, su, rd, wr, rx, tx);
         usleep((useconds_t)g_prefs.poll_ms * 1000);
     }
     fclose(f);

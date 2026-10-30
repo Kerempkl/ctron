@@ -122,7 +122,10 @@ Notes:
     the clock, no wall time involved) and the live per-core clock
     from amd-pstate `cpuinfo_avg_freq` with a `scaling_cur_freq`
     fallback (both nodes were observed to briefly vanish after
-    policy transitions — an unknown tick reads `--`).
+    policy transitions — an unknown tick reads `--`). The `avg`
+    series is the mean of the same per-core utilisations (unknown
+    cores skipped), `busiest` the max — one number each, the
+    per-core table stays a now-snapshot.
   - **Fans**: asus hwmon `fan1/2_input` RPM (0 is honest — the EC
     stops the GPU fan at idle on many machines).
   - **dGPU** (nvidia-smi, one query): temperature, power draw,
@@ -137,7 +140,8 @@ Notes:
   - **iGPU** (amdgpu hwmon): temperature, clock, `power1_input` =
     **SoC PPT — the whole-APU package (CPU + iGPU)**, not an
     iGPU-only rail; vddgfx/vddnb millivolts. DRM device adds
-    `gpu_busy_percent` and the active `pp_dpm_sclk` level.
+    `gpu_busy_percent` (the `util` series — labelled ACTIVITY, per
+    the u32@28 lesson) and the active `pp_dpm_sclk` level.
     `gpu_metrics`: **no live power exists in this blob on Dragon
     Range** — the CPU blocks are permanently 0xFF and the u32@28
     field once shipped as "gfx rail watts" is actually gfx
@@ -154,9 +158,12 @@ Notes:
     laptops have none and show `--`. Where present, the limits
     (`temp1_max`/`temp1_crit`) and the kernel `max_alarm` flag
     surface too (a module over its limit marks the grid line
-    `!>55`).
+    `!>55`); the temp series charts the **hottest** module, the
+    detail page lists both. Swap used comes from `/proc/meminfo`
+    (`SwapTotal`-`SwapFree`; zram shows as real swap, which it is).
   - **Storage**: NVMe composite (`temp1`) plus Sensor 1/2
-    (`temp2/3` — the components run hotter than the composite),
+    (`temp2/3` — the components run hotter than the composite; the
+    temp series charts the hottest sensor across drives),
     `/` usage via statvfs, per-mount usage from
     `/proc/self/mounts` (whole-disk mounts only, one row per
     device — btrfs subvolumes share the device's space and are
@@ -172,6 +179,15 @@ Notes:
     quality comes from `/proc/net/wireless` (mac80211 0-70 scale,
     shown as %; the level is dBm only when the driver reports a
     negative value — other scales stay unknown).
+  - **PSI** (pressure stall info): `/proc/pressure/{cpu,memory,io}`
+    — rootless, kernel-computed (needs CONFIG_PSI; absent kernel
+    support reads honest `--`). ctron charts the **`some` avg10** of
+    each: the share of the last 10 s in which at least one task was
+    stalled on that resource. This is the signal utilisation cannot
+    show — a runqueue full of IO-waiters reads 0 % CPU busy while
+    tasks starve. Values live below a few % on a healthy machine
+    (idle desktop here: CPU/memory 0.00, IO ~3 %); there are no
+    invented alarm thresholds — the number itself is the signal.
   - **Power**: battery %/status/voltage/current, health from
     `charge_full(_design)` (this pack has no battery temperature
     sensor and `cycle_count` reports 0 — unsupported, never
@@ -298,7 +314,10 @@ Notlar:
     çekirdek saati amd-pstate `cpuinfo_avg_freq`'ten
     (`scaling_cur_freq` yedeğiyle; her iki düğümün politika
     geçişlerinden sonra kısa süre kaybolduğu gözlendi — bilinmeyen
-    işareti dürüstçe `--` basar).
+    işareti dürüstçe `--` basar). `avg` serisi aynı çekirdek
+    kullanımların ortalamasıdır (bilinmeyen çekirdek atlanır),
+    `busiest` maksimumu — her biri tek sayı, çekirdek tablosu anlık
+    kalır.
   - **Fanlar**: asus hwmon `fan1/2_input` RPM (0 dürüst değerdir —
     birçok makinede EC, GPU fanını boştayla tamamen durdurur).
   - **dGPU** (nvidia-smi, tek sorgu): sıcaklık, güç, grafik saati,
@@ -312,8 +331,9 @@ Notlar:
     sıcaklıklar asla kararmaz.
   - **iGPU** (amdgpu hwmon): sıcaklık, saat, `power1_input` = **SoC
     PPT — APU'nun TAM paketi (CPU + iGPU)**, yalnız iGPU rayı değil;
-    vddgfx/vddnb milivoltları. DRM cihazı `gpu_busy_percent` ve
-    etkin `pp_dpm_sclk` kademesini ekler. `gpu_metrics`: **bu
+    vddgfx/vddnb milivoltları. DRM cihazı `gpu_busy_percent` (`util`
+    serisi — u32@28 dersine göre AKTİVİTE olarak etiketli) ve etkin
+    `pp_dpm_sclk` kademesini ekler. `gpu_metrics`: **bu
     blob'da Dragon Range'de canlı GÜÇ yoktur** — CPU blokları kalıcı
     0xFF ve bir ara "gfx ray watt'ı" olarak gösterilen u32@28 alanı
     aslında yüzde-yüzde-bir biriminde gfx **AKTİVİTESİDİR** (canlı
@@ -328,9 +348,14 @@ Notlar:
   - **RAM**: spd5118 modül sıcaklıkları nadir donanımdır — çoğu
     laptop'ta yoktur, `--` görünür. Varsa limitler
     (`temp1_max`/`temp1_crit`) ve çekirdeğin `max_alarm` bayrağı da
-    yüzeye çıkar (limiti aşan modül grid satırını `!>55` işaretler).
+    yüzeye çıkar (limiti aşan modül grid satırını `!>55` işaretler);
+    sıcaklık serisi **en sıcak** modülü çizer, detay sayfası
+    ikisini listeler. Swap kullanımı `/proc/meminfo`'dan
+    (`SwapTotal`-`SwapFree`; zram gerçek swap olarak görünür —
+    öyledir).
   - **Depolama**: NVMe bileşik (`temp1`) + Sensor 1/2 (`temp2/3` —
-    bileşenler bileşikten daha sıcak çalışır), statvfs ile `/`
+    bileşenler bileşikten daha sıcak çalışır; sıcaklık serisi
+    sürücüler arasındaki en sıcak sensörü çizer), statvfs ile `/`
     doluluk, `/proc/self/mounts`'tan mount başına doluluk (yalnız
     gerçek disk mountları, cihaz başına tek satır — btrfs alt
     birimleri aynı cihazın alanını paylaşır, notla teklenir; yüzde
@@ -346,6 +371,15 @@ Notlar:
     `/proc/net/wireless`'ten (mac80211 0-70 ölçeği, yüzde
     gösterilir; seviye yalnız sürücü negatif (dBm) raporlarken
     okunur — diğer ölçekler bilinmiyor kalır).
+  - **PSI** (pressure stall info): `/proc/pressure/{cpu,memory,io}`
+    — sudo'suz, çekirdek hesaplar (CONFIG_PSI gerekir; olmayan
+    çekirdekte dürüst `--`). ctron her birinin **`some` avg10**'unu
+    çizer: son 10 saniyenin, o kaynakta en az bir görevin
+    durakladığı payı. Kullanım sayaçlarının göremediği sinyal
+    budur — IO bekleyen görevlerle dolu koşu kuyruğu %0 CPU busy
+    okurken görevler aç kalır. Sağlıklı makinede değerler birkaç
+    yüzdenin altındadır (bu boşta masaüstünde: CPU/bellek 0.00,
+    IO ~%3); uydurma alarm eşikleri yok — sayının kendisi sinyaldir.
   - **Güç**: batarya %/durum/gerilim/akım, sağlık
     `charge_full(_design)`'dan (bu pakette batarya sıcaklık sensörü
     yok ve `cycle_count` 0 raporlar — desteklenmiyor, asla

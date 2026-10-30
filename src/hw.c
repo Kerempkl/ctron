@@ -862,6 +862,54 @@ int hw_parse_cpu_stat(const char *s, long long *busy, long long *total,
     return top;
 }
 
+/* /proc/pressure/<res>: two lines, "full avg10=.. avg60=.. avg300=.. total=.."
+ * then the same with "some". We chart the "some" avg10 — the share of the
+ * last 10 s in which at least one task was stalled on the resource (the
+ * utilisation counters cannot see this: a runqueue full of IO-waiters
+ * reads 0% CPU busy). Pure — tested. */
+int hw_parse_psi(const char *s, double *some_avg10)
+{
+    if (some_avg10)
+        *some_avg10 = -1;
+    if (!s)
+        return -1;
+    const char *p = s;
+    while (p && *p) {
+        const char *e = strchr(p, '\n');
+        size_t len = e ? (size_t)(e - p) : strlen(p);
+        if (len > 5 && strncmp(p, "some ", 5) == 0) {
+            double v = -1;
+            if (sscanf(p + 5, "avg10=%lf", &v) == 1 && v >= 0) {
+                if (some_avg10)
+                    *some_avg10 = v;
+                return 0;
+            }
+            return -1;
+        }
+        p = e ? e + 1 : NULL;
+    }
+    return -1;
+}
+
+/* mean of the valid (>= 0) utilisation entries, rounded to nearest %;
+ * -1 when nothing is valid (priming poll, sensors gone). Pure — tested. */
+int hw_core_avg_util(const int *util, int n)
+{
+    if (!util || n <= 0)
+        return -1;
+    long sum = 0;
+    int cnt = 0;
+    for (int i = 0; i < n; i++) {
+        if (util[i] >= 0) {
+            sum += util[i];
+            cnt++;
+        }
+    }
+    if (cnt == 0)
+        return -1;
+    return (int)((sum * 2 + cnt) / (2 * cnt));
+}
+
 bool hw_mount_whole(const char *dev, const char *fs)
 {
     if (!dev || !fs || !dev[0] || !fs[0])
@@ -1042,6 +1090,19 @@ static void read_telem_extras(hw_state_t *hw)
             hw->load5 = l5;
             hw->load15 = l15;
         }
+    }
+
+    /* PSI stalls: rootless, kernel-computed — absent (kernel built
+     * without CONFIG_PSI) reads honest -1, nothing is fabricated */
+    hw->psi_cpu = hw->psi_mem = hw->psi_io = -1;
+    const struct { const char *path; double *out; } psi_files[] = {
+        { "/proc/pressure/cpu", &hw->psi_cpu },
+        { "/proc/pressure/memory", &hw->psi_mem },
+        { "/proc/pressure/io", &hw->psi_io },
+    };
+    for (size_t i = 0; i < sizeof psi_files / sizeof psi_files[0]; i++) {
+        if (ut_read_file(psi_files[i].path, buf, 256) == 0)
+            hw_parse_psi(buf, psi_files[i].out);
     }
 
     hw->mem_total_mb = hw->mem_avail_mb = hw->mem_used_mb = -1;

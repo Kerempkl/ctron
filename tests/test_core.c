@@ -917,6 +917,38 @@ static void check_telem_hw(void)
               "loadavg empty");
     }
 
+    /* /proc/pressure: "full" line first, "some" second; we want some avg10 */
+    {
+        double v = -9;
+        static const char psi[] =
+            "full avg10=2.97 avg60=2.67 avg300=2.61 total=91033997\n"
+            "some avg10=3.48 avg60=3.06 avg300=2.91 total=97500165\n";
+        CHECK(hw_parse_psi(psi, &v) == 0 && v == 3.48,
+              "psi some avg10, full line skipped");
+        v = -9;
+        CHECK(hw_parse_psi("some avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+                           &v) == 0 && v == 0.0,
+              "psi zero is a valid reading");
+        CHECK(hw_parse_psi("some avg60=1.00\n", &v) == -1 && v == -1,
+              "psi some line without avg10 honest");
+        CHECK(hw_parse_psi("full avg10=1.00\n", &v) == -1 && v == -1,
+              "psi full-only text rejected");
+        CHECK(hw_parse_psi("", &v) == -1 && hw_parse_psi(NULL, &v) == -1,
+              "psi empty/null");
+    }
+
+    /* mean core utilisation over valid entries only, nearest-% rounding */
+    {
+        int u[6] = { 10, -1, 50, 30, -1, 25 };
+        CHECK(hw_core_avg_util(u, 6) == 29, "avg skips unknown, rounds");
+        int allbad[3] = { -1, -1, -1 };
+        CHECK(hw_core_avg_util(allbad, 3) == -1, "avg all unknown honest");
+        int half[4] = { 0, 100, 50, -1 };
+        CHECK(hw_core_avg_util(half, 4) == 50, "avg plain mean");
+        CHECK(hw_core_avg_util(u, 0) == -1 && hw_core_avg_util(NULL, 3) == -1,
+              "avg degenerate inputs");
+    }
+
     /* /proc/stat per-cpu jiffies: busy = user+nice+system+irq+softirq+
      * steal, total = busy+idle+iowait; the aggregate cpu line skipped */
     {
