@@ -36,9 +36,16 @@ A–L, ~50 items, per-item criteria, [x]/[~]/[ ] states.
   topology's raw-kernel-id `sib_buf[id]` indexing, safe because the
   cpu_ids fill filters `id < HW_CPU_MAX` upstream. **Category A
   (memory safety) is now fully [x] A1–A9.**
-- Next: **B2** (worker↔poll race window audit) — the heaviest open
-  item; then B3/B4/B5/B7. User expects item-by-item careful code
-  reading, fixes land autonomously now.
+- **B2 audited (11-17, same round)**: protocol/locking all correct
+  EXCEPT BULGU 5 — the render loop draws every panel from `hw` each
+  frame while the apply worker writes `hw` ("reads paused" covers
+  maybe_refresh only). Formal data race, single torn frame in
+  practice. Fix designed, NOT yet implemented: busy → skip tgt_clear
+  + panel draws (nc diff keeps last frame), topbar/progress only,
+  force full redraw on resize-during-busy; validate tui_smoke's
+  apply-flow assertions still sample after completion.
+- Next: **implement the B2 fix**, then B3/B4/B5/B7. User expects
+  item-by-item careful code reading, fixes land autonomously now.
 
 ## 2026-10-30 (23rd round, power honesty: dirty =
 write-gate mask + CORE LIMITS single-apply — NEXT.md 19 closed)

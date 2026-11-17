@@ -124,12 +124,29 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
 - [x] **B1. Giriş dağıtıcısının busy kapısını atlaması** — fare apply_busy'yi
   atlıyordu; TUR3'te kapandı. *Kalıcı kural: yeni giriş yolu (tuş, fare,
   daeboard tetiklemesi) eklenince apply_busy kontrolü şart.*
-- [ ] **B2. İşçi thread ↔ poll döngüsü yarışı** — ctron'un tek thread'i
+- [~] **B2. İşçi thread ↔ poll döngüsü yarışı** — ctron'un tek thread'i
   (apply worker) yazma-yalnız disiplininde; reads paused penceresi ve
-  finalize-after-busy-drop sırası kurallı. Ölçüt: worker'ın yazdığı her
-  alan için main-thread okuma noktası pausa penceresi içinde mi?
-  Kod okuması + `tsan`-lı kısa koşu (TSan notcurses ile uyumsuzsa
-  salt kod-akışı kanıtı).
+  finalize-after-busy-drop sırası kurallı. *Kod-akış denetimi 11-17
+  (TSan: notcurses instrumentlanmadığından salt kod kanıtı). DOĞRU
+  kurgulanmış parçalar: spawn (düz alanlar + release-store +
+  pthread_create kenarı), finalize (busy-drop gözlemi, seq_cst),
+  busy'de tuş+fare kilidi (dispatch/mouse), quit join'le bekler
+  (asla öldürmez), quit_pending busy bitene dek ertelenir, ut_log +
+  ut_progress YAZ ve OKU tarafları mutex'li, telem halkalarına worker
+  dokunmaz, busy'de tuşlar kilitli olduğundan modes immutable.*
+  *- **BULGU 5 (formal veri yarışı, kod değişikliği bekliyor):** ana
+  döngü busy iken bile tüm panelleri HER karede çizer (ui.c 1100-1120)
+  — worker aynı anda hw'ya yazar (SNAPSHOT: fan/limitler; POWER:
+  staging çöküşü; MODE: hw_refresh_live toptan). "Reads paused" yalnız
+  maybe_refresh için; ÇİZİM okumaları pause dışı. x86 pratiğinde
+  hizalı int'ler yırtılmaz ama char-dizi alanları (hw_refresh_live
+  stringleri toptan yazar) tek kare çöp gösterebilir; C düzeyinde
+  gerçek veri yarışı (UB). Önerilen fix (bir sonraki tur, smoke
+  doğrulaması şart): busy'de tgt_clear + panel çizimlerini atla
+  (notcurses diff render — son kare ekranda kalır), yalnız topbar/
+  progress çiz; busy sırasında resize gelen tek edge (tam çizimi
+  force'la). tui_smoke apply-akış assertleri tamamlama satırını
+  beklediğinden etkilenmemeli — yine de doğrula.*
 - [ ] **B3. Çifte/yinelenen apply** — Enter basılı tutma/tekrar ile kuyruğa
   ikinci apply düşer mi? Ölçüt: apply_busy iken ikinci tetik düşürülmeli
   ya da kuyruklanmalı; davranış tek-kelime belgeli.

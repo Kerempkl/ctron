@@ -1,6 +1,19 @@
 # Changelog
 
-## 2026-11-17 — audit A8/A9 closed clean: format strings + data-driven indexes
+## 2026-11-17 — audit B2 analyzed: render loop reads hw during apply (documented finding)
+
+- B2 code-flow audit of the apply worker: spawn/finalize protocol,
+  busy key+mouse locks, join-on-quit, quit_pending deferral, mutex'd
+  log/progress on both sides, telem rings and modes isolation — all
+  correct.
+- **BULGU 5 (open, fix next round)**: the render loop draws all panels
+  from `hw` every frame even while the worker writes `hw` — "reads
+  paused" covers maybe_refresh only, not draw reads. Formal data race;
+  practical effect a single torn frame (char-array fields). Proposed:
+  skip clear+panel draws while busy (nc diff keeps the last frame),
+  draw topbar/progress only; force full redraw on resize-during-busy.
+
+
 
 - A8: every ut_log/errf/printf call site carries a literal format;
   the fmt-parameter helper (val_or_dash) is only called with literal
