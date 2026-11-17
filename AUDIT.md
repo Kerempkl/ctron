@@ -316,22 +316,42 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
 - [x] **F1. ESC/tuş karışıklığı** — q-only quit (kural 5, Kitty CSI dersi).
 - [x] **F2. ui_putln son-hücre** — genişlik-1 çağrı çizilmez dersi
   (10-30). *Yeni çizim kodunda kural hatırlanmalı.*
-- [ ] **F3. Boyutlandırma/resize** — küçük terminal (min boyut altı),
-  resize anında panel yerleşimi (ui_layout tek nokta), scroll viewport
-  sınırları (pw_top), fullscreen overlay geçişinde boyut değişimi.
-  Ölçüt: aşırı boyutlarla (çok küçük/çok geniş) görsel duman testi.
+- [x] **F3. Boyutlandırma/resize** — *Denetim 11-17, canlı uç-boyut
+  kanıtı: tui_screenshot.py ile 20×6 / 30×40 / 300×80 — üçü de rc=0,
+  asılma/çökme yok (gerçek TUI pty'de boot + 2,5 s canlı + temiz
+  çıkış). Kod gardları: body_h < 10 → telemetri katlanır; lw [30,
+  W-20] taban/tavan → W/2; split clamp; h ≤ 0 dikdörtgenlerde çizim
+  döngüsü hiç dönmez; ui_putln genişlik-1 dersi. Overlay'ler aynı
+  ui_layout tek noktadan.*
+- [x] **F4. UTF-8 genişlik/yerel metin** — *Denetim 11-17: ağaçta
+  toupper çağrısı YOK — yalnızca panel_telem_full.c:325'te NEDEN
+  kullanılmadığını açıklayan yorum (tr_TR i→İ dersi koda gömülü,
+  çözüm = büyük-harf etiketler ASCII-özel, aab6c4d). Çizim tarafı
+  utf_cells-farkındalıklı (dt_sep doldurma utf_cells < w-1 koşuluyla);
+  dar terminal packed fallback (11. tur).*
 - [ ] **F4. UTF-8 genişlik/yerel metin** — toupper tr_TR 'i'→'WRiTE' dersi;
   çok baytlı karakter hücre sınırlarını bölüyor mu; tablo hizası.
   Ölçüt: Türkçe etiket + değişmez-etiket ASCII kuralı (büyük-harf
   etiketler) korunuyor mu?
-- [ ] **F5. Girdi uçları** — tuş tekrarı (%8.7 ölçümlü sıkışma noktası),
-  bracketed paste, mouse wheel panoklarında sınır, fullscreen 't' içinde
-  global kısayol çakışması. Ölçüt: her yeni panel için kısayol
-  çakışma tablosu.
-- [ ] **F6. Terminal yetenek varsayımları** — truecolor yoksa, unicode
-  glif yoksa (packed fallback var), terminal sorgusuna cevap vermeyen
-  pty'de init asılmaz (tui_screenshot.py'nin varoluş nedeni).
-  Ölçüt: notcurses init hatası temiz mesajla çıkar.
+- [x] **F5. Girdi uçları** — *Denetim 11-17: tuş tekrarı →
+  KEY_REFRESH_MIN_MS 120 ms hız-limiti (601-623, perf-audit ölçümlü:
+  tuş-başına tam refresh yalnız limit dışında; apply/resize/timeout
+  her zaman force); girdi batch'lendi (kuyruktaki tuşlar tek
+  hız-limitli refresh); bracketed paste → notcurses tuş olarak
+  teslim eder, dispatch ucuz + refresh hız-limitli; mouse busy-gate
+  + piksel→hücre clamp; kısayol çakışması: dispatch bağlama-göre
+  yönlendirir (odak + overlay + yazma-modu önceliği) — aynı tuş
+  farklı bağlam = tasarım, HELP satırları bağlam başına; smoke
+  görünümler/odak/overlay akışlarını kapsıyor. Yeni panel kuralı
+  (kısayol tablosu + HELP aynı commit) listede kalır.*
+- [x] **F6. Terminal yetenek varsayımları** — *Denetim 11-17:
+  notcurses_init NULL → "ctron: failed to initialize notcurses" +
+  rc -1 (ui.c:1047-1051, asılma değil temiz çıkış); renk düşüşünü
+  (truecolor → 256/16) notcurses kendisi yapar (palet bozulması
+  bizim kontrolümüzde değil, bilinçli); unicode glif yoksa packed
+  fallback (11. tur); sorgusuz pty asılması AGENTS.md'de harness
+  hatası olarak belgeli (tui_screenshot.py bu yüzden var — kendi
+  DA/cursor/sync yanıtlayıcısı).*
 
 ## G — Uzun koşu kaynak büyümesi
 

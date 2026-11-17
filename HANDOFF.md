@@ -72,9 +72,15 @@ A–L, ~50 items, per-item criteria, [x]/[~]/[ ] states.
   (single predicate, pw_dirty = mask); FAN 'w' collision window closed
   by the dispatch busy-gate; gpu-clock sampling wording honest with
   the idle weak-positive limit documented. **Category E fully [x].**
-- Next: **F3/F4/F5/F6** (resize extremes, UTF-8/tr_TR width, input
-  edges, terminal capability assumptions) — then G. User expects
-  item-by-item careful code reading, fixes land autonomously now.
+- **F3-F6 closed 11-17**: live extreme-size proof (20×6 / 30×40 /
+  300×80 all rc=0 via tui_screenshot.py), zero toupper in tree
+  (tr_TR lesson as comment), input edges rate-limited/gated,
+  init-failure clean. **Category F fully [x].** Side artifacts:
+  build/shot_*.png (gitignored).
+- Next: **G** (long-run growth: bounded-history proof, log growth,
+  1 h RSS curve) then H/I/J/K/L. G4's hour-long RSS measurement may
+  be a background/overnight job. User expects item-by-item careful
+  code reading, fixes land autonomously now.
 
 ## 2026-10-30 (23rd round, power honesty: dirty =
 write-gate mask + CORE LIMITS single-apply — NEXT.md 19 closed)

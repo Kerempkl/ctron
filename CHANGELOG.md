@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-11-17 — audit F3-F6 closed: extreme-size live proof + input/UTF-8/capability sweeps
+
+- F3: live extreme-size smoke via tui_screenshot.py — 20×6, 30×40 and
+  300×80 all boot the real TUI, render and exit rc=0 (no hang/crash);
+  layout guards code-verified (telemetry collapse below body_h 10,
+  column floors/ceilings, degenerate rects draw nothing).
+- F4: zero toupper calls in the tree — the tr_TR lesson lives as a
+  comment at the one place it matters; ASCII-uppercase labels and
+  utf_cells-aware padding carry the actual rule.
+- F5: key repeat rate-limited (KEY_REFRESH_MIN_MS + batched input),
+  paste/mouse/wheel all flow through the same cheap dispatch with
+  busy-gates and pixel clamps; context-routed keys make same-key-
+  different-context a design, HELP lines per context.
+- F6: init failure is a clean message + rc -1; color degradation is
+  notcurses' own; the query-dead pty hang is documented as a harness
+  fault (AGENTS.md) with tui_screenshot.py as the responder-equipped
+  workaround. Category F complete.
+
 ## 2026-11-17 — audit E3-E6 closed clean: write-gate discipline verified
 
 - E3: all 16 write-door call sites live inside control.c (structural
