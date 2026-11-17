@@ -64,6 +64,9 @@ typedef struct ui_ctx {
     char apply_arg[48];         /* snapshot/mode name or index as text */
     char apply_sum[192];        /* diff summary or error text */
     long apply_start_ms;        /* CLOCK_MONOTONIC, 0 = none */
+    hw_state_t *apply_hw;       /* the REAL hw the worker writes; while
+                                 * busy, hw points at a frozen copy so
+                                 * draw reads never race worker writes */
 
     focus_t focus;
     ws_view_t ws_view;

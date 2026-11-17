@@ -622,14 +622,22 @@ static void maybe_refresh(hw_state_t *hw, bool force)
     s_last_refresh_ms = now;
 }
 
-/* the worker: WRITE phase only — hw + write layer + ut_log/ut_progress.
- * No notcurses, no g_ui mutation (reads of immutable-during-busy
- * staging/modes are fine). Results go to the plain fields the UI
- * thread consumes in finalize_apply() AFTER apply_busy drops. */
+/* Draw-side snapshot: while the worker runs, g_ui.hw points here so
+ * every panel draw reads a frozen, self-consistent frame instead of
+ * racing the worker's writes to the real hw (BULGU 5, 2026-11-17).
+ * Swapped in at spawn (before the thread exists) and back in
+ * finalize/quit — both UI-thread, single-writer. */
+static hw_state_t s_hw_frozen;
+
+/* the worker: WRITE phase only — the REAL hw + write layer +
+ * ut_log/ut_progress. No notcurses, no g_ui mutation (reads of
+ * immutable-during-busy staging/modes are fine). Results go to the
+ * plain fields the UI thread consumes in finalize_apply() AFTER
+ * apply_busy drops. */
 static void *apply_worker(void *arg)
 {
     (void)arg;
-    hw_state_t *hw = g_ui.hw;
+    hw_state_t *hw = g_ui.apply_hw;
 
     switch (g_ui.apply_kind) {
     case APPLY_SNAPSHOT: {
@@ -689,10 +697,17 @@ void ui_spawn_apply(int kind, const char *what, const char *arg)
     ut_progress_clear();
     ut_progress("%s: starting", g_ui.apply_what);
 
+    /* freeze the draw view before the thread exists: the worker writes
+     * the real hw (apply_hw), every draw during busy reads s_hw_frozen */
+    g_ui.apply_hw = g_ui.hw;
+    s_hw_frozen = *g_ui.hw;
+    g_ui.hw = &s_hw_frozen;
+
     atomic_store(&g_ui.apply_busy, true); /* release: fields above are set */
     if (pthread_create(&g_ui.apply_tid, NULL, apply_worker, NULL) == 0) {
         g_ui.apply_spawned = true;
     } else {
+        g_ui.hw = g_ui.apply_hw;
         atomic_store(&g_ui.apply_busy, false);
         ut_log("apply: could not start the worker thread");
     }
@@ -704,6 +719,7 @@ void ui_spawn_apply(int kind, const char *what, const char *arg)
  * only the newest entry, so split lines would bury each other) */
 static void finalize_apply(void)
 {
+    g_ui.hw = g_ui.apply_hw; /* back to the real hw the worker wrote */
     long took = (mono_ms() - g_ui.apply_start_ms) / 100;
     switch (g_ui.apply_kind) {
     case APPLY_SNAPSHOT:
@@ -1170,9 +1186,14 @@ int ui_run(hw_state_t *hw)
     }
 
     /* the worker is never killed: wait it out (bounded by the freq
-     * window rounds, ~9 s worst case) before saving state */
-    if (g_ui.apply_spawned)
+     * window rounds, ~9 s worst case) before saving state. A term
+     * signal can exit the loop mid-busy, past finalize — put the
+     * pointer back so settings_save sees the real (post-apply) hw */
+    if (g_ui.apply_spawned) {
         pthread_join(g_ui.apply_tid, NULL);
+        if (g_ui.hw == &s_hw_frozen)
+            g_ui.hw = g_ui.apply_hw;
+    }
 
     settings_save(hw);
     s_nc = NULL;

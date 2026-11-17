@@ -36,16 +36,18 @@ A–L, ~50 items, per-item criteria, [x]/[~]/[ ] states.
   topology's raw-kernel-id `sib_buf[id]` indexing, safe because the
   cpu_ids fill filters `id < HW_CPU_MAX` upstream. **Category A
   (memory safety) is now fully [x] A1–A9.**
-- **B2 audited (11-17, same round)**: protocol/locking all correct
-  EXCEPT BULGU 5 — the render loop draws every panel from `hw` each
-  frame while the apply worker writes `hw` ("reads paused" covers
-  maybe_refresh only). Formal data race, single torn frame in
-  practice. Fix designed, NOT yet implemented: busy → skip tgt_clear
-  + panel draws (nc diff keeps last frame), topbar/progress only,
-  force full redraw on resize-during-busy; validate tui_smoke's
-  apply-flow assertions still sample after completion.
-- Next: **implement the B2 fix**, then B3/B4/B5/B7. User expects
-  item-by-item careful code reading, fixes land autonomously now.
+- **B2 closed in-round** (11-17): BULGU 5 fixed with a freeze-frame
+  capsule — spawn copies real hw into s_hw_frozen and points g_ui.hw
+  there before the thread exists; worker writes the real hw via the
+  new g_ui.apply_hw field; finalize and the quit path (term-mid-busy
+  edge, post-join) restore the pointer. Panels/progress render
+  unchanged; values frozen during apply = same semantics as the
+  existing refresh pause. 0 warnings + unit + full tuitest green
+  (apply flows exercise the freeze/restore protocol).
+- Next: **B3/B4/B5/B7** (double-apply queueing, thread lifetime at
+  shutdown, telem ring single-writer, pending-staging semantics).
+  User expects item-by-item careful code reading, fixes land
+  autonomously now.
 
 ## 2026-10-30 (23rd round, power honesty: dirty =
 write-gate mask + CORE LIMITS single-apply — NEXT.md 19 closed)

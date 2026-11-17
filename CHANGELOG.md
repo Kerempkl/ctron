@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-11-17 — audit B2 closed: frozen-copy draw view during apply (BULGU 5 fixed)
+
+- The render loop drew every panel from `hw` each frame while the
+  apply worker wrote the same struct — "reads paused" only covered
+  maybe_refresh. Formal data race; single torn frame in practice.
+- Fix: freeze-frame capsule. At spawn (before the thread exists) the
+  UI thread copies the real hw into s_hw_frozen and points g_ui.hw at
+  it; the worker writes the REAL hw through the new g_ui.apply_hw;
+  finalize and the quit path (term-signal-mid-busy edge, after join)
+  put the pointer back. Panels and the progress line render unchanged
+  — values stay frozen for the apply window, which matches the
+  existing refresh-pause semantics. 0 warnings, make test, full
+  tuitest (apply flows included).
+
 ## 2026-11-17 — audit B2 analyzed: render loop reads hw during apply (documented finding)
 
 - B2 code-flow audit of the apply worker: spawn/finalize protocol,

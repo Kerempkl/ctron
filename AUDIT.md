@@ -124,29 +124,25 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
 - [x] **B1. Giriş dağıtıcısının busy kapısını atlaması** — fare apply_busy'yi
   atlıyordu; TUR3'te kapandı. *Kalıcı kural: yeni giriş yolu (tuş, fare,
   daeboard tetiklemesi) eklenince apply_busy kontrolü şart.*
-- [~] **B2. İşçi thread ↔ poll döngüsü yarışı** — ctron'un tek thread'i
-  (apply worker) yazma-yalnız disiplininde; reads paused penceresi ve
-  finalize-after-busy-drop sırası kurallı. *Kod-akış denetimi 11-17
-  (TSan: notcurses instrumentlanmadığından salt kod kanıtı). DOĞRU
-  kurgulanmış parçalar: spawn (düz alanlar + release-store +
-  pthread_create kenarı), finalize (busy-drop gözlemi, seq_cst),
-  busy'de tuş+fare kilidi (dispatch/mouse), quit join'le bekler
-  (asla öldürmez), quit_pending busy bitene dek ertelenir, ut_log +
-  ut_progress YAZ ve OKU tarafları mutex'li, telem halkalarına worker
-  dokunmaz, busy'de tuşlar kilitli olduğundan modes immutable.*
-  *- **BULGU 5 (formal veri yarışı, kod değişikliği bekliyor):** ana
-  döngü busy iken bile tüm panelleri HER karede çizer (ui.c 1100-1120)
-  — worker aynı anda hw'ya yazar (SNAPSHOT: fan/limitler; POWER:
-  staging çöküşü; MODE: hw_refresh_live toptan). "Reads paused" yalnız
-  maybe_refresh için; ÇİZİM okumaları pause dışı. x86 pratiğinde
-  hizalı int'ler yırtılmaz ama char-dizi alanları (hw_refresh_live
-  stringleri toptan yazar) tek kare çöp gösterebilir; C düzeyinde
-  gerçek veri yarışı (UB). Önerilen fix (bir sonraki tur, smoke
-  doğrulaması şart): busy'de tgt_clear + panel çizimlerini atla
-  (notcurses diff render — son kare ekranda kalır), yalnız topbar/
-  progress çiz; busy sırasında resize gelen tek edge (tam çizimi
-  force'la). tui_smoke apply-akış assertleri tamamlama satırını
-  beklediğinden etkilenmemeli — yine de doğrula.*
+- [x] **B2. İşçi thread ↔ poll döngüsü yarışı** — ctron'un tek thread'i
+  (apply worker) yazma-yalnız disiplininde. *Denetim 11-17 (TSan:
+  notcurses instrumentlanmadığından salt kod kanıtı). Doğru kurgu:
+  spawn (düz alanlar + release-store + pthread_create kenarı),
+  finalize (busy-drop gözlemi), busy'de tuş+fare kilidi, quit join'le
+  bekler, quit_pending erteleme, ut_log/ut_progress iki taraf mutex,
+  telem halkalarına worker dokunmaz, busy'de modes immutable.*
+  *- **BULGU 5 (FIX LAND 11-17):** ana döngü busy iken bile panelleri
+  HER karede hw'dan çiziyordu — worker aynı anda hw'ya yazıyor
+  ("reads paused" yalnız maybe_refresh'i kapsıyordu); formal veri
+  yarışı, pratikte tek kare yırtık okuma. Fix: donmuş-kopya kapsülü —
+  spawn'da (thread doğmadan, UI thread'i) `s_hw_frozen = *hw` +
+  `g_ui.hw → donmuş`, worker gerçek hw'ya `apply_hw`'dan yazar,
+  finalize/quit pointer'ı geri koyar (quit yolu term-sinyali busy
+  ortasında yakalarsa diye join sonrası restore). Çizim protokolu
+  değişmedi: paneller aynen çizer, progress satırı yaşamaya devam
+  eder, değerler busy süresince donuk (zaten refresh pause
+  ediliyordu). Doğrulama: 0 uyarı + unit + tam tuitest (apply
+  akışları dahil).*
 - [ ] **B3. Çifte/yinelenen apply** — Enter basılı tutma/tekrar ile kuyruğa
   ikinci apply düşer mi? Ölçüt: apply_busy iken ikinci tetik düşürülmeli
   ya da kuyruklanmalı; davranış tek-kelime belgeli.
