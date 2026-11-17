@@ -30,10 +30,15 @@ A–L, ~50 items, per-item criteria, [x]/[~]/[ ] states.
   bounds (real UB at 1e300, C11 6.3.1.4), absurd fields now stay -1
   (tested); settings cpu_mhz_limit upper bound added. UBSan battery
   (signed overflow included) was already zero.
-- Next: **A8** (format-string discipline — ut_log/printf first arg
-  literal, grep sweep) then A9 (data-driven array indexes) — user
-  expects item-by-item careful code reading, fixes land autonomously
-  now.
+- **A8/A9 closed clean 11-17** (in-round, no code changes): every
+  format string literal (incl. the val_or_dash helper's callers);
+  ten data-driven index families bounded — the subtle one was
+  topology's raw-kernel-id `sib_buf[id]` indexing, safe because the
+  cpu_ids fill filters `id < HW_CPU_MAX` upstream. **Category A
+  (memory safety) is now fully [x] A1–A9.**
+- Next: **B2** (worker↔poll race window audit) — the heaviest open
+  item; then B3/B4/B5/B7. User expects item-by-item careful code
+  reading, fixes land autonomously now.
 
 ## 2026-10-30 (23rd round, power honesty: dirty =
 write-gate mask + CORE LIMITS single-apply — NEXT.md 19 closed)

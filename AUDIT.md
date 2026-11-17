@@ -97,13 +97,27 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
   alanı dürüstçe -1 kalıyor (test: "absurd values stay -1").*
   *- Mini-sertleştirme: settings cpu_mhz_limit'e üst guard (≤10000,
   freq guard ile aynı tavan) — alt guard vardı, üst yoktu.*
-- [ ] **A8. Format-string zehirlenmesi** — log/printf ilk argümanı daima
+- [x] **A8. Format-string zehirlenmesi** — log/printf ilk argümanı daima
   literal olmalı; config/profile/mode isimleri `%s` olarak geçmeli.
-  10-28 denetimi "ut_log literal" dedi; yeni eklenen çağrılar için
-  `grep -n 'ut_log(' src/ | grep -v '"'` boş olmalı.
-- [ ] **A9. Veri kaynaklı dizi indeksi** — fan eğrisi 8 noktası, per-core
+  *Denetim 11-17 bulgusuz: ut_log çağrıları tamamen literal (yalnız
+  tanımı eşleşiyor); errf aynı; printf/fputs taramasındaki değişkenli
+  görünenler ya yorum ya fputs(buffer) (format yorumlamaz);
+  vsnprintf geçişleri (errf, ut_log) literal-arayan zinciriyle;
+  fmt-parametreli yardımcı `val_or_dash` arayanları "%d°C" gibi
+  literal; editor_daeboard "%.*s" ve profile_capture_line literal.*
+- [x] **A9. Veri kaynaklı dizi indeksi** — fan eğrisi 8 noktası, per-core
   indeksleri, SECTIONS kayıt defteri indeksi, dbe_key alanları.
-  Ölçüt: her indeks parse'dan sonra clamp/menzil kontrolünden geçiyor mu?
+  *Denetim 11-17 bulgusuz, 10 indeks ailesi tek tek: fan_from_csv
+  FAN_POINTS sınırı + clamp_point; fan set/add/del/nudge → clamp_point
+  (testli); "freq core <id>" → hw_cpu_present guard; cpu_ids doldurma
+  `id < HW_CPU_MAX` FİLTRELİ (hw.c 1584-92, yorum da var — sib_buf[id]/
+  l3_buf[id] ham kernel-id indekslemesi bu yüzden güvenli); hw
+  per-core okuma `t1 < n` + parse `id < max_cpu`; corefreq editör
+  cf_sel wrap + `< hw->cpu_n`; telem grid sanitize + kenar-kilitli
+  navigasyon (wrap YOK, bilinçli); dbe keyi/step her mutasyonda
+  guardlı; modes arr `n < max` append-öncesi; hw_cpu_list_parse
+  `n < max` her dalda; sibling tmp[8] parse sınırı + `m>=2 → over`
+  bail.*
 
 ## B — Durum ve eşzamanlılık
 

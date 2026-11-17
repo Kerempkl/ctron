@@ -1,6 +1,18 @@
 # Changelog
 
-## 2026-11-17 — audit A7 closed: gpu_csv cast UB guard + cpu_mhz_limit upper bound
+## 2026-11-17 — audit A8/A9 closed clean: format strings + data-driven indexes
+
+- A8: every ut_log/errf/printf call site carries a literal format;
+  the fmt-parameter helper (val_or_dash) is only called with literal
+  formats. No findings.
+- A9: ten data-driven index families verified bounded — the subtle
+  one was topology's `sib_buf[id]`/`l3_buf[id]` indexing by raw
+  kernel cpu id: safe because the cpu_ids fill filters
+  `id < HW_CPU_MAX` upstream (explicit code+comment). Fan model,
+  core editor, telem grid, daeboard steps, modes array all clamp.
+  No findings, no code changes.
+
+
 
 - All 41 atoi sites classified (clamped, post-atoi range-guarded, or
   fan-model clamp_point paths); unsigned-subtraction and
