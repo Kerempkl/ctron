@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-11-17 — audit FINAL items closed: I3/I5, K3/K4, L2/L3 (+ small honesty fixes)
+
+- I3: ctron uses no perf PMU (per-core proxy is /proc/stat-based);
+  gpu_metrics parser retired with the lesson in code; drift-sensitive
+  surfaces all visible in --doctor with honest annotations.
+- I5: live proof — doctor prints yes/no for every optional dependency
+  and "sudo -n : unavailable" was observed live (no hang, honest).
+- K3: every derived stat empty-guarded (`dt > 0`, `count == 0 → -1`,
+  `s_lt_n == 0 → -1`) with -1 rendered as "--".
+- K4: all elapsed math is CLOCK_MONOTONIC (wall-clock-proof);
+  ut_log's ignored localtime_r return now guarded (init +
+  check — reads never uninitialized).
+- L2: statement-level sweep of swallowed returns — remaining ignores
+  justified (probes whose result IS the check, disk-reread lists,
+  self-logging fan writes); the real gap was silent persistence
+  failures: settings_save + modes_save failures now log.
+- L3: all three apply kinds carry partial state inside their single
+  completion line (ok / some fields FAILED + N failed / N step(s)
+  failed).
+- AUDIT.md is now fully processed except I2 (Arcioth field items).
+
 ## 2026-11-17 — audit J closed: atomic config writes (J1) + documented last-writer-wins (J2)
 
 - **J1 fixed**: new `ut_atomic_begin/commit` (util.c) — sibling

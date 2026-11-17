@@ -84,11 +84,16 @@ A–L, ~50 items, per-item criteria, [x]/[~]/[ ] states.
   table (all clean nonzero; --hz 60 test restored to 165). H4
   singleton/two-csv contracts documented. **Categories G and H
   fully [x] — 8 of 12 done.**
-- Next: **I2 is Arcioth field work** (stays open); **I3/I5** (kernel
-  drift + optional-dependency absence paths via --doctor), **J1**
-  (atomic temp+rename write — the one real code-change candidate
-  left), **K3/K4**, **L2/L3**. User expects item-by-item careful
-  code reading, fixes land autonomously now.
+- **AUDIT.md COMPLETE 11-17 (except I2 = Arcioth field items)**: J1
+  atomic writes landed (temp+fsync+rename on all six config writers,
+  crash keeps the old file); L2 honesty fixes (persistence failures
+  now log; ut_log localtime_r guarded); I3/I5/K3/K4/L3 closed with
+  live/code evidence. Full tally across the day: 7 fixes (BULGU 1-5 +
+  J1 + L2), 2 hardenings (-k1 KILL escalation, cpu_mhz_limit bound),
+  ~60 new test assertions, every category A-L processed. The list
+  itself (AUDIT.md) is committed and current.
+- Next: whatever the user picks — v0.10.0 cut is a natural point
+  (audit era: 4 fixes + 2 hardenings + honesty rounds since v0.9.0).
 
 ## 2026-10-30 (23rd round, power honesty: dirty =
 write-gate mask + CORE LIMITS single-apply — NEXT.md 19 closed)

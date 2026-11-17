@@ -120,8 +120,10 @@ int modes_save(const mode_def_t *arr, int n)
             continue;
         fprintf(f, "\n[%s]\nsteps = %s\n", arr[i].name, arr[i].steps);
     }
-    if (ut_atomic_commit(f, tmp, path) != 0)
+    if (ut_atomic_commit(f, tmp, path) != 0) {
+        ut_log("modes: cannot save %s", path);
         return -1;
+    }
     return 0;
 }
 

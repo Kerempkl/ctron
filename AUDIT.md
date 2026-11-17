@@ -411,14 +411,23 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
 - [ ] **I2. Kalan NixOS/Arcioth safa** — flake `nix build` ilk doğrulama,
   sudoers extraRules, ryzenadj secure_path testi, FA507NVR canlı dörtlüsü,
   Hyprland mouse. (Saha maddeleri; NEXT.md FAZ 2 ile senkron.)
-- [ ] **I3. Kernel sürüm kayması** — perf PMU 6.14+ opsiyonel (paranoid=2
-  EACCES), gpu_metrics offset'leri ASIC-bağımlı. Ölçüt: yok-sayma
-  yolları --doctor'da görünür.
+- [x] **I3. Kernel sürüm kayması** — *Denetim 11-17: ctron perf PMU
+  kullanmıyor (per-core proxy = /proc/stat util%+MHz — kernel-sürüm
+  bağımsız); gpu_metrics ayrıştırıcısı emekli (u32@28 dersi, kod notu).
+  Kaymaya duyarlı yüzeyler --doctor'da görünür ve dürüst: "ppt iface :
+  ryzenadj (sudo -n; no read-back)", display backend adı, gpu clock
+  max + kilit durumu, k10temp D3 name-doğrulamalı. Kayan/eksik sysfs →
+  okuma başarısız → kural-3 dürüst "--".*
 - [x] **I4. İzin düşüşü** — sudo'suz makinede temiz FAILED, sabit-durum
   mandalları (fan_sysfs_dead); RAPL 0400 root sessiz gizlenme.
-- [ ] **I5. Opsiyonel bağımlılık yokluğu** — asusctl/daeboard/nvidia-smi/
-  notcurses sürüm farkı yokluğunda özellikler zarifçe gizleniyor mu?
-  Ölçüt: her opsiyonel özellik için yok-luk testi (--doctor çıktısıyla).
+- [x] **I5. Opsiyonel bağımlılık yokluğu** — *Denetim 11-17 + CANLI
+  kanıt: doctor her opsiyonel bağımlılık için yes/no satırı basar
+  (asusctl, asus-armoury, nvidia-smi+sıcaklık, fan curve/rpm hwmon,
+  kbd led, ppt sysfs, display, sudo -n); "sudo -n : unavailable" o
+  anda sandbox'ta CANLI görüldü — yokluk asılı kalmadan dürüst
+  raporlanıyor. Özellik gizleme: has_* bayrakları satırı tamamen
+  çizmez (kbd/ppt/display), yoksa araç yine çalışır; notcurses yokluğu
+  derleme-zamanı bağımlılık.*
 
 ## J — Kalıcılık/veri bütünlüğü
 
@@ -450,25 +459,40 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
   editor'den gelen tablo da aynı değişmezden mi geçiyor?*
 - [x] **K2. df-yüzde tavani** — df Use% tavan yuvarlar; df-exact yüzde
   (03a085f dersi).
-- [ ] **K3. Sıfıra-bölme/boş-mengeç** — util%, busiest, min/max: boş
-  halka/ilk poll "--" semantiği (16. tur kuralı) her yeni tabloda.
-- [ ] **K4. Zaman hesapları** — since-reset, strftime, localtime_r
-  hatası yolu; monotonik saat varsayımı. Ölçüt: sistem saati geriye
-  alınırsa çılgın değer yok.
+- [x] **K3. Sıfıra-bölme/boş-mengeç** — *Denetim 11-17: util hesabı
+  `dt > 0` gardlı (hw.c:1330-1331, iki dal da); telem min/max/last
+  `count == 0 → -1`; since `s_lt_n == 0 → -1`; ilk poll core_util -1
+  tohumlu; -1 sentinel'leri val_or_dash/dash_if ile "--" olarak
+  çizilir. Boş-mengeç semantiği her tabloya aynı kuraldan akıyor.*
+- [x] **K4. Zaman hesapları** — *Denetim 11-17: TÜM geçen-süre
+  matematiği CLOCK_MONOTONIC (mono_ms, tmono_ms, apply_start_ms,
+  telem_ack_ms, s_last_refresh_ms) → sistem saati geriye alınsa etki
+  yok; duvar saati yalnız görüntü damgalarında — ut_log'un localtime_r
+  dönüşü yok sayılıyordu, GUARD EKLENDİ (init "--:--:--" + dönüş
+  kontrolü; pratikte başarısız olamaz ama artık okuma da değil).
+  since-reset akümülatörleri DEĞER biriktirir (min/max/sum/n), süre
+  değil → saat kaymasından bağımsız.*
 
 ## L — Hata raporlama dürüstlüğü (ctron'un imzası)
 
 - [x] **L1. Yazma hükmü wording'i** — fan_write_verdict üç durum
   (asusctl-ok / hata / yok) dürüst metin; Dragon Range geri-okuma
   yokluğu dürüst log.
-- [ ] **L2. Yutulan dönüş değeri** — `-1` dönen çağrıların rc'si yok
-  sayılıyor mu? Ölçüt: `grep -nE '^\s*(ut_|ctrl_|profile_|modes_|settings_|display_).*\(' src/` içinde sonucu kullanmayan çağrılar
-  tek tek gerekçelenir ya da hata yolu eklenir.
-- [ ] **L3. "Başarılı" sanılan kısmi başarı** — çok-adımlı apply'da (ppt
-  üç limit, fan cpu+gpu) biri başarısız olursa raporlama parçalı mı,
-  bütünsel mi? Ölçüt: her adımın sonucu tamamlama satırında ayrı
-  görünür (tek-tamamlama-satırı kuralıyla çatışmaz: satır içinde
-  parçalı durum).
+- [x] **L2. Yutulan dönüş değeri** — *Süpürme 11-17 (ifadesel-çağrı
+  grepi): kalan yutulan dönüşler tek tek gerekçelendi — main.c:469
+  doctor sudo-probu (dönüşün kendisi testin konusu), display sorgusu
+  (boş → dürüst boş liste), profile_delete (liste disk'ten yeniden
+  okunur → sonuç görünür), ctrl_fan_write 'w' yolu (kendi verdict
+  logunu basar, fan_write_verdict). İSTİSNA BULUNDU VE KAPANDI:
+  kalıcılık kaydetmeleri sessizdi — settings_save + modes_save
+  başarısızlığı ARTIK ut_log basıyor (fix bu turda).*
+- [x] **L3. "Başarılı" sanılan kısmi başarı** — *Denetim 11-17: üç
+  apply türü de kısmi durumu TEK tamamlama satırının İÇİNDE taşır —
+  POWER: "power apply: ok" vs "some fields FAILED (privilege?)" +
+  toast "⚠ özet · N failed" (apply_fails sayaçlı, pw_apply_writes her
+  alanda artırır); MODE: "N step(s) failed (see log)" + err metni;
+  SNAPSHOT: import err + adım-başı failed sayacı. Footer-dersiyle
+  uyumlu (satır bölünmez, durum satırın içinde parçalı).*
 
 ---
 

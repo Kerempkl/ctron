@@ -189,7 +189,9 @@ int settings_save(const hw_state_t *hw)
         fprintf(f, "fan_gpu_t = %s\n", t);
         fprintf(f, "fan_gpu_p = %s\n", p);
     }
-    if (ut_atomic_commit(f, tmp, path) != 0)
+    if (ut_atomic_commit(f, tmp, path) != 0) {
+        ut_log("settings: cannot save %s", path);
         return -1;
+    }
     return 0;
 }

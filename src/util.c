@@ -635,9 +635,11 @@ void ut_log(const char *fmt, ...)
 {
     time_t now = time(NULL);
     struct tm tm_buf;
-    localtime_r(&now, &tm_buf);
-    char stamp[16];
-    strftime(stamp, sizeof(stamp), "%H:%M:%S", &tm_buf);
+    char stamp[16] = "--:--:--";
+    if (localtime_r(&now, &tm_buf)) /* cannot fail for a real time_t;
+                                     * guarded so a failure stamps, not
+                                     * reads, uninitialized memory */
+        strftime(stamp, sizeof(stamp), "%H:%M:%S", &tm_buf);
 
     char msg[UT_LOG_LEN - 24];
     va_list ap;
