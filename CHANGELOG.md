@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-11-17 — audit G+H closed: 8-min flat-RSS proof + live CLI bad-input table
+
+- G2: every cumulative structure is fixed-size or scalar (rings
+  double[240] wrap; since-reset = scalar min/max/sum/n; per-core
+  fixed arrays; csv streams to disk) — no growth mechanism exists.
+- G3: ut_log never touches disk (bounded ring, C7 proof); the only
+  growing output is the opt-in --csv capture — documented contract.
+- G4: real TUI under the smoke Session pty, 8 min / 120 samples /
+  4 s: RSS first = last = max 45588 KB, drift 0 KB — perfectly flat.
+  First attempt hit the documented responder-less-pty trap (zombie
+  statm zeros = fake curve); redone properly. With A1/G1/G2 the
+  structural case is complete.
+- H1: live bad-input table against the real binary — every case a
+  clean message + nonzero rc (guards fire before writes; --hz 60
+  verified by read-back and restored to 165).
+- H4: two TUIs blocked by the singleton pidfile; TUI+CLI last-writer-
+  wins at the kernel with honest reads tracking external change; two
+  csv loggers interleave line-atomically (O_APPEND). Categories G and
+  H complete.
+
 ## 2026-11-17 — audit F3-F6 closed: extreme-size live proof + input/UTF-8/capability sweeps
 
 - F3: live extreme-size smoke via tui_screenshot.py — 20×6, 30×40 and

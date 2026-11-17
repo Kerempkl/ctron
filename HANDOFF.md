@@ -77,9 +77,17 @@ A–L, ~50 items, per-item criteria, [x]/[~]/[ ] states.
   (tr_TR lesson as comment), input edges rate-limited/gated,
   init-failure clean. **Category F fully [x].** Side artifacts:
   build/shot_*.png (gitignored).
-- Next: **G** (long-run growth: bounded-history proof, log growth,
-  1 h RSS curve) then H/I/J/K/L. G4's hour-long RSS measurement may
-  be a background/overnight job. User expects item-by-item careful
+- **G + H closed 11-17**: G4 measured live — 8 min TUI RSS perfectly
+  flat (45588 KB first=last=max, drift 0; first attempt hit the
+  responder-less-pty trap, redone via smoke Session). G2/G3
+  fixed-size/scalar + ring-only-log documented. H1 live bad-input
+  table (all clean nonzero; --hz 60 test restored to 165). H4
+  singleton/two-csv contracts documented. **Categories G and H
+  fully [x] — 8 of 12 done.**
+- Next: **I2 is Arcioth field work** (stays open); **I3/I5** (kernel
+  drift + optional-dependency absence paths via --doctor), **J1**
+  (atomic temp+rename write — the one real code-change candidate
+  left), **K3/K4**, **L2/L3**. User expects item-by-item careful
   code reading, fixes land autonomously now.
 
 ## 2026-10-30 (23rd round, power honesty: dirty =

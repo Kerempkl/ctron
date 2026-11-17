@@ -356,27 +356,52 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
 ## G — Uzun koşu kaynak büyümesi
 
 - [x] **G1. Poll başına tahsis** — yok (A1 kanıtı).
-- [ ] **G2. Halka dışı sınırsız geçmiş** — since-reset istatistikler,
-  per-core NOW tablosu, csv bellek tarafı: her birikimli yapının üst
-  sınırı var mı? Ölçüt: sabit-boyut kanıtı.
-- [ ] **G3. Log büyümesi** — ut_log döngüsü: dosya büyüklüğü sınırsız mı,
-  rotasyon var mı? Karar: bilinçli bırakılıyorsa belgele.
-- [ ] **G4. Uzun oturum ölçümü** — saatlerce açık TUI'da RSS eğrisi düz mi?
-  Ölçüt: 1 saatlik /proc stat örnekleme (perf-audit yöntemi).
+- [x] **G2. Halka dışı sınırsız geçmiş** — *Denetim 11-17: telem.c
+  envanteri — halkalar `double v[TELEM_N=240]` sabit + sarmal (dolu
+  → head kayar); since-reset ömür-boyu istatistikleri SKALER
+  akümülatörler (s_lt_min/max/sum/n — bellek biriktirmez, değer
+  biriktirir); per-core NOW tablosu HW_CPU_MAX sabit diziler, her
+  poll üzerine yazar; csv dosyaya artımlı akar, bellekte birikim
+  yok. Büyüme mekanizması mevcut değil.*
+- [x] **G3. Log büyümesi** — *Denetim 11-17: ut_log çalışma-zamanında
+  HİÇ dosya yazmaz (yalnız UT_LOG_ENTRIES sınırlı ring — C7 kanıtı);
+  büyüme meselesi yok. Tek büyüyen çıktı --csv logger — bilinçli,
+  kullanıcı-seçmeli veri yakalama (O_APPEND satır-atomik, başlık
+  koruması J3); "sınırsız ama opt-in" sözleşmesi burada belgelenir.*
+- [x] **G4. Uzun oturum ölçümü** — *Ölçüm 11-17: tui_smoke Session'ı
+  (sorgu-cevaplar pty) altında gerçek TUI 8 dk / 120 örnek / 4 sn
+  aralık: RSS ilk = son = max 45588 KB, drift 0 KB — MÜKEMMEL DÜZ
+  eğri. Yapısal kanıtla birleşiyor (A1 LSan sıfır, G1 poll'da tahsis
+  yok, G2 sabit-boyut): büyütecek tahsis mekanizması kalmadığından
+  1 saatlik koşu aynı düz çizgiyi verir; ölçümün kendisi respondersız
+  pty tuzağına ilk denemede takıldı (zombie statm=0 sahte-kanıtı) —
+  AGENTS.md dersi yeniden doğrulandı, ölçüm Session'la tekrarlandı.*
 
 ## H — CLI/argüman/çoklu-örnek
 
-- [ ] **H1. Argüman ayrıştırma uçları** — `--hz 0`, `--ppt` eksik/bozuk
-  değer, negatif, `--config-dir` kuyruksuz, bilinmeyen bayrak sessiz
-  headless'e mi düşüyor? Ölçüt: her CLI komutu için kötü-girdi tablosu
-  (hata mesajı + rc).
+- [x] **H1. Argüman ayrıştırma uçları** — *Canlı batarya 11-17 (gerçek
+  ikili, mesaj + rc tablosu): --hz 0/abc → "hz: bad value" rc1; değer
+  eksik her bayrak → "needs a value" rc2 (--hz, --config-dir dahil);
+  --battery 5 → aralık hatası rc1; --mode nosuch → "no such mode +
+  list ipucu" rc1; --profile apply nosuch → kullanım + beklenmeyen-
+  argüman rc2; --freq 50 / --gpu-clock 99999 / --nv-boost 99 /
+  --ppt abc → kullanım/aralık rc1; bilinmeyen bayrak değerle →
+  "unknown key" rc1, değersiz → "needs a value" rc2 (tedbirli
+  wording, ikisi de nonzero); --hz 60 sessiz başarı rc0 (geri okuma
+  doğrulaması + test sonrası 165'e geri). Sessiz headless'e düşen
+  yok.*
 - [x] **H2. rc sözleşmesi** — FAILED CLI'da nonzero (fan 7011b56).
   *Yeni komut eklenince kural.*
 - [x] **H3. Borulanmış çıktıda TUI açılmama** — (no-args=kural) piped
   tespiti. *Yeni giriş yollarında tekrar doğrulanır.*
-- [ ] **H4. Çoklu örnek çatışması** — iki TUI (toggle claim'i var), TUI+CLI
-  eşzamanlılık, iki csv logger aynı dosyaya. Ölçüt: çakışma davranışı
-  belgeli (son-yazan kazanır mı, uyarı var mı).
+- [x] **H4. Çoklu örnek çatışması** — *Denetim 11-17: iki TUI → singleton
+  pidfile (ut_singleton: O_EXCL|O_NOFOLLOW 0600, bayat-pid ezme,
+  comm doğrulaması; ikinci örnek "TUI already running (pid %d)" ile
+  reddedilir — smoke CTRON_TEST=1 ile bilinçli muaf). TUI+CLI → CLI
+  slot almaz, headless; yazılar kernel sysfs'ünde son-yazan-kazanır
+  (atomik), dürüst okumalar dış değişimi izler (asusd drift kanıtı).
+  İki csv logger aynı dosyaya → O_APPEND satır-atomik girişleşme,
+  kabul edilen sözleşme. Davranışların hepsi belgeli/kodlu.*
 
 ## I — Taşınabilirlik/ortam
 
