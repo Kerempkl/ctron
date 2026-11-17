@@ -25,9 +25,15 @@ A–L, ~50 items, per-item criteria, [x]/[~]/[ ] states.
   reading and writing — appending to a tmpfile right after an EOF
   read landed unpredictably and broke my own first fgets test;
   per-scenario fresh tmpfiles fixed it.
-- Next: **A7** (integer overflow/conversion: size_t subtractions,
-  mW/W + kHz math, direct atoi sites) — user expects item-by-item
-  careful code reading, fixes land autonomously now.
+- **A7 closed in-round** (11-17): 41 atoi sites classified clean;
+  BULGU 4 fixed — hw_parse_gpu_csv double→int casts lacked upper
+  bounds (real UB at 1e300, C11 6.3.1.4), absurd fields now stay -1
+  (tested); settings cpu_mhz_limit upper bound added. UBSan battery
+  (signed overflow included) was already zero.
+- Next: **A8** (format-string discipline — ut_log/printf first arg
+  literal, grep sweep) then A9 (data-driven array indexes) — user
+  expects item-by-item careful code reading, fixes land autonomously
+  now.
 
 ## 2026-10-30 (23rd round, power honesty: dirty =
 write-gate mask + CORE LIMITS single-apply — NEXT.md 19 closed)

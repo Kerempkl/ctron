@@ -1,6 +1,18 @@
 # Changelog
 
-## 2026-11-17 — audit A5/A6 fixed: config truncation silence + set_note honesty + db_reload err
+## 2026-11-17 — audit A7 closed: gpu_csv cast UB guard + cpu_mhz_limit upper bound
+
+- All 41 atoi sites classified (clamped, post-atoi range-guarded, or
+  fan-model clamp_point paths); unsigned-subtraction and
+  multiplication sweeps clean; UBSan (signed overflow included) was
+  already zero over the A6 battery.
+- **hw_parse_gpu_csv**: double→int casts had lower bounds only — an
+  absurd driver value (1e300) hit a real UB (C11 6.3.1.4). Upper
+  bounds added; out-of-range fields honestly stay -1 (new test).
+- settings `cpu_mhz_limit` gained the missing upper bound (≤10000,
+  matching the freq guard).
+
+
 
 - **AUDIT.md born** (repo root): A–L checklist of error classes for a
   ctron-shaped app, ~50 items with per-item criteria; proven-closed

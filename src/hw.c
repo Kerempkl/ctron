@@ -539,17 +539,20 @@ int hw_parse_gpu_csv(const char *line, int *temp, int *mw, int *mhz,
             break;
         p = c + 1;
     }
+    /* upper bounds are UB guards, not range opinions: casting a double
+     * no int can represent is undefined (C11 6.3.1.4), so an absurd
+     * driver value leaves the field honestly at -1 */
     if (got[0] && f[0] > 0 && f[0] < 130)
         *temp = (int)f[0];
-    if (got[1] && f[1] >= 0)
+    if (got[1] && f[1] >= 0 && f[1] < 1e9)
         *mw = (int)(f[1] * 1000.0 + 0.5);
-    if (got[2] && f[2] >= 0)
+    if (got[2] && f[2] >= 0 && f[2] < 1e7)
         *mhz = (int)f[2];
-    if (got[3] && f[3] >= 0)
+    if (got[3] && f[3] >= 0 && f[3] < 1e6)
         *util = (int)f[3];
-    if (got[4] && f[4] >= 0)
+    if (got[4] && f[4] >= 0 && f[4] < 1e9)
         *vram_used = (int)f[4];
-    if (got[5] && f[5] >= 0)
+    if (got[5] && f[5] >= 0 && f[5] < 1e9)
         *vram_total = (int)f[5];
 
     /* fields 7+: "P2, Not Active, Active, ..." — pstate is a Pn token,

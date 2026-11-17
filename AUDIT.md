@@ -78,10 +78,25 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
   11-17 FIX LAND: err girişte temizleniyor (cmd_run konvansiyonu) +
   test_daeboard'a guard'lı sözleşme testi. Diğer err sözleşmeleri
   (cmd_run, profile_import, mode_apply) tüm -1 yollarında yazıyor.*
-- [ ] **A7. Tamsayı taşması/sarma** — size_t çıkmaları (`len - off`),
-  mW↔W dönüşümleri, pwm/Hz matematiği, `atoi` yerine clamp'li okuma
-  (`ut_read_int` doğru yapıyor; doğrudan `atoi` kullanan yerler tek tek
-  düşünülebilir mi?). Ölçüt: saldırgan/kötü-config değerleriyle UB yok.
+- [x] **A7. Tamsayı taşması/sarma** — size_t çıkmaları (`len - off`),
+  mW↔W dönüşümleri, pwm/Hz matematiği, doğrudan `atoi`.
+  *Denetim 11-17: 41 atoi noktası sınıflandı — settings.c hepsi
+  ut_clamp_i/boolean bağlam; cmds.c hepsi atoi-SONRASI aralık guardı
+  (hz 30-2000, freq 100-10000, battery 20-100, nv-boost 5-25,
+  nv-temp 75-87, gpu-clock 200-4096); UI tinput'ları fan_set_point/
+  add_point/nudge → clamp_point'e düşer (pure model, testli);
+  profile/control/hw kalanları boolean/görüntüleme/sysfs. atoi'nin
+  teorik UB'si (representable dışı) glibc'de tanımlı (int)strtol —
+  guard'lar wrap'lenmiş değeri de yakalar. İşaretsiz çıkarma taraması:
+  tek birikim noktası hw.c:641 ve korunmuş (k >= n-w kırışı);
+  çarpmalar long long cast'li (statvfs, tv×1000, 1LL<<30). UBSan
+  (signed-integer-overflow dahil) A6 bataryasında zaten sıfır.*
+  *- **BULGU 4 (fix land 11-17):** hw_parse_gpu_csv'de double→int
+  cast'lere üst sınır yoktu — 1e300 değerinde (int)cast GERÇEK UB
+  (C11 6.3.1.4: representation dışı float→int). Artık saçma büyüklük
+  alanı dürüstçe -1 kalıyor (test: "absurd values stay -1").*
+  *- Mini-sertleştirme: settings cpu_mhz_limit'e üst guard (≤10000,
+  freq guard ile aynı tavan) — alt guard vardı, üst yoktu.*
 - [ ] **A8. Format-string zehirlenmesi** — log/printf ilk argümanı daima
   literal olmalı; config/profile/mode isimleri `%s` olarak geçmeli.
   10-28 denetimi "ut_log literal" dedi; yeni eklenen çağrılar için

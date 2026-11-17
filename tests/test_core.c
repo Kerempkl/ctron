@@ -954,6 +954,12 @@ static void check_telem_hw(void)
     hw_parse_gpu_csv("Failed to initialize NVML", &t, &mw, &mhz, &util, &vu,
                      &vt, NULL, 0, NULL);
     CHECK(t == -1 && mw == -1, "gpu csv garbage honest");
+    /* absurd magnitudes are dropped, not cast into UB land */
+    hw_parse_gpu_csv("44, 1e300, 1e300, 1e300, 1e300, 1e300", &t, &mw, &mhz,
+                     &util, &vu, &vt, NULL, 0, NULL);
+    CHECK(t == 44 && mw == -1 && mhz == -1 && util == -1 && vu == -1 &&
+              vt == -1,
+          "gpu csv absurd values stay -1");
     /* extended form: 6 numerics + "P2, Not Active, ..." reason flags —
      * fields 8.. in query order: idle, app clocks, sw power cap, ... */
     hw_parse_gpu_csv("45, 6.08, 210, 0, 8192, 16384, P2, Not Active, "

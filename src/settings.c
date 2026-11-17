@@ -126,7 +126,7 @@ int settings_load(hw_state_t *hw)
             g_prefs.telem_h = ut_clamp_i(atoi(val), 3, 10);
         } else if (!strcmp(key, "cpu_mhz_limit")) {
             int v = atoi(val);
-            if (v >= 100)
+            if (v >= 100 && v <= 10000)
                 hw->cpu_mhz_limit = v;
         } else if (!strcmp(key, "fan_cpu_on")) {
             if (!hw->has_fan_curve)
