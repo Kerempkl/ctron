@@ -67,12 +67,22 @@ Other privileged operations:
   `[A-Za-z0-9._-]` and safely handled `/` segment separators (`.` and `..` rejected).
 - **Modes file (`modes.ini`):** Fixed buffer parsing. Stack overflow protections
   were audited on 2026-10-03 (32-entry table cap, `MODE_STEPS_MAX` truncation guards).
+  Since 2026-11-17 overlong lines are skipped whole and logged
+  (`ut_fgets_full`) — a cut value can never parse as a valid-but-wrong one.
+  **Config-origin execution:** `steps`/`.ctr` keys run against ctron's OWN
+  command table (`cmds.c`) with value-range guards, executed as argv vectors
+  — never a shell. The config dir (`~/.config/ctron`, or `CTRON_CONFIG`) is
+  trusted user-owned space: anyone who can write it can already run commands
+  as that user.
 - **Snapshot note rewrite:** the 2026-10-28 full-tree audit found a real stack
   buffer overflow in `profile_set_note()` — a `>4 KB .ctr` drove the offset
   past the buffer because `snprintf`'s return value is the WANTED length
   (ASan-proven with a PoC against the real function). Fixed the same day
   (`note_append()` clamps the offset; oversized files are rewritten truncated,
   never out of bounds) and locked with a regression test in `tests/test_core.c`.
+  The 2026-11-17 honesty round tightened the contract further: any rewrite
+  that would not round-trip (file >4 KB, line >511 B) is now REFUSED with the
+  file left byte-identical instead of silently shortened.
 
 ---
 
@@ -83,8 +93,9 @@ Other privileged operations:
 1. **Eliminate Subshell in Privileged Writes (`fork` + `execve`):**
    - **Status: DONE 2026-10-26** — `ut_write_via_argv()` (src/util.c):
      `pipe2(O_CLOEXEC)` + fork, the child dup2's the read end onto stdin
-     and `execvp`s a pure argv vector — `timeout 3 sudo -n tee <path>`
-     (the 3 s cap survives as an argv word, not a shell string). The
+     and `execvp`s a pure argv vector — `timeout -k1 3 sudo -n tee <path>`
+     (the TERM-at-3 s / KILL-at-4 s cap survives as argv words, not a
+     shell string). The
      parent survives a child that exits before reading (SIGPIPE ignored
      around the feed write; the exit status decides), and the old
      single-quote rejection is gone because nothing parses the
@@ -113,7 +124,9 @@ Other privileged operations:
 
 1. **Direct Execution for All Helpers (`ut_exec_argv`):**
    - **Status: DONE 2026-10-26** — `ut_exec_argv` / `_raw` / `_both` in
-     src/util.c (fork + execvp under `timeout 3`, stdout captured with
+     src/util.c (fork + execvp under `timeout -k1 3` — TERM at 3 s,
+     KILL escalation 1 s later so an unkillable child cannot hold the
+     caller's waitpid hostage; stdout captured with
      full drain so a chatty child cannot fake a SIGPIPE failure). Every
      `nvidia-smi` call (hw temp + max-clock reads, the lock verify
      sampler, `sudo -n … -lgc/-rgc`), every `kscreen-doctor` call

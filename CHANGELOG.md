@@ -1,5 +1,28 @@
 # Changelog
 
+## 2026-11-17 — audit C4-C8 closed: KILL escalation for stuck children + config-trust doc
+
+- C4: full spawn inventory re-verified (system() absent; every fork/
+  popen shepherded and reaped; `command -v` popens are instant shell
+  builtins, reason documented in code). **Hardening**: all four
+  `timeout` sites gained `-k1` KILL escalation (TERM at 3 s, KILL at
+  4 s) so a child stuck in uninterruptible sleep cannot hold the
+  caller's waitpid hostage — exec_run string, ut_write_via_argv argv,
+  argv_run prefix (capacity math kept: single-arg -k1, guard
+  argc+3), cpufreq batched tee (av ceiling +6 → +7).
+- C5: daeboard socket SO_RCVTIMEO-budgeted; both display backends and
+  asusctl/busctl ride ut_exec_argv/ut_exec — every external call now
+  carries an upper bound.
+- C7: ctron runtime writes no temp files at all (ut_log is ring-only;
+  persistence lives in the config dir; the only /tmp touch is the
+  O_EXCL'd toggle pidfile, pre-closed).
+- C8: config-origin execution documented in SECURITY.md §2.4 — steps/
+  .ctr keys run against ctron's own guarded command table via argv
+  exec; the config dir is trusted user-owned space. §2.4 also
+  refreshed: ut_fgets_full skip+log and the set_note refuse contract
+  (the old "rewritten truncated" wording was stale).
+- 0 warnings, make test, full tuitest, live --status rc=0.
+
 ## 2026-11-17 — audit B3/B4/B5/B7 closed clean: category B complete
 
 - B3 double-apply: DROP + one-shot warn, double-gated (dispatch passes

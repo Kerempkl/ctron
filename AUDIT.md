@@ -186,24 +186,41 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
   eklenince drain kuralı tekrarlanmalı.*
 - [x] **C3. pidfile yarışı** — O_EXCL + atomik kendini-temizleyen claim
   (ctron-toggle.sh, eae980d).
-- [ ] **C4. Zombie/saat-dolan çocuklar** — timeout 3 sarmalayıcısı her exec
-  yolunda var mı (argv_run, ut_priv_write, display backends, daeboard)?
-  Ölçüt: pclose/waitpid'siz fork yok; `--status` sonrası çocuk kalmaz.
-- [ ] **C5. Asılı çocuk** — daeboard seqpacket soketinde timeout (11aae58
-  kapattı); display backend'lerinde (kscreen-doctor/hyprland keyword)
-  asılırsa TUI donar mı? Ölçüt: tüm dış çağrılar üst sınır taşır.
+- [x] **C4. Zombie/saat-dolan çocuklar** — *Denetim 11-17: süreç envanteri
+  tam — system() YOK; fork ×2 (ut_write_via_argv, argv_run) ikisi de
+  "timeout" önekli + waitpid'li; popen ×4 (exec_run "timeout 3 %s",
+  ut_have_cmd/nvidia_smi_bin `command -v` builtin'i — anında çıkar,
+  timeout gerekmez, gerekçe kodda yorumlu) + pclose'lu. Tüm display
+  backend'leri ve daeboard süreç işi ut_exec_argv üzerinden.
+  HARDENING LAND: TERM tek basamaktı (D-durumu çocuğu 3 sn sonra da
+  yaşayabilir) → dört noktaya da `-k1` KILL eskalasyonu (exec_run
+  dizgisi, ut_write_via_argv av, argv_run full[], control.c cpufreq
+  toplu tee — av tavanı +6→+7, argv_run kapısı argc+2→argc+3, tek-arg
+  "-k1" biçimi full[26] matematiğini korur). --status canlı rc=0.
+  C8 belge notu da SECURITY.md §2.4'e girdi.*
+- [x] **C5. Asılı çocuk** — *Denetim 11-17: daeboard seqpacket
+  SO_RCVTIMEO bütçeli (left_ms, 11aae58); kscreen-doctor/hyprctl
+  yalnız ut_exec_argv* → timeout -k1 3 tavanı; asusctl/busctl
+  sabit-dizgi ut_exec → aynı tavan. Tüm dış çağrılar üst sınır
+  taşıyor; soket tek istisna ve o da zaman aşımlı.*
 - [x] **C6. Kabuk enjeksiyonu** — system() yok; popen yalnız sabit
   string'lerle (`ut_have_cmd`, nvidia_smi_bin); kullanıcı/config kökenli
   string argv vektörüne bile girmeden doğrulanıyor (nvidia_smi_bin
   '\''/boşluk reddi). *Yeni popen yasağı: kalıcı.*
-- [ ] **C7. /tmp ve öngörülebilir yol** — probe dosyaları build/ altına
-  (araç sandbox dersi ayrı); pidfile/socket geçici dosyalarında mkstemp/
-  O_EXCL disiplini. Ölçüt: öngörülebilir isimle yazılan dosya yok.
-- [ ] **C8. Ortam değişkeni enjeksiyonu** — CTRON_CONFIG ile keyfi dizin
-  (bilinçli özellik) ama modes.ini/.ctr içeriği o dizinden çalıştırma
-  komutlarına (mode steps → run_flag/exec) gidiyor. Ölçüt: config kökenli
-  komut çalıştırmada hangi doğrulama var, açıkça belgelenmeli
-  (SECURITY.md ile hizala).
+- [x] **C7. /tmp ve öngörülebilir yol** — *Denetim 11-17: ctron runtime
+  HİÇ geçici dosya yazmıyor — ut_log ring-only (dosya yok), tüm
+  kalıcılık config dizininde (~/.config/ctron, mkdir_p 0755), testler
+  mkdtemp kullanıyor. Tek /tmp teması toggle pidfile: O_EXCL+NOFOLLOW
+  0600 + lstat sahiplik kapısı (10-26'da kapandı, C3 kapsamı).*
+- [x] **C8. Ortam değişkeni enjeksiyonu** — *Denetim 11-17:
+  CTRON_CONFIG bilinçli kullanıcı özelliği; config kökenli komut
+  çalıştırma zinciri = modes.ini/.ctr anahtarları → cmd_run (kendi
+  komut tablosu, değer-aralık guardları) → argv exec (shell yok —
+  C6). Güven modeli SECURITY.md §2.4'te ARTIK AÇIKÇA yazılı: config
+  dizini güvenilen kullanıcı-mülkü alan; yazabilen zaten o kullanıcı
+  olarak komut çalıştırabilir. A5 fix'i (ut_fgets_full) ve set_note
+  ret sözleşmesi de §2.4'e işlendi (bayat "rewritten truncated"
+  ifadesi düzeltildi).*
 
 ## D — Ayrıştırma ve birimler
 

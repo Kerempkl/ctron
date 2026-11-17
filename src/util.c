@@ -191,7 +191,7 @@ int ut_priv_write(const char *path, const char *val)
     /* No shell anywhere in the chain: the value rides a pipe into
      * `timeout 3 sudo -n tee <path>` exec'd as a pure argv vector, so
      * quotes and metacharacters in path or value are never parsed. */
-    const char *av[] = { "timeout", "3", "sudo", "-n", "tee", path, NULL };
+    const char *av[] = { "timeout", "-k1", "3", "sudo", "-n", "tee", path, NULL };
     return ut_write_via_argv(av, val) == 0 ? 0 : -1;
 }
 
@@ -228,7 +228,7 @@ static void strip_ansi_inplace(char *s)
 static int exec_run(const char *cmd, char *out, size_t n, bool raw)
 {
     char full[1024];
-    if (snprintf(full, sizeof(full), "timeout 3 %s 2>/dev/null", cmd) >= (int)sizeof(full))
+    if (snprintf(full, sizeof(full), "timeout -k1 3 %s 2>/dev/null", cmd) >= (int)sizeof(full))
         return -1;
 
     FILE *p = popen(full, "r");
@@ -287,14 +287,17 @@ static int argv_run(const char *const argv[], char *out, size_t n,
     int argc = 0;
     while (argc < 24 && argv[argc])
         argc++;
-    if (argv[argc] || argc + 2 > 24)
+    if (argv[argc] || argc + 3 > 24)
         return -1;
     char *full[26];
     full[0] = (char *)"timeout";
-    full[1] = (char *)"3";
+    full[1] = (char *)"-k1"; /* TERM at 3 s, KILL at 4 s — a child
+                              * stuck past its ceiling must not hold
+                              * the caller's waitpid hostage */
+    full[2] = (char *)"3";
     for (int i = 0; i < argc; i++)
-        full[2 + i] = (char *)argv[i];
-    full[2 + argc] = NULL;
+        full[3 + i] = (char *)argv[i];
+    full[3 + argc] = NULL;
 
     int fds[2];
     if (pipe2(fds, O_CLOEXEC) != 0)

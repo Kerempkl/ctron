@@ -81,13 +81,14 @@ static int cpufreq_write_all(const hw_state_t *hw, const char *leaf,
     if (!hw || hw->cpu_n <= 0)
         return -1;
 
-    /* "timeout 3 sudo -n tee p1 p2 ... pn" — one invocation, explicit
-     * paths as argv words, value fed through the pipe */
+    /* "timeout -k1 3 sudo -n tee p1 p2 ... pn" — one invocation,
+     * explicit paths as argv words, value fed through the pipe */
     char pathv[HW_CPU_MAX][96];
-    const char *av[HW_CPU_MAX + 6];
+    const char *av[HW_CPU_MAX + 7];
     int n = 0;
 
     av[n++] = "timeout";
+    av[n++] = "-k1";
     av[n++] = "3";
     av[n++] = "sudo";
     av[n++] = "-n";

@@ -50,10 +50,17 @@ A–L, ~50 items, per-item criteria, [x]/[~]/[ ] states.
   three deliberate schemes (pw_touched bits / fan_staged bool /
   cf_staged 0-sentinel via cf_clamp) all sound. **Category B is now
   fully [x].**
-- Next: **C4/C5** (zombie/timeout-shepherded children over every exec
-  path; hang ceilings on display backends) then the rest of C, or
-  category order C→L. User expects item-by-item careful code reading,
-  fixes land autonomously now.
+- **C4–C8 closed 11-17** (one real hardening): every `timeout` site
+  gained `-k1` KILL escalation (TERM 3 s → KILL 4 s; a D-state child
+  can no longer hold a waitpid hostage); cpufreq batch av ceiling
+  +6→+7, argv_run guard argc+3 with single-arg -k1 keeping full[26]
+  math. C5 (all external calls ceiling'd), C7 (runtime writes zero
+  temp files), C8 (config-trust + refreshed §2.4: set_note refuse
+  contract) documented. **Category C is now fully [x].**
+- Next: **D2** (hostile-config fuzz-vari battery) then the rest of D
+  (D3 sysfs format drift, D4 unit proofs, D7 ron parser). Category
+  order D→L. User expects item-by-item careful code reading, fixes
+  land autonomously now.
 
 ## 2026-10-30 (23rd round, power honesty: dirty =
 write-gate mask + CORE LIMITS single-apply — NEXT.md 19 closed)
