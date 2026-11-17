@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-11-17 — audit E3-E6 closed clean: write-gate discipline verified
+
+- E3: all 16 write-door call sites live inside control.c (structural
+  containment); chain order asusctl → sysfs(→sudo -n) verified on a
+  representative.
+- E4: pw_write_mask re-read against the NEXT-19 closure record — one
+  predicate set (touched-flag OR readable-diff per field, the -2
+  unreadable-ron guard, the oscillating-ceiling exception); pw_dirty
+  = mask != 0 and the ●/Apply/quit/Enter/preview all read the same
+  mask. Honest by construction.
+- E5: FAN 'w' stays synchronous BY DESIGN (documented); its collision
+  window with the apply worker is closed because every key except q/Q
+  is gated during busy — the only concurrent writer of the EC is
+  never concurrent.
+- E6: sampling-verification wording is honest end-to-end (FAILED
+  without driver confirm, VERIFY FAILED with the samples on
+  overshoot, success only with samples shown); the idle weak-positive
+  limit is the mechanism's documented boundary.
+- No code changes — category E complete.
+
 ## 2026-11-17 — audit D3/D4 closed clean: sysfs drift + unit proofs
 
 - D3: zero hardcoded hwmon indices; every discovery goes through

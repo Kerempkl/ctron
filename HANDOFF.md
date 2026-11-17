@@ -67,10 +67,14 @@ A–L, ~50 items, per-item criteria, [x]/[~]/[ ] states.
   indices; unit-proof culture institutionalized (gpu_metrics note at
   both sites, per-series CHANGELOG proofs). **Category D is now
   fully [x].**
-- Next: **E3/E4/E5/E6** (write-chain order grep, stale-PPT honesty
-  labels, FAN 'w' during worker, gpu-clock idle verification) — then
-  F. User expects item-by-item careful code reading, fixes land
-  autonomously now.
+- **E3-E6 closed clean 11-17**: write doors structurally contained in
+  control.c; pw_write_mask re-verified against the NEXT-19 record
+  (single predicate, pw_dirty = mask); FAN 'w' collision window closed
+  by the dispatch busy-gate; gpu-clock sampling wording honest with
+  the idle weak-positive limit documented. **Category E fully [x].**
+- Next: **F3/F4/F5/F6** (resize extremes, UTF-8/tr_TR width, input
+  edges, terminal capability assumptions) — then G. User expects
+  item-by-item careful code reading, fixes land autonomously now.
 
 ## 2026-10-30 (23rd round, power honesty: dirty =
 write-gate mask + CORE LIMITS single-apply — NEXT.md 19 closed)

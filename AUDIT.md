@@ -281,20 +281,35 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
 - [x] **E2. asusd ezişi** — güç olayında profil zorlaması; management
   satırları + snapshot/restore + explicit-staging-önceliği (10-01).
   "AC/battery ters" false alarm'ı da kapandı.
-- [ ] **E3. Yazma zinciri önceliği** — asusctl → sysfs → sudo -n her kontrol
-  için gerçekten bu sırada mı; sudo yokken temiz FAILED (asla prompt/
-  asılı — fan_sysfs_dead mandalı + fan_write_verdict üçlü ayrımı, 7011b56).
-  Ölçüt: zincir dışına çıkan çağrı noktası kalmadı mı (grep)?
-- [ ] **E4. Stale-PPT etkileşimi** — SMU limitleri uçucu (reboot/profil
-  temizler); write-clamp reboot-sürekli. Ölçüt: gösterilen durum ile
-  gerçek durum arasındaki fark dürüst etiketli mi (●/önizleme
-  semantiği)? NEXT.md 19 kapanış kaydına karşı kod doğrulaması.
-- [ ] **E5. FAN 'w' senkron EC yazması** — bilinçli kural ama worker
-  aktifken FAN yazımı çakışıyor mu? Ölçüt: çakışma penceresi
-  belgelenmiş/kapılı.
-- [ ] **E6. GPU clock kilidi doğrulaması** — örnekleme-doğrulaması
-  (ctrl_gpu_clock_ok) yalnız yükle çalışır; boşta "başarılı" sanılabilir
-  mi? Ölçüt: doğrulama penceresi ve başarısızlık wording'i dürüst.
+- [x] **E3. Yazma zinciri önceliği** — *Denetim 11-17: yapısal kanıt —
+  ut_write_file/ut_priv_write/ut_write_via_argv çağrılarının TÜMÜ
+  (16 nokta) control.c içinde; UI/main/cmds yalnız ctrl_* çağırır;
+  zincir dışı kapı yok. Sıra temsilcide doğrulandı (ctrl_set_profile:
+  asusctl → ut_priv_write sysfs [kendisi direkt→sudo -n]). Sudo'suz
+  makine davranışı önceden kanıtlı (fan_sysfs_dead + üçlü verdict,
+  7011b56).*
+- [x] **E4. Stale-PPT etkileşimi** — *Kod doğrulaması 11-17, NEXT-19
+  kapanış kaydıyla birebir: tek doğrulama kümesi pw_write_mask —
+  her alanın yazım koşulu tek yerde (PPT: touched BAYRAĞI veya
+  okunabilir-canlı diff; asusd: -2 okunamıyor → ne ● ne yazma;
+  cpufreq: titreşen tavan → yalnız touched); pw_dirty = mask != 0
+  (satır 268), Apply ışığı + ● + quit-guard + Enter kapıları +
+  "will write:" önizlemesi hepsi aynı maskeyi okur — asimetri
+  kapanmış, önizleme ağırıyor.*
+- [x] **E5. FAN 'w' senkron EC yazması** — *Denetim 11-17: senkronluk
+  bilinçli + belgeli (editor_fan.c:55 yorum). Çakışma penceresi
+  KAPALI: 'w' dahil TÜM tuşlar dispatch_key'in busy kapısından geçer
+  (yalnız q/Q muaf) — worker sürerken FAN yazımı tetiklenemez;
+  worker'ın kendi ctrl_fan_write'ı (SNAPSHOT) yalnız işçi içinde.
+  CLI yolu tek-thread. Tek eşzamanlı yazıcı her an tek.*
+- [x] **E6. GPU clock kilidi doğrulaması** — *Denetim 11-17: okunabilir
+  kilit bayrağı YOK (uygulama-saatleri 615+ deprecated, event-mask
+  kilidi yok sayıyor) → kural-4 örneklemeyle: settle 250 ms + 3 tur,
+  yük-yarışı korumalı (tek bayat örnek başarısız sayılmaz, tutarlı
+  aşım sayılır). Wording dürüst: sürücü onayı yoksa FAILED; örnekleme
+  aşarsa "VERIFY FAILED (samples: ...)"; başarı "(verified: örnekler)"
+  ile. Boşta doğrulama zayıf-pozitiftir (aşım yakalar, kapalıyı
+  kanıtlamaz) — mekanizmanın sınırı kodda belgeli, dürüstlük korunur.*
 
 ## F — TUI'ye özgü
 
