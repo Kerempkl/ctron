@@ -422,13 +422,24 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
 
 ## J — Kalıcılık/veri bütünlüğü
 
-- [ ] **J1. Yarım yazım bozulması** — .ctr/modes.ini/settings.ini `fopen(w)`
-  ile yerinde yeniden yazılıyor: yazım ortasında güç kesilirse dosya
-  bozulur. Ölçüt/karar: temp+rename (atomik değiştirme) gerekiyor mu —
-  kod değişikliği önerisiyle bitir.
-- [ ] **J2. Eşzamanlı yazım** — iki oturum aynı settings.ini'ye quit'te
-  yazarsa (paralel oturum dersi). Ölçüt: last-writer-wins kabulü
-  belgeli ya da kilit.
+- [x] **J1. Yarım yazım bozulması** — *FIX LAND 11-17: ut_atomic_begin/
+  commit (util.c) — path+".ctron-tmp" (unlink-first + O_EXCL|O_NOFOLLOW
+  0600: crash artığı temp asla eklenmez, ezilir), fflush+fsync+fclose,
+  rename ile hedefin üzerine atomik geçiş; her başarısızlık temp'i
+  siler, hedefe dokunmaz. Altı yazım noktası çevrildi: settings_save,
+  modes_write_defaults + modes_save, profile_export, profile_set_note
+  rewrite, daeboard binds save. Test (check_atomic_write): commit
+  içerik değiştirir; yarım bırakılan yazım ESKİ içeriği korur + temp
+  crash gibi kalır; sonraki begin bayat temp'i ezer; commit temp'i
+  rename ile götürür. csv logger bilinçli olarak append kalır (kayıt
+  akışı, config değil).*
+- [x] **J2. Eşzamanlı yazım** — *Denetim 11-17: iki TUI singleton pidfile
+  ile engelli (H4); kalan teorik çift = TUI quit + CLI bayrak-çıkışı
+  (main.c:865 settings_save). J1'den sonra bozulma imkânsız: iki
+  yazıcı da BÜTÜN geçerli dosya üretir, rename atomik → sözleşme =
+  bütün-dosya son-yazan-kazanır (burada belgelendi). Paralel oturum
+  dersi için süreç-level kilit gerekmez, kullanıcı tek makinede tek
+  TUI çalıştırıyor (singleton).*
 - [x] **J3. Format ileri-uyumluluk** — csv başlık kolon koruması
   (22 kolon uyarısı + yeni dosya zorlaması).
 

@@ -161,9 +161,9 @@ int settings_load(hw_state_t *hw)
 int settings_save(const hw_state_t *hw)
 {
     ensure_dirs();
-    char path[500];
+    char path[500], tmp[520];
     settings_file(path, sizeof(path));
-    FILE *f = fopen(path, "w");
+    FILE *f = ut_atomic_begin(path, tmp, sizeof(tmp));
     if (!f)
         return -1;
 
@@ -189,6 +189,7 @@ int settings_save(const hw_state_t *hw)
         fprintf(f, "fan_gpu_t = %s\n", t);
         fprintf(f, "fan_gpu_p = %s\n", p);
     }
-    fclose(f);
+    if (ut_atomic_commit(f, tmp, path) != 0)
+        return -1;
     return 0;
 }

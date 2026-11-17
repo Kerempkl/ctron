@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-11-17 — audit J closed: atomic config writes (J1) + documented last-writer-wins (J2)
+
+- **J1 fixed**: new `ut_atomic_begin/commit` (util.c) — sibling
+  ".ctron-tmp" (unlink-first, O_EXCL|O_NOFOLLOW, 0600), fflush+fsync,
+  atomic rename over the target; failures unlink the temp and leave
+  the target untouched. All six config writers converted
+  (settings/modes ×2/profile export + note rewrite/daeboard binds).
+  A crash mid-write now leaves the OLD file intact. Regression test
+  covers commit/abandon/stale-temp-recovery/rename-away; the csv
+  logger intentionally stays append (a capture stream, not config).
+- **J2 documented**: two TUIs are singleton-blocked; the remaining
+  theoretical pair (TUI quit + CLI flag-exit settings_save) cannot
+  corrupt anything post-J1 — whole-file last-writer-wins under atomic
+  rename.
+- 0 warnings, make test, full tuitest green.
+
 ## 2026-11-17 — audit G+H closed: 8-min flat-RSS proof + live CLI bad-input table
 
 - G2: every cumulative structure is fixed-size or scalar (rings

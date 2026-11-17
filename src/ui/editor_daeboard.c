@@ -257,8 +257,9 @@ static int save_file(void)
 	FILE *f;
 	int i, s;
 
+	char tmp[536];
 	db_binds_path(path, (int)sizeof path);
-	f = fopen(path, "w");
+	f = ut_atomic_begin(path, tmp, (int)sizeof tmp);
 	if (!f) {
 		ut_log("daeboard: cannot write %s", path);
 		return -1;
@@ -281,7 +282,10 @@ static int save_file(void)
 			fprintf(f, "ctron = %s\n", keys[i].ctron);
 		fprintf(f, "\n");
 	}
-	fclose(f);
+	if (ut_atomic_commit(f, tmp, path) != 0) {
+		ut_log("daeboard: cannot commit %s", path);
+		return -1;
+	}
 	dirty = 0;
 	{
 		char err[64];

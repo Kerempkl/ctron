@@ -490,6 +490,63 @@ static void check_hostile_config(void)
     rmdir(tmp);
 }
 
+/* J1 atomic writes: commit replaces the target; a never-committed
+ * begin leaves the target and cleans the temp */
+static void check_atomic_write(void)
+{
+    char tmpd[] = "/tmp/ctron2-test-XXXXXX";
+    CHECK(mkdtemp(tmpd) != NULL, "atomic mkdtemp");
+    char pth[300], tmp[320];
+    snprintf(pth, sizeof pth, "%s/cfg.ini", tmpd);
+
+    FILE *g = fopen(pth, "w");
+    CHECK(g != NULL, "atomic seed open");
+    if (g) {
+        fputs("old = 1\n", g);
+        fclose(g);
+    }
+
+    /* commit path: full write lands atomically */
+    FILE *f = ut_atomic_begin(pth, tmp, sizeof tmp);
+    CHECK(f != NULL, "atomic begin");
+    if (f) {
+        fputs("new = 2\n", f);
+        CHECK(ut_atomic_commit(f, tmp, pth) == 0, "atomic commit");
+    }
+    char buf[64] = {0};
+    CHECK(ut_read_file(pth, buf, sizeof buf) == 0 &&
+              !strcmp(buf, "new = 2"),
+          "atomic commit replaced content");
+
+    /* abandoned write: target keeps the committed content; the temp
+     * lingers exactly as a real crash would leave it — the NEXT begin
+     * must replace it, never append (unlink-first before O_EXCL) */
+    f = ut_atomic_begin(pth, tmp, sizeof tmp);
+    CHECK(f != NULL, "atomic begin 2");
+    if (f) {
+        fputs("half-written garbage", f);
+        fclose(f); /* no commit — simulates a crash mid-write */
+    }
+    CHECK(ut_read_file(pth, buf, sizeof buf) == 0 &&
+              !strcmp(buf, "new = 2"),
+          "abandoned write leaves old content");
+    CHECK(ut_path_exists(tmp) == true, "abandoned temp lingers like a crash");
+    /* the next begin replaces a stale temp instead of appending */
+    f = ut_atomic_begin(pth, tmp, sizeof tmp);
+    CHECK(f != NULL, "atomic begin over stale temp");
+    if (f) {
+        fputs("again = 3\n", f);
+        CHECK(ut_atomic_commit(f, tmp, pth) == 0, "commit after stale");
+    }
+    CHECK(ut_path_exists(tmp) == false, "commit renamed the temp away");
+    CHECK(ut_read_file(pth, buf, sizeof buf) == 0 &&
+              !strcmp(buf, "again = 3"),
+          "recovery write lands");
+
+    unlink(pth);
+    rmdir(tmpd);
+}
+
 /* kscreen-doctor output parser, offline. */
 extern int disp_kde_test_parse(const char *text, char *name, size_t nn,
                                int *hz_cur, int *hz_out, int hz_max);
@@ -1920,6 +1977,7 @@ int main(void)
 
     check_profiles();
     check_hostile_config();
+    check_atomic_write();
     check_kde_parser();
     check_hypr_parser();
     check_telem();

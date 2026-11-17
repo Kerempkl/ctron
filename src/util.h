@@ -22,6 +22,13 @@ int ut_read_file_all(const char *path, char *out, size_t n);
  * so the next call starts at the following line. */
 int ut_fgets_full(char *out, size_t n, FILE *f);
 
+/* Atomic config write: begin opens path+".ctron-tmp" (O_EXCL, 0600),
+ * the caller writes through the FILE*, commit fsyncs and renames over
+ * the target. A crash mid-write leaves the OLD file intact; any
+ * failure unlinks the temp. */
+FILE *ut_atomic_begin(const char *path, char *tmp, size_t n);
+int ut_atomic_commit(FILE *f, const char *tmp, const char *path);
+
 /* Read an integer from a file (sysfs semantics). Returns -1 on failure. */
 int ut_read_int(const char *path);
 

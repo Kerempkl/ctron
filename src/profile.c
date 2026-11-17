@@ -166,7 +166,8 @@ int profile_export(const char *name, const hw_state_t *hw)
     char path[520];
     profile_path(safe, path, sizeof(path));
     mkdir_parent(path);
-    FILE *f = fopen(path, "w");
+    char tmp[544];
+    FILE *f = ut_atomic_begin(path, tmp, sizeof(tmp));
     if (!f)
         return -1;
 
@@ -205,7 +206,8 @@ int profile_export(const char *name, const hw_state_t *hw)
     fprintf(f, "fan-curve gpu = %s %s\n", gt, gp);
     fprintf(f, "[light]\n");
     fprintf(f, "kbd = %s\n", hw_kbd_name(hw->kbd));
-    fclose(f);
+    if (ut_atomic_commit(f, tmp, path) != 0)
+        return -1;
 
     ut_log("profile exported: %s", safe);
     return 0;
@@ -422,11 +424,13 @@ int profile_set_note(const char *name, const char *note)
         return -1;
     }
 
-    f = fopen(path, "w");
+    char tmp[544];
+    f = ut_atomic_begin(path, tmp, sizeof(tmp));
     if (!f)
         return -1;
     fputs(out, f);
-    fclose(f);
+    if (ut_atomic_commit(f, tmp, path) != 0)
+        return -1;
     ut_log("snapshot note: %s %s", name, note && note[0] ? "set" : "cleared");
     return 0;
 }

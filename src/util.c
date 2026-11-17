@@ -78,6 +78,47 @@ int ut_fgets_full(char *out, size_t n, FILE *f)
     return 1;
 }
 
+/* ---- atomic config writes --------------------------------------------- */
+
+/* Config-file durability (AUDIT J1): write to a sibling temp file,
+ * fsync, then rename over the target — a crash mid-write leaves the
+ * OLD file intact instead of a truncated one. ut_atomic_begin opens
+ * the temp (O_EXCL: a stale temp from a crashed run is never appended
+ * to), the caller writes through the FILE*, ut_atomic_commit syncs
+ * and renames; any failure unlinks the temp and leaves the target
+ * untouched. */
+FILE *ut_atomic_begin(const char *path, char *tmp, size_t n)
+{
+    if (!path || !tmp || n == 0)
+        return NULL;
+    if (snprintf(tmp, n, "%s.ctron-tmp", path) >= (int)n)
+        return NULL;
+    unlink(tmp); /* stale temp from a crashed run: replace, never append */
+    int fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+    if (fd < 0)
+        return NULL;
+    FILE *f = fdopen(fd, "w");
+    if (!f) {
+        close(fd);
+        unlink(tmp);
+        return NULL;
+    }
+    return f;
+}
+
+int ut_atomic_commit(FILE *f, const char *tmp, const char *path)
+{
+    if (!f)
+        return -1;
+    bool ok = (fflush(f) == 0) && (fsync(fileno(f)) == 0) &&
+              (fclose(f) == 0);
+    if (!ok || rename(tmp, path) != 0) {
+        unlink(tmp); /* target untouched either way */
+        return -1;
+    }
+    return 0;
+}
+
 int ut_read_int(const char *path)
 {
     char buf[64];

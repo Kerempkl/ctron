@@ -36,7 +36,8 @@ void modes_write_defaults(void)
     settings_dir(dir, sizeof(dir));
     ut_mkdir_p(dir);
 
-    FILE *f = fopen(path, "w");
+    char tmp[520];
+    FILE *f = ut_atomic_begin(path, tmp, sizeof(tmp));
     if (!f)
         return;
     fprintf(f, "# ctron modes — single-command setting bundles.\n");
@@ -44,7 +45,8 @@ void modes_write_defaults(void)
     for (size_t i = 0; i < sizeof(default_modes) / sizeof(default_modes[0]); i++) {
         fprintf(f, "\n[%s]\nsteps = %s\n", default_modes[i].name, default_modes[i].steps);
     }
-    fclose(f);
+    if (ut_atomic_commit(f, tmp, path) != 0)
+        return;
 }
 
 int modes_load(mode_def_t *arr, int max)
@@ -107,7 +109,8 @@ int modes_save(const mode_def_t *arr, int n)
     settings_dir(dir, sizeof(dir));
     ut_mkdir_p(dir);
 
-    FILE *f = fopen(path, "w");
+    char tmp[520];
+    FILE *f = ut_atomic_begin(path, tmp, sizeof(tmp));
     if (!f)
         return -1;
     fprintf(f, "# ctron modes — single-command setting bundles.\n");
@@ -117,7 +120,8 @@ int modes_save(const mode_def_t *arr, int n)
             continue;
         fprintf(f, "\n[%s]\nsteps = %s\n", arr[i].name, arr[i].steps);
     }
-    fclose(f);
+    if (ut_atomic_commit(f, tmp, path) != 0)
+        return -1;
     return 0;
 }
 
