@@ -353,6 +353,143 @@ static void check_profiles(void)
     }
 }
 
+/* D2 hostile-config battery: every malformed shape must parse, clamp
+ * or skip — never crash, never hang. Completion of this function is
+ * itself part of the proof. */
+static void check_hostile_config(void)
+{
+    const char *old_cfg = getenv("CTRON_CONFIG");
+    char tmp[] = "/tmp/ctron2-test-XXXXXX";
+    CHECK(mkdtemp(tmp) != NULL, "hostile mkdtemp");
+    setenv("CTRON_CONFIG", tmp, 1);
+    ut_mkdir_p(tmp);
+
+    /* --- settings.ini hostile shapes --- */
+    {
+        char sp[500];
+        settings_file(sp, sizeof sp);
+        FILE *g = fopen(sp, "w");
+        CHECK(g != NULL, "hostile settings open");
+        if (g) {
+            fputs("poll_ms = -50\r\n"            /* negative -> clamp 100 */
+                  "theme = 99\n"                 /* over range -> clamp 4 */
+                  "theme = abc\n"                /* garbage -> 0 (valid)   */
+                  "left_pct = 30\n"
+                  "left_pct = 40\n"              /* duplicate: last wins   */
+                  "noequals\n"                   /* no '=': skipped        */
+                  "=reversed\n"                  /* empty key: skipped     */
+                  "novalue=\n"                   /* empty value -> atoi 0  */
+                  "poll_ms = 5 abc\n",           /* trailing junk -> clamp */
+                  g);
+            fclose(g);
+        }
+        hw_state_t hw;
+        memset(&hw, 0, sizeof hw);
+        CHECK(settings_load(&hw) == 0, "hostile settings load");
+        CHECK(g_prefs.poll_ms == 100, "negative poll_ms clamped");
+        CHECK(g_prefs.theme <= 4, "theme over-range clamped");
+        CHECK(g_prefs.left_pct == 40, "duplicate key last wins");
+        CHECK(g_prefs.poll_ms >= 100 && g_prefs.poll_ms <= 2000,
+              "junk-tail value clamped in range");
+        unlink(sp);
+    }
+
+    /* --- modes.ini hostile shapes --- */
+    {
+        char mp[500];
+        modes_path(mp, sizeof mp);
+        FILE *g = fopen(mp, "w");
+        CHECK(g != NULL, "hostile modes open");
+        if (g) {
+            fputs("steps = hz 60\n"          /* sectionless: ignored */
+                  "[unterminated\nsteps = hz 60\n" /* no ']': ignored */
+                  "[dup]\nsteps = hz 60\n"
+                  "[dup]\nsteps = hz 90\n"   /* fill-the-found: 90 wins */
+                  "[]\nsteps = hz 1\n"       /* empty name: harmless */
+                  "[ok]\nsteps =\n",         /* empty steps: valid */
+                  g);
+            fclose(g);
+        }
+        mode_def_t m[MODES_MAX];
+        int n = modes_load(m, MODES_MAX);
+        CHECK(n >= 1, "hostile modes load");
+        int d = mode_find(m, n, "dup");
+        CHECK(d >= 0 && !strcmp(m[d].steps, "hz 90"),
+              "duplicate section filled, later steps win");
+        CHECK(mode_find(m, n, "ok") >= 0, "empty steps section loads");
+        int orphan = -1;
+        for (int i = 0; i < n; i++)
+            if (!strcmp(m[i].steps, "hz 60"))
+                orphan = i;
+        CHECK(orphan < 0, "sectionless/unterminated steps dropped");
+        unlink(mp);
+    }
+
+    /* --- .ctr hostile shapes (meta parse only, nothing executes) --- */
+    {
+        char pdir[400], pth[460];
+        snprintf(pdir, sizeof pdir, "%s/profiles", tmp);
+        CHECK(ut_mkdir_p(pdir) == 0, "hostile profile mkdir");
+        snprintf(pth, sizeof pth, "%s/hostile.ctr", pdir);
+        FILE *g = fopen(pth, "w");
+        CHECK(g != NULL, "hostile ctr open");
+        if (g) {
+            fprintf(g, "# ctron snapshot\n# saved:\n# note: %0100d\n",
+                    7); /* empty saved, 100-char note */
+            fputs("garbage without equals\n"
+                  "freq core 0 5386\n"          /* skipped by meta */
+                  "fan-curve cpu = 1,2,3,4,5,6,7,8,9,10 1,2\n"
+                  "fan-curve nonsense = x y z\n"
+                  "profile = nonsense\n",
+                  g);
+            fclose(g);
+        }
+        profile_meta_t mt;
+        CHECK(profile_meta_parse("hostile", &mt) == 0, "hostile ctr parse");
+        CHECK(mt.note[0] == '0', "long note kept (truncated to field)");
+        CHECK(mt.saved[0] == '\0', "empty saved stays empty");
+        CHECK(mt.fan_cpu_on == -1 || mt.fan_cpu_on == 1,
+              "fan flag from hostile curve stays in range");
+        unlink(pth);
+        rmdir(pdir);
+    }
+
+    /* --- fan curve hostile input (pure model) --- */
+    {
+        fan_curve_t fc;
+        CHECK(fan_from_csv(&fc, "abc", "def") == -1, "non-numeric curve");
+        CHECK(fan_from_csv(&fc, "", "") == -1, "empty curve");
+        CHECK(fan_from_csv(&fc, "40,60,80", "80") == 1,
+              "mismatched counts take the min");
+        CHECK(fan_from_csv(&fc, "-40,-60", "-5,600") == 2,
+              "out-of-range points clamp");
+        CHECK(fc.temp_c[0] >= 0 && fc.pwm[1] <= 255,
+              "clamped curve in range");
+        int t[4];
+        CHECK(ut_parse_ints("5,,7,,9x", t, 4) >= 1,
+              "degenerate int list parses partially");
+    }
+
+    /* --- mode_apply hostile steps (guards fire before any write) --- */
+    {
+        hw_state_t hw;
+        memset(&hw, 0, sizeof hw);
+        char err[128];
+        CHECK(mode_apply(&hw, "nosuch-key 5", err, sizeof err) != 0,
+              "unknown step key rejected");
+        CHECK(mode_apply(&hw, "hz abc", err, sizeof err) != 0,
+              "garbage hz value rejected");
+        CHECK(mode_apply(&hw, "hz 5", err, sizeof err) != 0,
+              "out-of-range hz rejected");
+    }
+
+    if (old_cfg)
+        setenv("CTRON_CONFIG", old_cfg, 1);
+    else
+        unsetenv("CTRON_CONFIG");
+    rmdir(tmp);
+}
+
 /* kscreen-doctor output parser, offline. */
 extern int disp_kde_test_parse(const char *text, char *name, size_t nn,
                                int *hz_cur, int *hz_out, int hz_max);
@@ -620,6 +757,25 @@ static void check_asusd_ron_parse(void)
     /* NULL body: off, no crash */
     hw_asusd_ron_parse(NULL, &ac, &bat);
     CHECK(ac == -1 && bat == -1, "ron null body");
+
+    /* D7 hostile shapes: armed but the profile key is MISSING entirely
+     * -> unknown (-2), never silently "off" */
+    hw_asusd_ron_parse(
+        "(\n    change_platform_profile_on_ac: true,\n)\n", &ac, &bat);
+    CHECK(ac == -2, "ron armed without profile key -> unknown");
+
+    /* empty and non-ron garbage: both off, no crash */
+    hw_asusd_ron_parse("", &ac, &bat);
+    CHECK(ac == -1 && bat == -1, "ron empty body");
+    hw_asusd_ron_parse("ENOENT: no such file\ncore dumped\n", &ac, &bat);
+    CHECK(ac == -1 && bat == -1, "ron garbage body");
+
+    /* type drift: bool written as a number reads as off (the safe
+     * side — the profile key below is then ignored) */
+    hw_asusd_ron_parse(
+        "(\n    change_platform_profile_on_ac: 1,\n"
+        "    platform_profile_on_ac: Perfor,\n)\n", &ac, &bat);
+    CHECK(ac == -1, "ron bool-as-number reads off");
 }
 
 static void check_read_file_all(void)
@@ -1763,6 +1919,7 @@ int main(void)
     check_modes();
 
     check_profiles();
+    check_hostile_config();
     check_kde_parser();
     check_hypr_parser();
     check_telem();

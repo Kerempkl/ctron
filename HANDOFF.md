@@ -57,10 +57,15 @@ A–L, ~50 items, per-item criteria, [x]/[~]/[ ] states.
   math. C5 (all external calls ceiling'd), C7 (runtime writes zero
   temp files), C8 (config-trust + refreshed §2.4: set_note refuse
   contract) documented. **Category C is now fully [x].**
-- Next: **D2** (hostile-config fuzz-vari battery) then the rest of D
-  (D3 sysfs format drift, D4 unit proofs, D7 ron parser). Category
-  order D→L. User expects item-by-item careful code reading, fixes
-  land autonomously now.
+- **D2/D7 closed 11-17**: hostile-config battery landed
+  (check_hostile_config — settings/modes/.ctr/fan-curve/mode_apply
+  shapes, guards fire before any write, zeroed-hw proof) + ron drift
+  shapes (armed-without-key → unknown, garbage → off, bool-as-number
+  → off). All expectations held on first run.
+- Next: **D3** (sysfs format drift: label-verified reads inventory),
+  **D4** (unit-proof documentation for every new series) — then E
+  (write-gate discipline items E3-E6). User expects item-by-item
+  careful code reading, fixes land autonomously now.
 
 ## 2026-10-30 (23rd round, power honesty: dirty =
 write-gate mask + CORE LIMITS single-apply — NEXT.md 19 closed)

@@ -227,10 +227,18 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
 - [x] **D1. Yerel-ayar duyarlı sayı ayrıştırma** — LC_NUMERIC "C" kuralı
   (tr_TR strtod dersi, AGENTS.md kural 1). *Yeni strtod/atof eklenince
   TUI init sırası tekrar doğrulanmalı.*
-- [ ] **D2. Bozuk/düşman config** — modes.ini, settings.ini, .ctr: dev
-  satır, eksik alan, negatif, çift anahtar, section'sız satır.
-  tinput_t/MODE_STEPS_MAX ve TUR3 clamp'leri kapattı; ölçüt: fuzz-vari
-  girdi listesiyle hepsi zarif reddedilir (çökme/ASKIDA yok).
+- [x] **D2. Bozuk/düşman config** — *Denetim 11-17, batarya land etti
+  (check_hostile_config, test_core): settings.ini — negatif/aralık-üstü/
+  çöp değer clamp, çift anahtar son-kazanır, '='-siz/boş-anahtar satır
+  atlanır, CRLF temiz; modes.ini — section'sız ve ']'-siz steps düşer,
+  çift section doldur-bulunan kuralıyla son steps kazanır, boş ad/
+  boş steps zarif; .ctr meta — 100-karakter not alan-a-truncate,
+  çöp satırlar atlanır, fan-curve uçleri (10 nokta / saçma) zarif;
+  fan_from_csv — sayı-olmayan/boş → -1, sayı-uymazlığı min alır,
+  aralık-dışı noktalar clamp; mode_apply — bilinmeyen anahtar / çöp
+  hz / aralık-dışı hz guard'ları YAZMADAN önce reddeder (hw=0 ile
+  koşulur, donanım dokunulmaz). Bataryanın tamamlanması = asılı/
+  çökme yok kanıtı. İlk koşuda tüm beklentiler tuttu.*
 - [ ] **D3. Kernel/sysfs biçim kayması** — anahtar adı değişimleri
   (clocks_event_reasons alt-tire dersi), hwmon index kayması
   (index*/head-1 = L1d tuzağı — label doğrulaması şart), hex/dec
@@ -244,9 +252,14 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
 - [x] **D6. Yaz-sonrası geri-okuma** — kscreen-doctor/Hyprland exit-0
   durmadan-yapmaz; integer refresh `@60` (kural 4). *Yeni display
   backend'inde (Arcioth) kural tekrarlanır.*
-- [ ] **D7. `asusd.ron` ayrıştırıcısı** — fallback tam-dosya okuma
-  (5bbaa46) sonrası format: alan eksik/tip değişirse? Ölçüt: bozuk ron
-  dosyasıyla zarif düşüş.
+- [x] **D7. `asusd.ron` ayrıştırıcısı** — fallback tam-dosya okuma
+  (5bbaa46) sonrası format: alan eksik/tip değişirse? *Denetim 11-17:
+  mevcut test (check_asusd_ron_parse) silahlı/kapalı/anahtarsız/
+  bilinmeyen-profil/NULL durumlarını zaten kapsıyordu; düşman eki
+  land etti — silahlı ama profil-anahtarı YOK → -2 bilinmeyen (asla
+  sessiz "kapalı" okunmaz), boş metin ve ron-olmayan çöp → kapalı,
+  bool-as-sayı tip kayması → güvenli taraf (kapalı). Kesik profil adı
+  mevcut "Whatever" vakasıyla aynı yola düşer (-2). Zarif düşüş.*
 
 ## E — Yazma kapısı disiplini (ctron'a özgü can-simgesi)
 

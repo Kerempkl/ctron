@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-11-17 — audit D2/D7 closed: hostile-config battery + ron drift shapes
+
+- check_hostile_config (test_core): settings negatives/over-range/
+  garbage/duplicates/CRLF all clamp or skip; modes sectionless and
+  unterminated lines drop, duplicate sections fill-the-found, empty
+  names harmless; .ctr meta with 100-char note/garbage/10-point curve
+  parses gracefully; fan_from_csv non-numeric/empty reject, mismatched
+  counts take the min, out-of-range clamps; mode_apply unknown-key/
+  garbage-hz/out-of-range-hz all rejected BEFORE any write (proved
+  with a zeroed hw — no hardware touched). Battery completing is the
+  no-hang/no-crash proof; every expectation held on first run.
+- check_asusd_ron_parse extended: armed-but-missing-profile-key reads
+  unknown (-2, never silently off), empty and non-ron garbage bodies
+  read off, bool-as-number type drift reads off (safe side).
+
 ## 2026-11-17 — audit C4-C8 closed: KILL escalation for stuck children + config-trust doc
 
 - C4: full spawn inventory re-verified (system() absent; every fork/
