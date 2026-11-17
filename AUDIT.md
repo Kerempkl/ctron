@@ -143,24 +143,39 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
   eder, değerler busy süresince donuk (zaten refresh pause
   ediliyordu). Doğrulama: 0 uyarı + unit + tam tuitest (apply
   akışları dahil).*
-- [ ] **B3. Çifte/yinelenen apply** — Enter basılı tutma/tekrar ile kuyruğa
-  ikinci apply düşer mi? Ölçüt: apply_busy iken ikinci tetik düşürülmeli
-  ya da kuyruklanmalı; davranış tek-kelime belgeli.
-- [ ] **B4. Thread ömrü kapanışta** — `q` ile çıkışta worker join/detach
-  ediliyor mu; notcurses_stop sonrası worker çıktı basmaya çalışıyor mu?
-  Ölçüt: kapanış sırası akış şemasıyla kanıtlanır (worker finalize ->
-  stop -> exit).
-- [ ] **B5. Telemetri halkaları veri yarışı** — halkalar statik; yazan tek
-  yer poll, okuyan çizim (aynı thread) mi, yoksa worker da dokunuyor mu?
-  Ölçüt: telem_* yazıcıları envanterlenip tek-yazıcı kanıtlanır.
+- [x] **B3. Çifte/yinelenen apply** — *Denetim 11-17: davranış =
+  DÜŞÜR + tek-sefer uyarı (kuyruk YOK, bilinçli). Çift kapı:
+  dispatch_key busy'de yalnız q/Q geçirir (yorum: "a running apply
+  owns the machine's write path"), ui_spawn_apply kendi de
+  early-return + tek-sefer "already running" logu. Enter basılı
+  tutma batch'lenir ama busy'de dispatch'e ulaşamaz.*
+- [x] **B4. Thread ömrü kapanışta** — *Denetim 11-17: kapanış sırası
+  kanıtlandı — döngü !busy'de çıkar (quit_pending busy bitene dek
+  ertelenir; term sinyali busy ortasında yakalanırsa döngü yine
+  join'e düşer) → pthread_join (worker ASLA öldürülmez, ~9 s üst
+  sınır) → pointer restore (term-mid-busy kenarı) → settings_save →
+  notcurses_stop. Worker yazma-yalnız disiplini (nc/g_ui'ye
+  dokunmaz; ut_log/progress mutex'li) olduğundan stop-sonrası
+  kullanım imkânsız: join stop'tan ÖNCE.*
+- [x] **B5. Telemetri halkaları veri yarışı** — *Denetim 11-17:
+  envanter: telem_poll tek çağrı noktası maybe_refresh (ui.c:621,
+  busy-gated → UI thread'i), telem_reset yalnız 'r' tuş işleyicisi
+  (UI thread'i), worker zinciri (profile_import/ctrl_fan_write/
+  pw_apply_writes/mode_apply) telem_*'e hiç dokunmaz; csv logger ayrı
+  süreç (paylaşılan bellek yok). Tek-yazıcı = UI thread'i; okuyan
+  çizim aynı thread.*
 - [x] **B6. Bayat durum gösterimi** — asusd.ron async flush; okuma katmanı
   daemon-first (10-01 düzeltmeleri). *Yeni okuma eklenince kural: mtime/
   daemon-öncelik denetimi.*
-- [ ] **B7. pending-staging semantiği** — "0 = stage'lenmedi" ile
-  "stage'lenmiş 0" ayrımı (CORE LIMITS'te yakalanmıştı, düzeltildi);
-  pw_dirty ≠ yazma kapısı (touched + stale-PPT'te ● sönük ama Enter
-  yazar — NEXT.md 19 kapanış kaydı). Ölçüt: her staging editöründe
-  "değmedi" durumu ayrı bayrakla mı taşınıyor?
+- [x] **B7. pending-staging semantiği** — *"değmedi" temsili envanteri
+  11-17: üç editör üç şema ve hepsi sağlam — POWER: pw_touched
+  (PW_T_* bitleri, açık bayrak) + PW_W_* yazma-kapı maskesi (10-30
+  birliği); FAN: hw->fan_staged bool (yazıldı+doğrulandı → false,
+  10-03); CORE LIMITS: cf_staged[id] 0-sentinel — invariant: tüm
+  stage'leme yolları cf_clamp'ten geçer (gerçek makinelerde tavan
+  ≥ yüzlerce MHz; patolojik cpu_mhz_min=0'da bile 0 = "stage'lenmedi"
+  okunur → hayalet yazma doğamaz, güvenli yön). Okuma tarafı her
+  yerde `!= 0 && != live` çift koşulu.*
 
 ## C — Süreç/IO disiplini
 

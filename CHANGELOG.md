@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-11-17 — audit B3/B4/B5/B7 closed clean: category B complete
+
+- B3 double-apply: DROP + one-shot warn, double-gated (dispatch passes
+  only q/Q while busy; ui_spawn_apply self-gates). No queue, by design.
+- B4 shutdown: loop exits only when !busy (quit_pending defers; a term
+  signal mid-busy still reaches the join) → pthread_join → pointer
+  restore → settings_save → notcurses_stop. Join precedes stop and the
+  worker is write-only, so no use-after-stop exists.
+- B5 telem rings: single-writer proven — telem_poll only from the
+  busy-gated maybe_refresh, telem_reset only from the 'r' handler
+  (both UI thread); the worker never calls telem_*; csv logger is a
+  separate process.
+- B7 staging semantics: three deliberate schemes, all sound — POWER
+  pw_touched bits + PW_W_* write-gate mask; FAN fan_staged bool;
+  CORE LIMITS cf_staged 0-sentinel (every staging path passes
+  cf_clamp, so 0 unambiguously means never-staged; the pathological
+  cpu_mhz_min=0 case fails toward "not staged").
+- No code changes in this step (B2's frozen-copy fix was the round's
+  change, previous commit).
+
 ## 2026-11-17 — audit B2 closed: frozen-copy draw view during apply (BULGU 5 fixed)
 
 - The render loop drew every panel from `hw` each frame while the

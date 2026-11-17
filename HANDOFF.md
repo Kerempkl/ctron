@@ -44,10 +44,16 @@ A–L, ~50 items, per-item criteria, [x]/[~]/[ ] states.
   unchanged; values frozen during apply = same semantics as the
   existing refresh pause. 0 warnings + unit + full tuitest green
   (apply flows exercise the freeze/restore protocol).
-- Next: **B3/B4/B5/B7** (double-apply queueing, thread lifetime at
-  shutdown, telem ring single-writer, pending-staging semantics).
-  User expects item-by-item careful code reading, fixes land
-  autonomously now.
+- **B3/B4/B5/B7 closed clean 11-17** (no code changes): double-apply
+  = drop+warn by design; shutdown order join→restore→save→stop
+  proven; telem rings single-writer proven; staging semantics —
+  three deliberate schemes (pw_touched bits / fan_staged bool /
+  cf_staged 0-sentinel via cf_clamp) all sound. **Category B is now
+  fully [x].**
+- Next: **C4/C5** (zombie/timeout-shepherded children over every exec
+  path; hang ceilings on display backends) then the rest of C, or
+  category order C→L. User expects item-by-item careful code reading,
+  fixes land autonomously now.
 
 ## 2026-10-30 (23rd round, power honesty: dirty =
 write-gate mask + CORE LIMITS single-apply — NEXT.md 19 closed)
