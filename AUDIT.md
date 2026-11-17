@@ -329,10 +329,16 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
   çözüm = büyük-harf etiketler ASCII-özel, aab6c4d). Çizim tarafı
   utf_cells-farkındalıklı (dt_sep doldurma utf_cells < w-1 koşuluyla);
   dar terminal packed fallback (11. tur).*
-- [ ] **F4. UTF-8 genişlik/yerel metin** — toupper tr_TR 'i'→'WRiTE' dersi;
+- [x] **F4. UTF-8 genişlik/yerel metin** — toupper tr_TR 'i'→'WRiTE' dersi;
   çok baytlı karakter hücre sınırlarını bölüyor mu; tablo hizası.
-  Ölçüt: Türkçe etiket + değişmez-etiket ASCII kuralı (büyük-harf
-  etiketler) korunuyor mu?
+  *Denetim 11-17: ağaçta toupper çağrısı YOK — tek eşleşme
+  panel_telem_full.c:325'teki NEDEN-kullanılmıyor yorumu (tr_TR
+  i→İ); çözüm = büyük-harf etiketler ASCII-özel (aab6c4d), Türkçe
+  yalnız değer/değişken tarafında; çok bayt genişlik utf_cells-
+  farkındalıklı (dt_sep doldurması utf_cells < w-1 koşuluyla); dar
+  terminal packed fallback (11. tur). Kanıt metni F turunda yanlışlıkla
+  F3'ün bloğuna yazılmıştı — işaret bu turda düzeltildi. Türkçe
+  oturumda tam smoke geçiyor.*
 - [x] **F5. Girdi uçları** — *Denetim 11-17: tuş tekrarı →
   KEY_REFRESH_MIN_MS 120 ms hız-limiti (601-623, perf-audit ölçümlü:
   tuş-başına tam refresh yalnız limit dışında; apply/resize/timeout
