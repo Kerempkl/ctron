@@ -1,0 +1,315 @@
+# AUDIT.md — ctron hata sınıfları denetim listesi
+
+ctron gibi bir uygulamanın (TUI + sysfs yazma kapısı + fork/exec zinciri +
+poll döngüsü + tek işçi thread) başına gelebilecek hata sınıflarının tam
+listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
+
+## Nasıl kullanılır
+
+- Her kalem tek oturumda denetlenir: kod okuması + mümkünse dinamik kanıt.
+- **Durum işaretleri:** `[ ]` açık · `[x]` kanıtla kapalı (tarih + kanıt yazar)
+  · `[~]` kısmen kapalı (kalan netleşmeli).
+- Kanıt kuralı: iddia ölçümle, çıkışla veya birebir kod alıntısıyla durur;
+  "görünüşe göre" kabul edilmez. NEXT.md/CHANGELOG'daki durum kodla
+  doğrulanmadan bitmiş sayılmaz (P4 dersi).
+- Denetim okuma-yazmaz: probe'lar build/ altına, müdahale yalnız kullanıcı
+  onayıyla. Her turun başında git log + NEXT.md + HANDOFF üçlüsünden durum
+  tazelenir (paralel oturum dersi).
+- Sabit kurallara referans: AGENTS.md'deki 5 "hard-won rule" (LC_NUMERIC,
+  poll-yazmaz, dürüst okuma, geri-okuma doğrulaması, q-quit).
+
+---
+
+## A — Bellek güvenliği (buffer/taşma/tanımsız)
+
+- [x] **A1. Heap sızıntısı** — tüm malloc/fopen/popen noktalarında her yolda
+  free/fclose/pclose; realloc yok; poll döngüsünde heap tahsisi yok; UI
+  heap'e hiç dokunmuyor. *Kanıt 11-05: statik 24/24 nokta + yalnız-LSan
+  derlemesi altında unit/--doctor/--status/tam TUI smoke sıfır rapor
+  (yöntem hafızada: ASan glibc-2.41 artifact'ine dikkat — yalnız
+  -fsanitize=leak kullan).*
+- [x] **A2. Stack overflow, `off += snprintf` kalıbı** — dönüş değeri
+  out[] ötesine taşır, size_t sarar. `profile_set_note`'ta kanıtlanmıştı;
+  `note_append` clamp + test ile kapandı (v0.8.1). *Ağaç-geneli yoklama
+  11-05: kalan iki birikim noktası korunan kalıpta — main.c net-satırı
+  her yazımdan önce `len >= sizeof line` kırıyor, `pw_app`
+  (panel_workspace.c:428) yazmadan önce yer ön-kontrolü yapıyor
+  (truncate hiç oluşmuyor, off n'i aşamaz). Saf örnek kalmadı.*
+- [x] **A3. `sscanf` genişliksiz `%s`** — TUR3 (1d53638) parse clamp'leriyle
+  denetlendi. *Yeni eklenen her `sscanf` için kural: genişlik şart
+  (`%47s` gibi); sondaki `.` yutan `%lf` tuzağı ve baş-boşluklu satır
+  dersi (TS_WIFI_LINK) hatırla.*
+- [x] **A4. Sabit tampon taşmaları** — yollara 512/520, satırlara 256–8192
+  tamponlar (`editor_daeboard.c` 8192'lik satır). *Yoklama 11-05 bulgusuz:*
+  `strcpy/sprintf` sıfır; `strcat` yalnız mk[8]'e sabit "▲▼" (en fazla
+  7 bayt); `strncat` ×10 hepsi doğru `sizeof - strlen - 1` kalıbında;
+  `memcpy/memmove` ×27'nin tamamı sınırlı — uzunluk kaynağı clamp'li
+  (modes.c MODE_STEPS_MAX-1, main.c:785 key[64], hw.c:1915 name[24],
+  daeboard.c replyn/line/name clamp'leri) veya ön-kontrollü (hw.c
+  `len < sizeof line` ×3, hw.c:1003 glob alt-akışı `len < sizeof`'a
+  takılır, util.c:458 `len >= sizeof(buf)` reddi, kde/hypr `i + 1 < n`
+  döngüleri, panel_telem_full dt_sep `off + 3 < sizeof s`,
+  panel_workspace rule[128] rc ≤ 40); dizi-sınır eşleşmeleri: s_busy/
+  busy ikisi de HW_CPU_MAX + `id < max_cpu`, editor_daeboard adım
+  sayısı her artışta DBE_STEPS kapılı (227/599/1108), fan.c strchr
+  aralığı.
+- [x] **A5. Dizisiz-sonlandırma / truncation sessizliği** — `fgets` truncede
+  satırı yarım alır (uzun modes.ini satırı = yarı anahtar). *Denetim
+  11-05: 11 fgets noktası sınıflandı, BULGU 1 (set_note kalıcı bozulma
+  + sessiz kesme) + BULGU 2 (yarı değerin geçerli kabulü) — İKİSİ DE
+  11-17 FIX LAND: `ut_fgets_full()` (util.c) tam-satır-veya-atla
+  sözleşmesi; modes/settings/.ctr import/meta parse satırı atlar+loglar;
+  set_note yuvarlak-geçemeyecek içerikte rewrite'I TAMAMEN reddeder
+  (dosya byte-özdeş kalır, -1 + log; sözleşme değişimi: oversized
+  artık 0-dönmüyor). Testler: fgets bataryası (7 durum), parser-atlama
+  ×2, note ret/pozitif/temizle. Kalan güvenli noktalar: csv başlığı
+  (kolon sayısı tutmaz → temiz ret), os-release/cpuinfo (yalnız
+  gösterim), editor_daeboard (8 KB), ut_read_file/_all sınır-correct.*
+- [x] **A6. Tanımsız okuma** — struct alanlarının memset'siz kalması,
+  hata yolunda atanmamış `err` okunması (TUR3'te biri kapandı).
+  *Denetim 11-05: dinamik = unit + --doctor/--status + tam TUI smoke
+  UBSan altında SIFIR runtime error (valgrind makinede yok; MSan
+  uygulanamaz — instrumentlanmamış notcurses); statik = clang
+  --analyze 24 TU'da sıfır core.uninitialized (yalnız 2 ölü-depo:
+  main.c:164, panel_telem_full.c:671 — kozmetik); merkez yapılar
+  temiz (hw_init memset + sentinel'ler, g_ui memset, g_prefs statik
+  init + clamp'li load). BULGU 3 (db_reload hata yolunda err
+  yazmıyor, üç arayan `err[0]` guard'ıyla tanımsız okuyordu) —
+  11-17 FIX LAND: err girişte temizleniyor (cmd_run konvansiyonu) +
+  test_daeboard'a guard'lı sözleşme testi. Diğer err sözleşmeleri
+  (cmd_run, profile_import, mode_apply) tüm -1 yollarında yazıyor.*
+- [ ] **A7. Tamsayı taşması/sarma** — size_t çıkmaları (`len - off`),
+  mW↔W dönüşümleri, pwm/Hz matematiği, `atoi` yerine clamp'li okuma
+  (`ut_read_int` doğru yapıyor; doğrudan `atoi` kullanan yerler tek tek
+  düşünülebilir mi?). Ölçüt: saldırgan/kötü-config değerleriyle UB yok.
+- [ ] **A8. Format-string zehirlenmesi** — log/printf ilk argümanı daima
+  literal olmalı; config/profile/mode isimleri `%s` olarak geçmeli.
+  10-28 denetimi "ut_log literal" dedi; yeni eklenen çağrılar için
+  `grep -n 'ut_log(' src/ | grep -v '"'` boş olmalı.
+- [ ] **A9. Veri kaynaklı dizi indeksi** — fan eğrisi 8 noktası, per-core
+  indeksleri, SECTIONS kayıt defteri indeksi, dbe_key alanları.
+  Ölçüt: her indeks parse'dan sonra clamp/menzil kontrolünden geçiyor mu?
+
+## B — Durum ve eşzamanlılık
+
+- [x] **B1. Giriş dağıtıcısının busy kapısını atlaması** — fare apply_busy'yi
+  atlıyordu; TUR3'te kapandı. *Kalıcı kural: yeni giriş yolu (tuş, fare,
+  daeboard tetiklemesi) eklenince apply_busy kontrolü şart.*
+- [ ] **B2. İşçi thread ↔ poll döngüsü yarışı** — ctron'un tek thread'i
+  (apply worker) yazma-yalnız disiplininde; reads paused penceresi ve
+  finalize-after-busy-drop sırası kurallı. Ölçüt: worker'ın yazdığı her
+  alan için main-thread okuma noktası pausa penceresi içinde mi?
+  Kod okuması + `tsan`-lı kısa koşu (TSan notcurses ile uyumsuzsa
+  salt kod-akışı kanıtı).
+- [ ] **B3. Çifte/yinelenen apply** — Enter basılı tutma/tekrar ile kuyruğa
+  ikinci apply düşer mi? Ölçüt: apply_busy iken ikinci tetik düşürülmeli
+  ya da kuyruklanmalı; davranış tek-kelime belgeli.
+- [ ] **B4. Thread ömrü kapanışta** — `q` ile çıkışta worker join/detach
+  ediliyor mu; notcurses_stop sonrası worker çıktı basmaya çalışıyor mu?
+  Ölçüt: kapanış sırası akış şemasıyla kanıtlanır (worker finalize ->
+  stop -> exit).
+- [ ] **B5. Telemetri halkaları veri yarışı** — halkalar statik; yazan tek
+  yer poll, okuyan çizim (aynı thread) mi, yoksa worker da dokunuyor mu?
+  Ölçüt: telem_* yazıcıları envanterlenip tek-yazıcı kanıtlanır.
+- [x] **B6. Bayat durum gösterimi** — asusd.ron async flush; okuma katmanı
+  daemon-first (10-01 düzeltmeleri). *Yeni okuma eklenince kural: mtime/
+  daemon-öncelik denetimi.*
+- [ ] **B7. pending-staging semantiği** — "0 = stage'lenmedi" ile
+  "stage'lenmiş 0" ayrımı (CORE LIMITS'te yakalanmıştı, düzeltildi);
+  pw_dirty ≠ yazma kapısı (touched + stale-PPT'te ● sönük ama Enter
+  yazar — NEXT.md 19 kapanış kaydı). Ölçüt: her staging editöründe
+  "değmedi" durumu ayrı bayrakla mı taşınıyor?
+
+## C — Süreç/IO disiplini
+
+- [x] **C1. fd sızıntısı** — A1 ile aynı kanıt (pipe çiftleri fork hata
+  yolunda dahi kapanıyor).
+- [x] **C2. SIGPIPE yarışı** — ut_write_via_argv ignore-penceresi +
+  exec_run/argv_run drain (141 sahte-FAILED dersi). *Yeni exec yardımcısı
+  eklenince drain kuralı tekrarlanmalı.*
+- [x] **C3. pidfile yarışı** — O_EXCL + atomik kendini-temizleyen claim
+  (ctron-toggle.sh, eae980d).
+- [ ] **C4. Zombie/saat-dolan çocuklar** — timeout 3 sarmalayıcısı her exec
+  yolunda var mı (argv_run, ut_priv_write, display backends, daeboard)?
+  Ölçüt: pclose/waitpid'siz fork yok; `--status` sonrası çocuk kalmaz.
+- [ ] **C5. Asılı çocuk** — daeboard seqpacket soketinde timeout (11aae58
+  kapattı); display backend'lerinde (kscreen-doctor/hyprland keyword)
+  asılırsa TUI donar mı? Ölçüt: tüm dış çağrılar üst sınır taşır.
+- [x] **C6. Kabuk enjeksiyonu** — system() yok; popen yalnız sabit
+  string'lerle (`ut_have_cmd`, nvidia_smi_bin); kullanıcı/config kökenli
+  string argv vektörüne bile girmeden doğrulanıyor (nvidia_smi_bin
+  '\''/boşluk reddi). *Yeni popen yasağı: kalıcı.*
+- [ ] **C7. /tmp ve öngörülebilir yol** — probe dosyaları build/ altına
+  (araç sandbox dersi ayrı); pidfile/socket geçici dosyalarında mkstemp/
+  O_EXCL disiplini. Ölçüt: öngörülebilir isimle yazılan dosya yok.
+- [ ] **C8. Ortam değişkeni enjeksiyonu** — CTRON_CONFIG ile keyfi dizin
+  (bilinçli özellik) ama modes.ini/.ctr içeriği o dizinden çalıştırma
+  komutlarına (mode steps → run_flag/exec) gidiyor. Ölçüt: config kökenli
+  komut çalıştırmada hangi doğrulama var, açıkça belgelenmeli
+  (SECURITY.md ile hizala).
+
+## D — Ayrıştırma ve birimler
+
+- [x] **D1. Yerel-ayar duyarlı sayı ayrıştırma** — LC_NUMERIC "C" kuralı
+  (tr_TR strtod dersi, AGENTS.md kural 1). *Yeni strtod/atof eklenince
+  TUI init sırası tekrar doğrulanmalı.*
+- [ ] **D2. Bozuk/düşman config** — modes.ini, settings.ini, .ctr: dev
+  satır, eksik alan, negatif, çift anahtar, section'sız satır.
+  tinput_t/MODE_STEPS_MAX ve TUR3 clamp'leri kapattı; ölçüt: fuzz-vari
+  girdi listesiyle hepsi zarif reddedilir (çökme/ASKIDA yok).
+- [ ] **D3. Kernel/sysfs biçim kayması** — anahtar adı değişimleri
+  (clocks_event_reasons alt-tire dersi), hwmon index kayması
+  (index*/head-1 = L1d tuzağı — label doğrulaması şart), hex/dec
+  karışımı. Ölçüt: her okuma label/örnekleme-doğrulamalı.
+- [ ] **D4. Birim ölçek hataları** — mW/W, mA/A, kHz/MHz, %/oran.
+  gpu_metrics gfx "watt" faciası dersi: **yuvarlak tavan sıfır-varyans
+  = sayaç/aktivite, ölçer değil** — watt iddiasından önce birim kanıtı.
+  Ölçüt: her yeni seri için birim kanıtı belgelendi mi?
+- [x] **D5. Dürüst okuma** — bayat önbellek `--` (kural 3); BAT1 temp yok,
+  cycle_count 0 gizli. *Yeni sensör eklenince kural tekrarlanır.*
+- [x] **D6. Yaz-sonrası geri-okuma** — kscreen-doctor/Hyprland exit-0
+  durmadan-yapmaz; integer refresh `@60` (kural 4). *Yeni display
+  backend'inde (Arcioth) kural tekrarlanır.*
+- [ ] **D7. `asusd.ron` ayrıştırıcısı** — fallback tam-dosya okuma
+  (5bbaa46) sonrası format: alan eksik/tip değişirse? Ölçüt: bozuk ron
+  dosyasıyla zarif düşüş.
+
+## E — Yazma kapısı disiplini (ctron'a özgü can-simgesi)
+
+- [x] **E1. Poll döngüsünden yazma yasağı** — (kural 2) 09-29/10-01 read-only
+  denetimleriyle kanıtlandı; *her turda: `ut_priv_write/ut_write_via_argv/
+  ut_write_file` çağrı grafiği yalnız user-action yollarından geçmeli.*
+- [x] **E2. asusd ezişi** — güç olayında profil zorlaması; management
+  satırları + snapshot/restore + explicit-staging-önceliği (10-01).
+  "AC/battery ters" false alarm'ı da kapandı.
+- [ ] **E3. Yazma zinciri önceliği** — asusctl → sysfs → sudo -n her kontrol
+  için gerçekten bu sırada mı; sudo yokken temiz FAILED (asla prompt/
+  asılı — fan_sysfs_dead mandalı + fan_write_verdict üçlü ayrımı, 7011b56).
+  Ölçüt: zincir dışına çıkan çağrı noktası kalmadı mı (grep)?
+- [ ] **E4. Stale-PPT etkileşimi** — SMU limitleri uçucu (reboot/profil
+  temizler); write-clamp reboot-sürekli. Ölçüt: gösterilen durum ile
+  gerçek durum arasındaki fark dürüst etiketli mi (●/önizleme
+  semantiği)? NEXT.md 19 kapanış kaydına karşı kod doğrulaması.
+- [ ] **E5. FAN 'w' senkron EC yazması** — bilinçli kural ama worker
+  aktifken FAN yazımı çakışıyor mu? Ölçüt: çakışma penceresi
+  belgelenmiş/kapılı.
+- [ ] **E6. GPU clock kilidi doğrulaması** — örnekleme-doğrulaması
+  (ctrl_gpu_clock_ok) yalnız yükle çalışır; boşta "başarılı" sanılabilir
+  mi? Ölçüt: doğrulama penceresi ve başarısızlık wording'i dürüst.
+
+## F — TUI'ye özgü
+
+- [x] **F1. ESC/tuş karışıklığı** — q-only quit (kural 5, Kitty CSI dersi).
+- [x] **F2. ui_putln son-hücre** — genişlik-1 çağrı çizilmez dersi
+  (10-30). *Yeni çizim kodunda kural hatırlanmalı.*
+- [ ] **F3. Boyutlandırma/resize** — küçük terminal (min boyut altı),
+  resize anında panel yerleşimi (ui_layout tek nokta), scroll viewport
+  sınırları (pw_top), fullscreen overlay geçişinde boyut değişimi.
+  Ölçüt: aşırı boyutlarla (çok küçük/çok geniş) görsel duman testi.
+- [ ] **F4. UTF-8 genişlik/yerel metin** — toupper tr_TR 'i'→'WRiTE' dersi;
+  çok baytlı karakter hücre sınırlarını bölüyor mu; tablo hizası.
+  Ölçüt: Türkçe etiket + değişmez-etiket ASCII kuralı (büyük-harf
+  etiketler) korunuyor mu?
+- [ ] **F5. Girdi uçları** — tuş tekrarı (%8.7 ölçümlü sıkışma noktası),
+  bracketed paste, mouse wheel panoklarında sınır, fullscreen 't' içinde
+  global kısayol çakışması. Ölçüt: her yeni panel için kısayol
+  çakışma tablosu.
+- [ ] **F6. Terminal yetenek varsayımları** — truecolor yoksa, unicode
+  glif yoksa (packed fallback var), terminal sorgusuna cevap vermeyen
+  pty'de init asılmaz (tui_screenshot.py'nin varoluş nedeni).
+  Ölçüt: notcurses init hatası temiz mesajla çıkar.
+
+## G — Uzun koşu kaynak büyümesi
+
+- [x] **G1. Poll başına tahsis** — yok (A1 kanıtı).
+- [ ] **G2. Halka dışı sınırsız geçmiş** — since-reset istatistikler,
+  per-core NOW tablosu, csv bellek tarafı: her birikimli yapının üst
+  sınırı var mı? Ölçüt: sabit-boyut kanıtı.
+- [ ] **G3. Log büyümesi** — ut_log döngüsü: dosya büyüklüğü sınırsız mı,
+  rotasyon var mı? Karar: bilinçli bırakılıyorsa belgele.
+- [ ] **G4. Uzun oturum ölçümü** — saatlerce açık TUI'da RSS eğrisi düz mi?
+  Ölçüt: 1 saatlik /proc stat örnekleme (perf-audit yöntemi).
+
+## H — CLI/argüman/çoklu-örnek
+
+- [ ] **H1. Argüman ayrıştırma uçları** — `--hz 0`, `--ppt` eksik/bozuk
+  değer, negatif, `--config-dir` kuyruksuz, bilinmeyen bayrak sessiz
+  headless'e mi düşüyor? Ölçüt: her CLI komutu için kötü-girdi tablosu
+  (hata mesajı + rc).
+- [x] **H2. rc sözleşmesi** — FAILED CLI'da nonzero (fan 7011b56).
+  *Yeni komut eklenince kural.*
+- [x] **H3. Borulanmış çıktıda TUI açılmama** — (no-args=kural) piped
+  tespiti. *Yeni giriş yollarında tekrar doğrulanır.*
+- [ ] **H4. Çoklu örnek çatışması** — iki TUI (toggle claim'i var), TUI+CLI
+  eşzamanlılık, iki csv logger aynı dosyaya. Ölçüt: çakışma davranışı
+  belgeli (son-yazan kazanır mı, uyarı var mı).
+
+## I — Taşınabilirlik/ortam
+
+- [x] **I1. PATH/secure_path** — nvidia-smi mutlak yol çözümü (sudo reset),
+  ryzenadj bare-name fallback, merged-usr /usr/sbin→bin tek-dosya dersi;
+  NixOS read-only denetimi kırıcı yok (10-31).
+- [ ] **I2. Kalan NixOS/Arcioth safa** — flake `nix build` ilk doğrulama,
+  sudoers extraRules, ryzenadj secure_path testi, FA507NVR canlı dörtlüsü,
+  Hyprland mouse. (Saha maddeleri; NEXT.md FAZ 2 ile senkron.)
+- [ ] **I3. Kernel sürüm kayması** — perf PMU 6.14+ opsiyonel (paranoid=2
+  EACCES), gpu_metrics offset'leri ASIC-bağımlı. Ölçüt: yok-sayma
+  yolları --doctor'da görünür.
+- [x] **I4. İzin düşüşü** — sudo'suz makinede temiz FAILED, sabit-durum
+  mandalları (fan_sysfs_dead); RAPL 0400 root sessiz gizlenme.
+- [ ] **I5. Opsiyonel bağımlılık yokluğu** — asusctl/daeboard/nvidia-smi/
+  notcurses sürüm farkı yokluğunda özellikler zarifçe gizleniyor mu?
+  Ölçüt: her opsiyonel özellik için yok-luk testi (--doctor çıktısıyla).
+
+## J — Kalıcılık/veri bütünlüğü
+
+- [ ] **J1. Yarım yazım bozulması** — .ctr/modes.ini/settings.ini `fopen(w)`
+  ile yerinde yeniden yazılıyor: yazım ortasında güç kesilirse dosya
+  bozulur. Ölçüt/karar: temp+rename (atomik değiştirme) gerekiyor mu —
+  kod değişikliği önerisiyle bitir.
+- [ ] **J2. Eşzamanlı yazım** — iki oturum aynı settings.ini'ye quit'te
+  yazarsa (paralel oturum dersi). Ölçüt: last-writer-wins kabulü
+  belgeli ya da kilit.
+- [x] **J3. Format ileri-uyumluluk** — csv başlık kolon koruması
+  (22 kolon uyarısı + yeni dosya zorlaması).
+
+## K — Alan mantığı
+
+- [x] **K1. Fan eğrisi değişmezleri** — 8 nokta, artan temp, pwm 0-255;
+  pure model unit-testli. *Editor→apply yolunda yeniden doğrulama:
+  editor'den gelen tablo da aynı değişmezden mi geçiyor?*
+- [x] **K2. df-yüzde tavani** — df Use% tavan yuvarlar; df-exact yüzde
+  (03a085f dersi).
+- [ ] **K3. Sıfıra-bölme/boş-mengeç** — util%, busiest, min/max: boş
+  halka/ilk poll "--" semantiği (16. tur kuralı) her yeni tabloda.
+- [ ] **K4. Zaman hesapları** — since-reset, strftime, localtime_r
+  hatası yolu; monotonik saat varsayımı. Ölçüt: sistem saati geriye
+  alınırsa çılgın değer yok.
+
+## L — Hata raporlama dürüstlüğü (ctron'un imzası)
+
+- [x] **L1. Yazma hükmü wording'i** — fan_write_verdict üç durum
+  (asusctl-ok / hata / yok) dürüst metin; Dragon Range geri-okuma
+  yokluğu dürüst log.
+- [ ] **L2. Yutulan dönüş değeri** — `-1` dönen çağrıların rc'si yok
+  sayılıyor mu? Ölçüt: `grep -nE '^\s*(ut_|ctrl_|profile_|modes_|settings_|display_).*\(' src/` içinde sonucu kullanmayan çağrılar
+  tek tek gerekçelenir ya da hata yolu eklenir.
+- [ ] **L3. "Başarılı" sanılan kısmi başarı** — çok-adımlı apply'da (ppt
+  üç limit, fan cpu+gpu) biri başarısız olursa raporlama parçalı mı,
+  bütünsel mi? Ölçüt: her adımın sonucu tamamlama satırında ayrı
+  görünür (tek-tamamlama-satırı kuralıyla çatışmaz: satır içinde
+  parçalı durum).
+
+---
+
+## Denetim oturumu disiplini
+
+1. Oturum = tek kalem; başta git log + NEXT.md + HANDOFF tazele.
+2. Önce mevcut kanıt ara (bu dosya + hafıza + CHANGELOG) — kapanmış
+   şeyi yeniden icat etme.
+3. Dinamik kanıt > statik okuma > varsayım. Ölçüm yöntemini çıktıya yaz.
+4. Bulgu varsa: önce bildir, düzeltmeyi kullanıcı onayıyla yap
+   (okuma-yazmaz varsayılan); fix + test + gerekirse HELP satırı aynı
+   commit'te.
+5. Kalem kapanınca bu dosyada [x]'e çek + kanıt satırını yaz; HANDOFF +
+   CHANGELOG'a kayıt düş.

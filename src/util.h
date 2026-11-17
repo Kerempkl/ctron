@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdio.h>
 
 /* ---- file / sysfs access -------------------------------------------- */
 
@@ -13,6 +14,13 @@ int ut_read_file(const char *path, char *out, size_t n);
 /* Read a WHOLE file (up to n-1 bytes), trailing newline(s) trimmed.
  * Returns 0 on success, -1 on error or an empty file. */
 int ut_read_file_all(const char *path, char *out, size_t n);
+
+/* fgets for config parsing that never hands back a truncated line
+ * (a silently cut "steps = hz 60" reads as "hz 6" downstream). Returns
+ * 1 with one full line in out (newline kept), 0 at end of file, -1
+ * when the line did not fit in n-1 bytes — the remainder is drained
+ * so the next call starts at the following line. */
+int ut_fgets_full(char *out, size_t n, FILE *f);
 
 /* Read an integer from a file (sysfs semantics). Returns -1 on failure. */
 int ut_read_int(const char *path);

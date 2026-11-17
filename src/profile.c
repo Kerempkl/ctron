@@ -231,7 +231,12 @@ int profile_import(const char *name, hw_state_t *hw, char *err, size_t errn)
     int n_freq = 0;
     int failed = 0;
 
-    while (fgets(line, sizeof(line), f)) {
+    int r;
+    while ((r = ut_fgets_full(line, sizeof(line), f)) != 0) {
+        if (r < 0) {
+            ut_log("profile '%s': overlong line skipped", name);
+            continue;
+        }
         char *s = ut_trim(line);
         if (*s == '#' || *s == ';' || *s == '[' || !*s)
             continue;
@@ -353,9 +358,10 @@ int profile_rename(const char *old_name, const char *new_name)
  * write, so a naive `off += snprintf(...)` runs `off` past the buffer
  * once content is truncated — the next call's size argument then wraps
  * size_t and writes past `out` (an oversized >4 KB .ctr smashed the
- * stack here; ASan-proven 2026-10-28, regression-tested). An oversized
- * file is rewritten truncated, never out of bounds. */
-static void note_append(char *out, size_t n, size_t *off,
+ * stack here; ASan-proven 2026-10-28, regression-tested). Returns
+ * false when the text did not fully fit (off stays clamped in range);
+ * set_note uses that to refuse the rewrite instead of shortening. */
+static bool note_append(char *out, size_t n, size_t *off,
                         const char *fmt, ...)
 {
     if (*off > n - 2)
@@ -364,10 +370,12 @@ static void note_append(char *out, size_t n, size_t *off,
     va_start(ap, fmt);
     int w = vsnprintf(out + *off, n - *off, fmt, ap);
     va_end(ap);
+    bool fit = (w >= 0 && (size_t)w < n - *off);
     if (w > 0)
         *off += (size_t)w;
     if (*off > n - 2)
         *off = n - 2;
+    return fit;
 }
 
 int profile_set_note(const char *name, const char *note)
@@ -379,22 +387,40 @@ int profile_set_note(const char *name, const char *note)
         return -1;
 
     /* rewrite byte-preserving: drop any old "# note:" line, insert the
-     * new one after the leading '#'-comment header block */
+     * new one after the leading '#'-comment header block. "Preserving"
+     * is a promise: a line that cannot round-trip (overlong for the
+     * read buffer, or content past out[]'s clamp) aborts the rewrite
+     * with the file untouched rather than shortening it silently. */
     char out[4096] = "";
     size_t off = 0;
     char line[512];
     bool inserted = !(note && note[0]);
-    while (fgets(line, sizeof(line), f)) {
+    bool lost = false;
+    int r;
+    while ((r = ut_fgets_full(line, sizeof(line), f)) != 0) {
+        if (r < 0) {
+            lost = true;
+            break;
+        }
         char *s = ut_trim(line);
         if (!strncmp(s, "# note:", 7))
             continue; /* drop the old note */
         if (!inserted && s[0] && s[0] != '#') {
-            note_append(out, sizeof(out), &off, "# note: %s\n", note);
+            if (!note_append(out, sizeof(out), &off, "# note: %s\n", note))
+                lost = true;
             inserted = true;
         }
-        note_append(out, sizeof(out), &off, "%s\n", s);
+        if (!note_append(out, sizeof(out), &off, "%s\n", s))
+            lost = true;
+        if (lost)
+            break;
     }
     fclose(f);
+    if (lost) {
+        ut_log("snapshot note: %s not saved (file would not round-trip)",
+               name);
+        return -1;
+    }
 
     f = fopen(path, "w");
     if (!f)
@@ -447,7 +473,12 @@ int profile_meta_parse(const char *name, profile_meta_t *m)
     memset(m, 0, sizeof(*m));
     m->fan_cpu_on = m->fan_gpu_on = -1;
     char line[512];
-    while (fgets(line, sizeof(line), f)) {
+    int r;
+    while ((r = ut_fgets_full(line, sizeof(line), f)) != 0) {
+        if (r < 0) {
+            ut_log("profile '%s': overlong line skipped", name);
+            continue;
+        }
         char *s = ut_trim(line);
         if (!strncmp(s, "# saved:", 8))
             snprintf(m->saved, sizeof(m->saved), "%.*s",

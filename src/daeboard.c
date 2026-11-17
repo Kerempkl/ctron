@@ -149,6 +149,10 @@ int db_reload(char *err, int errn)
 {
 	char reply[32];
 
+	/* every failure path must leave a defined string: callers read
+	 * err[0] to decide between it and their own fallback text */
+	if (err && errn > 0)
+		err[0] = '\0';
 	if (exchange("reload", reply, (int)sizeof reply) != 0)
 		return -1;
 	if (strcmp(reply, "ok") == 0)

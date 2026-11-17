@@ -93,7 +93,12 @@ int settings_load(hw_state_t *hw)
 
     char ct[128] = {0}, cp[128] = {0}, gt[128] = {0}, gp[128] = {0};
     char line[256];
-    while (fgets(line, sizeof(line), f)) {
+    int r;
+    while ((r = ut_fgets_full(line, sizeof(line), f)) != 0) {
+        if (r < 0) {
+            ut_log("settings: overlong line skipped in %s", path);
+            continue;
+        }
         char *eq = strchr(line, '=');
         if (!eq)
             continue;

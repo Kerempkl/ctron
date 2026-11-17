@@ -58,6 +58,26 @@ int ut_read_file_all(const char *path, char *out, size_t n)
     return 0;
 }
 
+int ut_fgets_full(char *out, size_t n, FILE *f)
+{
+    if (!out || n < 2 || !f)
+        return 0;
+    if (!fgets(out, (int)n, f))
+        return 0;
+    size_t len = strlen(out);
+    if (len > 0 && out[len - 1] != '\n') {
+        /* buffer filled without a newline: the line continues unless
+         * the next byte is EOF (exact final fit) or the newline itself */
+        int c = fgetc(f);
+        if (c == EOF || c == '\n')
+            return 1;
+        while ((c = fgetc(f)) != EOF && c != '\n')
+            ;
+        return -1;
+    }
+    return 1;
+}
+
 int ut_read_int(const char *path)
 {
     char buf[64];

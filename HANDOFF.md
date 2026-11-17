@@ -1,7 +1,36 @@
 # Ctron Handoff
 
-Latest session — **2026-10-30 (23rd round, power honesty: dirty =
-write-gate mask + CORE LIMITS single-apply — NEXT.md 19 closed)**
+Latest session — **2026-11-17 (audit rounds A1–A6: AUDIT.md born,
+A5/A6 findings fixed same day)**
+
+**GLM / Kerempkl / FA608PP** — user asked for a comprehensive
+error-class list to audit item by item ("sırayla başla", then full
+autonomy: "sıradaki adıma geçiş tamamen sende ... tek tek yavaşça
+dikkatlice incele"). AUDIT.md (repo root, committed) is the tracker:
+A–L, ~50 items, per-item criteria, [x]/[~]/[ ] states.
+
+- **A1–A4 clean** (11-05): zero-leak re-proven (leak-only LSan recipe —
+  ASan exit-artifact on glibc 2.41 poisons real reports); snprintf-
+  accumulation and unsafe-copy sweeps found nothing.
+- **A5 findings fixed 11-17**: `ut_fgets_full()` whole-line-or-skip in
+  util.c; modes/settings/.ctr import/meta parsers skip+log overlong
+  lines; `profile_set_note` now REFUSES any rewrite that would not
+  round-trip (file left byte-identical, -1 + log) — contract change
+  from v0.8.1's "truncated but parseable". Test battery in test_core.
+- **A6 finding fixed 11-17**: `db_reload` clears `err` on entry (the
+  daemon-absent path used to leave it uninitialized; three callers
+  read `err[0]`). A6 evidence otherwise clean: clang --analyze +
+  UBSan-over-everything zero reports.
+- **Lesson (test code)**: a `w+` FILE needs fseek/fflush between
+  reading and writing — appending to a tmpfile right after an EOF
+  read landed unpredictably and broke my own first fgets test;
+  per-scenario fresh tmpfiles fixed it.
+- Next: **A7** (integer overflow/conversion: size_t subtractions,
+  mW/W + kHz math, direct atoi sites) — user expects item-by-item
+  careful code reading, fixes land autonomously now.
+
+## 2026-10-30 (23rd round, power honesty: dirty =
+write-gate mask + CORE LIMITS single-apply — NEXT.md 19 closed)
 
 **GLM / Kerempkl / FA608PP** — user picked suggestion 2 after the
 v0.9.0 cut; plan approved with the embedded recommendations (full

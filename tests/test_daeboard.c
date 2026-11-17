@@ -44,6 +44,16 @@ int main(void)
           "bad ctron lines do not hide a later action");
     CHECK(strcmp(cmd, "hz") == 0 && strcmp(val, "60") == 0,
           "later ctron assignment is the one kept");
+
+    /* reload failure must still leave a defined err string: callers
+     * branch on err[0], which would read uninitialized memory when the
+     * daemon is simply absent (guard skips when one is running) */
+    {
+        char err[8];
+        memset(err, 'x', sizeof err);
+        if (db_reload(err, (int)sizeof err) != 0)
+            CHECK(err[0] == '\0', "reload failure initializes err");
+    }
     if (failures) {
         fprintf(stderr, "%d failed\n", failures);
         return 1;

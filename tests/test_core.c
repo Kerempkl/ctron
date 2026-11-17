@@ -66,6 +66,52 @@ static void check_fan_edit(void)
         CHECK(fc.temp_c[i] > fc.temp_c[i - 1], "strictly increasing");
 }
 
+/* ut_fgets_full: full-line-or-skip contract for config parsing */
+static void check_fgets_full(void)
+{
+    char b[6]; /* room for 5 chars + NUL */
+    int r;
+
+    /* mixed battery (each scenario gets its own file: a w+ stream
+     * needs fseek between reading and writing) */
+    FILE *f = tmpfile();
+    CHECK(f != NULL, "fgets_full tmpfile");
+    if (f) {
+        fputs("ab\nabcd\nabcdef\nef\n", f);
+        rewind(f);
+        r = ut_fgets_full(b, sizeof b, f);
+        CHECK(r == 1 && !strcmp(b, "ab\n"), "fgets_full short line");
+        r = ut_fgets_full(b, sizeof b, f);
+        CHECK(r == 1 && !strcmp(b, "abcd\n"), "fgets_full exact fit with nl");
+        r = ut_fgets_full(b, sizeof b, f);
+        CHECK(r == -1, "fgets_full overlong rejected");
+        r = ut_fgets_full(b, sizeof b, f);
+        CHECK(r == 1 && !strcmp(b, "ef\n"), "fgets_full resync after overlong");
+        CHECK(ut_fgets_full(b, sizeof b, f) == 0, "fgets_full eof");
+        fclose(f);
+    }
+
+    f = tmpfile(); /* final line without newline, exact fit */
+    CHECK(f != NULL, "fgets_full tmpfile 2");
+    if (f) {
+        fputs("abcde", f);
+        rewind(f);
+        r = ut_fgets_full(b, sizeof b, f);
+        CHECK(r == 1 && !strcmp(b, "abcde"), "fgets_full exact final fit");
+        fclose(f);
+    }
+
+    f = tmpfile(); /* final line overlong, no trailing newline */
+    CHECK(f != NULL, "fgets_full tmpfile 3");
+    if (f) {
+        fputs("abcdef", f);
+        rewind(f);
+        CHECK(ut_fgets_full(b, sizeof b, f) == -1, "fgets_full final overlong");
+        CHECK(ut_fgets_full(b, sizeof b, f) == 0, "fgets_full eof after drain");
+        fclose(f);
+    }
+}
+
 static void check_settings_roundtrip(void)
 {
     char tmp[] = "/tmp/ctron2-test-XXXXXX";
@@ -93,6 +139,22 @@ static void check_settings_roundtrip(void)
     CHECK(loaded.fan_cpu_on, "fan cpu flag");
     CHECK(!loaded.fan_gpu_on, "fan gpu flag");
     CHECK(loaded.cpu_mhz_limit == 4500, "cpu limit");
+
+    /* an overlong line is skipped whole; keys after it still load
+     * (a silently cut value would read as a valid-but-wrong setting) */
+    {
+        char spath[500];
+        settings_file(spath, sizeof(spath));
+        FILE *g = fopen(spath, "a");
+        CHECK(g != NULL, "settings append open");
+        if (g) {
+            fprintf(g, "junk = %0300d\n", 1);
+            fputs("theme = 2\n", g);
+            fclose(g);
+        }
+        CHECK(settings_load(&loaded) == 0, "settings load with junk line");
+        CHECK(g_prefs.theme == 2, "key after overlong line loads");
+    }
 }
 
 static void check_modes(void)
@@ -132,6 +194,27 @@ static void check_modes(void)
     int z = mode_find(again, n2, "zz-test");
     CHECK(z >= 0, "edited mode persists");
     CHECK(!strcmp(again[z].steps, "profile quiet, fan stock"), "edited steps persist");
+
+    /* an overlong steps line is skipped whole: its section never
+     * materializes, later sections still load */
+    {
+        char mpath[500];
+        modes_path(mpath, sizeof(mpath));
+        FILE *g = fopen(mpath, "a");
+        CHECK(g != NULL, "modes append open");
+        if (g) {
+            fprintf(g, "\n[zz-long]\nsteps = hz %0600d\n", 6);
+            fputs("[zz-ok]\nsteps = hz 60\n", g);
+            fclose(g);
+        }
+        mode_def_t m3[MODES_MAX];
+        int n3 = modes_load(m3, MODES_MAX);
+        int ok = mode_find(m3, n3, "zz-ok");
+        CHECK(ok >= 0 && !strcmp(m3[ok].steps, "hz 60"),
+              "section after overlong line loads");
+        CHECK(mode_find(m3, n3, "zz-long") < 0,
+              "overlong-steps section dropped");
+    }
 }
 
 static void check_profiles(void)
@@ -205,8 +288,9 @@ static void check_profiles(void)
     }
 
     /* oversized .ctr must not smash the stack through set_note's
-     * offset arithmetic (ASan-proven 2026-10-28); the rewrite comes
-     * back truncated but parseable, and the note round-trips */
+     * offset arithmetic (ASan-proven 2026-10-28); since 2026-11-17 the
+     * rewrite REFUSES instead of shortening: the file stays
+     * byte-identical and the note is simply not set */
     {
         char tmp3[] = "/tmp/ctron2-test-XXXXXX";
         CHECK(mkdtemp(tmp3) != NULL, "note mkdtemp");
@@ -225,12 +309,44 @@ static void check_profiles(void)
             fputs("profile = performance\n", g);
             fclose(g);
         }
-        CHECK(profile_set_note("notebig", "regression") == 0,
-              "set_note on oversized profile");
+        long orig_sz = -1;
+        struct stat st;
+        CHECK(stat(pth, &st) == 0, "note stat");
+        orig_sz = st.st_size;
+        CHECK(profile_set_note("notebig", "regression") == -1,
+              "set_note refuses oversized profile");
+        CHECK(stat(pth, &st) == 0 && st.st_size == orig_sz,
+              "refused rewrite leaves file byte-identical");
         profile_meta_t m;
         CHECK(profile_meta_parse("notebig", &m) == 0,
               "oversized profile still parseable");
-        CHECK(!strcmp(m.note, "regression"), "note round-trips");
+        CHECK(m.note[0] == '\0', "note not set on refuse");
+
+        /* a >511-byte line cannot round-trip either: same refusal */
+        g = fopen(pth, "w");
+        CHECK(g != NULL, "note reopen");
+        if (g) {
+            fputs("# ctron snapshot\nprofile = performance\n", g);
+            fprintf(g, "pad = %0600d\n", 7);
+            fclose(g);
+        }
+        CHECK(profile_set_note("notebig", "x") == -1,
+              "set_note refuses overlong line");
+
+        /* a small profile round-trips normally */
+        g = fopen(pth, "w");
+        CHECK(g != NULL, "note reopen 2");
+        if (g) {
+            fputs("# ctron snapshot\n# saved: 2026-11-17 10:00\n"
+                  "profile = performance\n", g);
+            fclose(g);
+        }
+        CHECK(profile_set_note("notebig", "hello") == 0, "set_note small ok");
+        CHECK(profile_meta_parse("notebig", &m) == 0, "small parse");
+        CHECK(!strcmp(m.note, "hello"), "small note round-trip");
+        CHECK(profile_set_note("notebig", "") == 0, "note cleared ok");
+        CHECK(profile_meta_parse("notebig", &m) == 0, "small parse 2");
+        CHECK(m.note[0] == '\0', "note cleared");
         unlink(pth);
         rmdir(pdir);
         rmdir(tmp3);
@@ -1636,6 +1752,7 @@ int main(void)
     check_fan_csv();
     check_fan_edit();
     check_fan_presets();
+    check_fgets_full();
     check_settings_roundtrip();
     check_modes();
 

@@ -1,5 +1,37 @@
 # Changelog
 
+## 2026-11-17 — audit A5/A6 fixed: config truncation silence + set_note honesty + db_reload err
+
+- **AUDIT.md born** (repo root): A–L checklist of error classes for a
+  ctron-shaped app, ~50 items with per-item criteria; proven-closed
+  classes pre-marked. A1–A4 audited clean (A1 zero-leak re-proven with
+  the leak-only sanitizer recipe; A2/A4 buffer-safety sweeps found
+  nothing — the tree's copy idiom is consistently measure-clamp-write).
+- **A5 fixed — truncated config lines are never parsed** (BULGU 1+2):
+  new `ut_fgets_full()` (util.c) reads whole lines or returns a
+  distinct "too long, drained" verdict; modes/settings/.ctr import/
+  meta parsers skip such lines and log instead of silently accepting a
+  cut value ("steps = hz 60" could parse as "hz 6").
+- **A5 fixed — `profile_set_note` refuses instead of shortening**: the
+  v0.8.1 clamp made the rewrite memory-safe but silently truncated
+  >4 KB files and split >511-byte lines while logging success
+  ("byte-preserving" it was not). note_append now reports fit; any
+  content that would not round-trip aborts the rewrite with the file
+  untouched (-1 + log). Contract change: oversized no longer returns
+  0-with-truncation. Regression test updated to assert byte-identical
+  file + note-not-set on refusal, plus small-profile round-trip.
+- **A6 fixed — `db_reload` undefined read** (BULGU 3): the
+  daemon-unreachable path returned -1 without touching `err`; all
+  three callers branch on `err[0]`, reading uninitialized memory.
+  err is now cleared on entry (cmd_run convention). Guarded test in
+  test_daeboard (skips if a daemon is actually running).
+- A6 evidence otherwise clean: clang --analyze (24 TUs) zero
+  core.uninitialized, UBSan over unit/--doctor/--status/full TUI
+  smoke zero reports; valgrind not installed, MSan impractical
+  (uninstrumented notcurses).
+- 9 fgets-battery/parser-skip/note tests added; 0 warnings, make test,
+  full tuitest green.
+
 ## 2026-10-30 — power honesty: dirty = write-gate mask + CORE LIMITS single-apply
 
 - One truth for "would Apply write this": the new PW_W_* mask is read

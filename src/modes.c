@@ -59,7 +59,12 @@ int modes_load(mode_def_t *arr, int max)
 
     int n = 0;
     char line[512], section[MODE_NAME_MAX] = {0};
-    while (fgets(line, sizeof(line), f) && n < max) {
+    int r;
+    while (n < max && (r = ut_fgets_full(line, sizeof(line), f)) != 0) {
+        if (r < 0) {
+            ut_log("modes: overlong line skipped in %s", path);
+            continue;
+        }
         char *s = ut_trim(line);
         if (*s == '#' || *s == ';' || !*s)
             continue;
