@@ -62,10 +62,15 @@ A–L, ~50 items, per-item criteria, [x]/[~]/[ ] states.
   shapes, guards fire before any write, zeroed-hw proof) + ron drift
   shapes (armed-without-key → unknown, garbage → off, bool-as-number
   → off). All expectations held on first run.
-- Next: **D3** (sysfs format drift: label-verified reads inventory),
-  **D4** (unit-proof documentation for every new series) — then E
-  (write-gate discipline items E3-E6). User expects item-by-item
-  careful code reading, fixes land autonomously now.
+- **D3/D4 closed clean 11-17**: every hwmon discovery name-content-
+  verified, k10temp labels + L3 level==3 verified, zero hardcoded
+  indices; unit-proof culture institutionalized (gpu_metrics note at
+  both sites, per-series CHANGELOG proofs). **Category D is now
+  fully [x].**
+- Next: **E3/E4/E5/E6** (write-chain order grep, stale-PPT honesty
+  labels, FAN 'w' during worker, gpu-clock idle verification) — then
+  F. User expects item-by-item careful code reading, fixes land
+  autonomously now.
 
 ## 2026-10-30 (23rd round, power honesty: dirty =
 write-gate mask + CORE LIMITS single-apply — NEXT.md 19 closed)

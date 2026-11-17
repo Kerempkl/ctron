@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-11-17 — audit D3/D4 closed clean: sysfs drift + unit proofs
+
+- D3: zero hardcoded hwmon indices; every discovery goes through
+  hw_hwmon_path/_nth which matches the chip by /name CONTENT; k10temp
+  temps additionally verify tempN_label content ("a different chip
+  layout never shows a wrong name"); power_supply matches the type
+  attribute; L3 caches verify level==3 per index; a renamed key just
+  fails the read → honest "--".
+- D4: unit-proof culture verified institutionalized — the gpu_metrics
+  u32@28 lesson is annotated at both code sites (retired parser +
+  deliberate non-read), every TS_* series since 10-26 landed with its
+  unit proof in the CHANGELOG. No code changes.
+
 ## 2026-11-17 — audit D2/D7 closed: hostile-config battery + ron drift shapes
 
 - check_hostile_config (test_core): settings negatives/over-range/

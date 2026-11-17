@@ -239,14 +239,26 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
   hz / aralık-dışı hz guard'ları YAZMADAN önce reddeder (hw=0 ile
   koşulur, donanım dokunulmaz). Bataryanın tamamlanması = asılı/
   çökme yok kanıtı. İlk koşuda tüm beklentiler tuttu.*
-- [ ] **D3. Kernel/sysfs biçim kayması** — anahtar adı değişimleri
-  (clocks_event_reasons alt-tire dersi), hwmon index kayması
-  (index*/head-1 = L1d tuzağı — label doğrulaması şart), hex/dec
-  karışımı. Ölçüt: her okuma label/örnekleme-doğrulamalı.
-- [ ] **D4. Birim ölçek hataları** — mW/W, mA/A, kHz/MHz, %/oran.
+- [x] **D3. Kernel/sysfs biçim kayması** — *Denetim 11-17 bulgusuz:
+  sabit-kodlu hwmonN YOK — her keşif hw_hwmon_path/_nth'ten geçer ve
+  `/name` dosyası İÇERİĞİYLE çip adı doğrular (k10temp/amdgpu/
+  spd5118/nvme ×2/asus_custom_fan_curve); k10temp sıcaklıkları ek
+  olarak tempN_label İÇERİĞİ doğrular (kod yorumu: "labels so a
+  different chip layout never shows a wrong name"); power_supply
+  type özniteliğiyle eşleşir (BAT1/ADP yanlış eşleşemez); L3 cache
+  index*level==3 başına doğrulamalı (L1d tuzağı dersi uygulanmış);
+  gpu_metrics u32@28 notu kodda iki yerde. Anahtar adı değişirse
+  okuma başarısız → dürüst "--" (kural 3); hex/dec: gpu_csv pstate
+  P[0-9] + reason bayrakları bağlamsal ayrıştırılıyor.*
+- [x] **D4. Birim ölçek hataları** — mW/W, mA/A, kHz/MHz, %/oran.
   gpu_metrics gfx "watt" faciası dersi: **yuvarlak tavan sıfır-varyans
   = sayaç/aktivite, ölçer değil** — watt iddiasından önce birim kanıtı.
-  Ölçüt: her yeni seri için birim kanıtı belgelendi mi?
+  *Denetim 11-17: kanıt-kültürü yerleşik — gpu_metrics u32@28 dersi
+  kodda İKİ yerde notlu (emekli ayrıştırıcı + bilinçli okumama notu),
+  10-26'dan beri her TS_* seri eklemesi CHANGELOG'da birim kanıtıyla
+  geldi (power1_input=APU watt kanıtlı, wifi dBm, df-exact yüzde,
+  load, PSI), kural bu maddenin başında duruyor. Yeni seri kapısı =
+  birim kanıtı CHANGELOG girdisinde.*
 - [x] **D5. Dürüst okuma** — bayat önbellek `--` (kural 3); BAT1 temp yok,
   cycle_count 0 gizli. *Yeni sensör eklenince kural tekrarlanır.*
 - [x] **D6. Yaz-sonrası geri-okuma** — kscreen-doctor/Hyprland exit-0
