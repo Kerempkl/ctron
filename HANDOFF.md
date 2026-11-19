@@ -1,6 +1,49 @@
 # Ctron Handoff
 
-Latest session — **2026-11-17 (audit rounds A1–A6: AUDIT.md born,
+Latest session — **2026-11-19 (file audit + README renewal: fresh
+screenshots, kernel 7.2–7.3 claim, code layout completed)**
+
+**GLM / Kerempkl / FA608PP** — user asked to check the project for
+empty/unnecessary files and renew the README, suspecting stale info
+("yanlış bilgiler gördüm gibi dikkatli ol").
+
+- **File audit**: zero empty files anywhere (tracked or ignored);
+  every tracked file has a purpose (PLAN.md/PLANS.md are
+  self-labeled historical records, linked from README's doc table).
+  Cleaned scripts/__pycache__ (gitignored, regenerates). NEXT.md
+  carries an UNCOMMITTED 11-01-era addition (item 20 + Rembrandt
+  field notes) from a previous session — deliberately left out of
+  this commit; user decides.
+- **README verified claim-by-claim against code/binary** (not
+  eyeballed): full flag list byte-identical to the real --help
+  (modulo argv[0]); `5`–`8` = fan/power/light/help (ui.c:965-983);
+  `1`–`4` focus map; ESC opens the settings overlay which CONTAINS
+  CLI SHORTCUTS (both README mentions consistent); footer ring =
+  UT_LOG_ENTRIES 24 (util.h:123); fan preset labels Quiet/Balanced/
+  Performance/Active-Live (editor_fan.c:540); GitHub anchors;
+  parked list = NEXT.md's single list; polkit = SECURITY.md
+  Phase 3; badge v0.9.0 = main.c = flake.nix.
+- **Real drift found and fixed (3 items)**: (1) kernel claim 7.2 →
+  7.2–7.3 — the machine now runs 7.3.1-cachyos and today's live
+  re-verification backs the claim (full rebuild 0 warnings, make
+  test, full make tuitest, --status, --doctor; HARDWARE.md FA608PP
+  rows EN+TR got the 7.3.1 re-verify line so matrix and README stay
+  in sync); (2) the "Layout of the code" block was missing
+  main.c/telem.c/daeboard.c — added; (3) stray space in
+  "( SECURITY.md Phase 3)".
+- **docs/tui-{fan,power,telem}.png re-shot** with the 11-19 build
+  via scripts/tui_screenshot.py (isolated CTRON_CONFIG). The image
+  analyzer MCP rejected the harness CDN URLs, so verification was a
+  pixel-stat comparison against the 10-30 set: identical
+  dimensions, near-identical unique-color counts — same layout,
+  fresh live values, no render drift.
+
+Signed: **GLM 5.3** — file audit, README/HARDWARE renewal,
+screenshots, verification.
+
+*Date: 2026-11-19*
+
+Before that **2026-11-17 (audit rounds A1–A6: AUDIT.md born,
 A5/A6 findings fixed same day)**
 
 **GLM / Kerempkl / FA608PP** — user asked for a comprehensive

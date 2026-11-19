@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-11-19 — docs: README renewal + repo file audit (fresh screenshots, kernel 7.2–7.3, code layout completed)
+
+- File audit (user ask): zero empty files; no unnecessary tracked
+  files (PLAN/PLANS self-labeled history); scripts/__pycache__
+  removed (ignored, regenerates). NEXT.md keeps an uncommitted
+  11-01 addition (item 20 + Rembrandt notes) — untouched, user
+  decides.
+- README: every claim re-verified against code/binary (flag list =
+  real --help byte-for-byte; `5`–`8` view keys; footer ring 24;
+  anchors; parked list). Fixed: kernel "7.2" → "7.2–7.3"
+  (re-verified live on 7.3.1-cachyos: rebuild 0 warnings, make
+  test, full tuitest, --status, --doctor); "Layout of the code"
+  gained main.c/telem.c/daeboard.c; stray space in
+  "( SECURITY.md Phase 3)".
+- HARDWARE.md: FA608PP rows (EN+TR) record the 7.3.1-cachyos
+  re-verification (2026-11-19).
+- docs/tui-{fan,power,telem}.png re-shot with the current build;
+  pixel-stat-compared against the 10-30 set (same layout, fresh
+  values).
+
 ## 2026-11-17 — audit FINAL items closed: I3/I5, K3/K4, L2/L3 (+ small honesty fixes)
 
 - I3: ctron uses no perf PMU (per-core proxy is /proc/stat-based);

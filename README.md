@@ -39,7 +39,7 @@ Working principles, enforced in code:
 - Unknown reads print `--`, never fabricated fallback data.
 
 Verified on an **ASUS TUF Gaming A16 FA608PP** (Ryzen 9 8940HX + RTX 5070
-Max-Q, CachyOS, KDE Plasma Wayland, kernel 7.2) and a **TUF A15
+Max-Q, CachyOS, KDE Plasma Wayland, kernels 7.2–7.3) and a **TUF A15
 FA507NVR** (Ryzen 7 7435HS + RTX 4060, NixOS, Hyprland 0.55) — same
 picture with two kernel-related exceptions. Support beyond these
 machines depends on the ASUS WMI stack, CPU vendor, NVIDIA driver and
@@ -290,6 +290,7 @@ itself never listens for the key (it is a TUI/CLI, not a daemon).
 
 ```
 src/
+  main.c        CLI parsing + VERSION; no args = TUI, any arg = headless
   util.c        sysfs/exec/log helpers (single place for privilege writes)
   hw.c          read layer: fast poll (temp/RPM/battery) + full snapshot
   control.c     write layer: profile/EPP/PPT/battery/fan/kbd/Hz
@@ -298,6 +299,8 @@ src/
   modes.c       user shortcut bundles (modes.ini)
   profile.c     snapshots (.ctr files, free-form names)
   settings.c    prefs + hardware persistence
+  telem.c       sample rings + stats for the 't' screen (pure, unit-tested)
+  daeboard.c    optional LED daemon client (AF_UNIX seqpacket socket)
   ui/           fullscreen TUI: layout engine + independent panels
   display/      compositor backends (see above)
 tests/          unit tests (make test)
@@ -310,7 +313,7 @@ tests/          unit tests (make test)
 Open work is tracked in [NEXT.md](NEXT.md) (single source). Intentionally
 parked: Waybar color sync · MUX / dGPU switch (needs a reboot flow) ·
 `throttle_thermal_policy` (overlaps platform profiles) · wlr-randr /
-xrandr backends · UI language table (EN/TR) · polkit helper ( SECURITY.md
+xrandr backends · UI language table (EN/TR) · polkit helper (SECURITY.md
 Phase 3) · per-key keyboard color (single-zone keyboard).
 
 ## Documentation
