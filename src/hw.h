@@ -35,7 +35,7 @@ bool hw_net_if_whole(const char *name);
 
 /* /proc/net/wireless row for `ifname`: link quality (raw units, the
  * mac80211 scale is 0-70) and the level in dBm when the driver reports
- * dBm (negative; drivers with a positive raw scale leave it -1 — we
+ * dBm (negative; drivers with a positive raw scale leave it 0 — we
  * cannot interpret those honestly). 0 when the link parsed, -1 when
  * the interface has no row. */
 int hw_parse_wireless(const char *text, const char *ifname,
@@ -184,8 +184,8 @@ typedef struct hw_state {
     int core_mhz[HW_CPU_MAX];
     int busiest_util;          /* highest thread utilisation, % (-1) */
     hw_paths_t paths;                         /* cached device paths */
-    int rpm_cpu, rpm_gpu;  /* -1 unknown */
-    int bat_pct;
+    int rpm_cpu, rpm_gpu;  /* -1 unknown (0 = fan stopped, honest) */
+    int bat_pct;           /* -1 unknown */
     char bat_status[16];
     bool ac_online;
     bool bat_mw_known;     /* bat_mw valid */
@@ -196,12 +196,12 @@ typedef struct hw_state {
     int bat_a_ma;          /* current_now magnitude, mA (-1 unknown) */
     int pd_n;              /* USB-C PD source ports found (0..4) */
     int pd_in_mw;          /* total PD input power, mW (0 = none attached) */
-    int ppt_spl, ppt_sppt, ppt_fppt;   /* W, 0 unknown/stale */
+    int ppt_spl, ppt_sppt, ppt_fppt;   /* W, -1 unknown/stale */
     int ppt_mode;                      /* hw_ppt_mode_t */
     bool ppt_off;                       /* limits removed (platform maxima) */
     int ppt_saved_spl, ppt_saved_sppt, ppt_saved_fppt; /* to restore */
-    int nv_boost;          /* W, 0 unknown */
-    int nv_temp;           /* °C, 0 unknown */
+    int nv_boost;          /* W, -1 unknown */
+    int nv_temp;           /* °C, -1 unknown */
 
     /* telemetry extras (refresh_fast reads; -1/0 = unknown) */
     double load1;                              /* /proc/loadavg 1-min */
@@ -212,7 +212,7 @@ typedef struct hw_state {
     int swap_total_mb, swap_used_mb;
     char wifi_if[16];                          /* counted wifi iface, "" none */
     int wifi_link_pct;                         /* 0-100, -1 unknown */
-    int wifi_level_dbm;                        /* driver level, dBm (-1 unknown) */
+    int wifi_level_dbm;                        /* driver level, dBm (0 unknown; valid < 0) */
     int mnt_n;                                 /* statvfs'd whole-disk mounts */
     hw_mount_t mnt[HW_MOUNT_MAX];
     int mnt_used_mb[HW_MOUNT_MAX], mnt_total_mb[HW_MOUNT_MAX];

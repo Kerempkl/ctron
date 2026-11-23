@@ -263,11 +263,15 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
   geldi (power1_input=APU watt kanıtlı, wifi dBm, df-exact yüzde,
   load, PSI), kural bu maddenin başında duruyor. Yeni seri kapısı =
   birim kanıtı CHANGELOG girdisinde.*
-- [~] **D5. Dürüst okuma** — bayat önbellek `--` (kural 3); BAT1 temp yok,
-  cycle_count 0 gizli. *2026-11-23 REVIEW.md 1.2/1.3/1.4/1.10 açıkları:
-  `0 RPM`→`-1`, `--watch` ve `panel_telem_full.c`'de ham `-1`, `wifi_level_dbm`
-  ters koşul + `-1` çakışması, `pp_dpm_sclk` tek-satır okuma, `nv_*` 0 sentinel
-  — v0.10.0'da kapatılınca tekrar [x].*
+- [x] **D5. Dürüst okuma** — bayat önbellek `--` (kural 3); BAT1 temp yok,
+  cycle_count 0 gizli. *2026-11-23 `REVIEW.md` 1.2/1.3/1.4/1.10a kapatıldı:
+  `wifi_level_dbm` sentinel `0` + `detail_net` ters koşul düzeltmesi;
+  `pp_dpm_sclk` ve `/proc/pressure/*` `ut_read_file_all()` + case-insensitive
+  `MHz` (canlı `--status` kanıtı: `iGPU busy : 0 % · sclk DPM 2/3 @ 600 MHz`);
+  `0 RPM` (`>= 0`); `nv_boost`/`nv_temp` `-1` sentinel; `hw_init()` eksik
+  `-1` sentinel'leri; `--status`/`--watch`/`panel_telem_full.c`/
+  `panel_telemetry.c` ham `-1`/`0` temizliği (0 uyarı, `make test`,
+  `clang --analyze` sıfır bulgu).*
 - [x] **D6. Yaz-sonrası geri-okuma** — kscreen-doctor/Hyprland exit-0
   durmadan-yapmaz; integer refresh `@60` (kural 4). *Yeni display
   backend'inde (Arcioth) kural tekrarlanır.*

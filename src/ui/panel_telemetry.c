@@ -25,11 +25,12 @@ void panel_telemetry_draw(struct ncplane *n, const rect_t *r)
     ui_box(n, r, "LIVE", g_ui.focus == FOC_TELEM);
 
     char l1[256], l2[256];
-    char cpu_t[16], gpu_t[16], rpmc[16], rpmg[16], hz[16], pwr[24];
+    char cpu_t[16], gpu_t[16], rpmc[16], rpmg[16], hz[16], bp[16], pwr[24];
     val_or_dash(cpu_t, sizeof(cpu_t), "%d°C", hw->cpu_temp);
     val_or_dash(gpu_t, sizeof(gpu_t), "%d°C", hw->gpu_temp);
     val_or_dash(rpmc, sizeof(rpmc), "%d", hw->rpm_cpu);
     val_or_dash(rpmg, sizeof(rpmg), "%d", hw->rpm_gpu);
+    val_or_dash(bp, sizeof(bp), "%d%%", hw->bat_pct);
     if (hw->hz_cur > 0)
         snprintf(hz, sizeof(hz), "%d Hz", hw->hz_cur);
     else
@@ -40,8 +41,9 @@ void panel_telemetry_draw(struct ncplane *n, const rect_t *r)
              cpu_t, gpu_t, rpmc, rpmg, hw->cpu_mhz_cur, hw->cpu_mhz_limit);
     hw_fmt_power(pwr, sizeof(pwr), hw->bat_mw_known, hw->bat_mw);
     snprintf(l2, sizeof(l2),
-             " BAT %d%% %s %s%s   %s   %s",
-             hw->bat_pct, hw->bat_status, pwr, hw->ac_online ? " ⚡AC" : "",
+             " BAT %s %s %s%s   %s   %s",
+             bp, hw->bat_status[0] ? hw->bat_status : "--", pwr,
+             hw->ac_online ? " ⚡AC" : "",
              hw_profile_name(hw->profile), hz);
 
     int x = r->x + 2, w = r->w - 4;

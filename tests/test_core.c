@@ -1227,13 +1227,17 @@ static void check_telem_hw(void)
         link = -9;
         dbm = -9;
         CHECK(hw_parse_wireless(wt, "enp3s0", &link, &dbm) == -1 &&
-                  link == -1 && dbm == -1,
-              "wireless missing iface honest");
+                  link == -1 && dbm == 0,
+              "wireless missing iface honest (dbm sentinel 0)");
         CHECK(hw_parse_wireless("wlan0: 0000   53.   42.  -256\n",
                                 "wlan0", &link, &dbm) == 0 &&
-                  link == 53 && dbm == -1,
-              "wireless positive level scale = unknown");
-        CHECK(hw_parse_wireless(NULL, "wlan0", &link, &dbm) == -1,
+                  link == 53 && dbm == 0,
+              "wireless positive level scale = unknown (0)");
+        CHECK(hw_parse_wireless("wlan0: 0000   53.    0.  -256\n",
+                                "wlan0", &link, &dbm) == 0 &&
+                  link == 53 && dbm == 0,
+              "wireless zero level = unknown (0)");
+        CHECK(hw_parse_wireless(NULL, "wlan0", &link, &dbm) == -1 && dbm == 0,
               "wireless NULL text");
     }
 
@@ -1349,6 +1353,12 @@ static void check_telem_hw(void)
     hw_parse_pp_dpm("0: 400Mhz \n1: 2000Mhz *\n2: 2200Mhz \n",
                     &dn, &da, &dm);
     CHECK(dn == 3 && da == 1 && dm == 2000, "pp_dpm three levels, active 1");
+    hw_parse_pp_dpm("0: 400MHz\n1: 600 MHz *\n2: 2200mhz\n",
+                    &dn, &da, &dm);
+    CHECK(dn == 3 && da == 1 && dm == 600,
+          "pp_dpm case-insensitive MHz/mhz with optional space");
+    hw_parse_pp_dpm("0: 400kHz *\n1: 400foo *\n", &dn, &da, &dm);
+    CHECK(dn == 0 && da == -1 && dm == -1, "pp_dpm rejects non-MHz units");
     hw_parse_pp_dpm("0: 400Mhz \n1: 2000Mhz \n", &dn, &da, &dm);
     CHECK(dn == 2 && da == -1, "pp_dpm no active marker honest");
     hw_parse_pp_dpm("", &dn, &da, &dm);

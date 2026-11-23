@@ -104,13 +104,17 @@ static int cmd_status(hw_state_t *hw)
                dash_if(v1, sizeof(v1), hw->cpu_temp));
     printf("  GPU temp       : %s °C (nvidia-smi)\n", dash_if(v2, sizeof(v2), hw->gpu_temp));
     printf("  CPU clock      : %d MHz (limit %d MHz)\n", hw->cpu_mhz_cur, hw->cpu_mhz_limit);
-    if (hw->gpu_mhz > 0 || hw->gpu_mw > 0 || hw->gpu_util >= 0)
-        printf("  GPU live       : %s MHz · %s.%03d W · util %s %% · pstate %s\n",
-               dash_if(v1, sizeof(v1), hw->gpu_mhz),
-               dash_if(v3, sizeof(v3), hw->gpu_mw / 1000),
-               hw->gpu_mw >= 0 ? hw->gpu_mw % 1000 : 0,
+    if (hw->gpu_mhz > 0 || hw->gpu_mw >= 0 || hw->gpu_util >= 0) {
+        if (hw->gpu_mw >= 0)
+            snprintf(v3, sizeof(v3), "%d.%03d",
+                     hw->gpu_mw / 1000, hw->gpu_mw % 1000);
+        else
+            snprintf(v3, sizeof(v3), "--");
+        printf("  GPU live       : %s MHz · %s W · util %s %% · pstate %s\n",
+               dash_if(v1, sizeof(v1), hw->gpu_mhz), v3,
                dash_if(v4, sizeof(v4), hw->gpu_util),
                hw->gpu_pstate[0] ? hw->gpu_pstate : "--");
+    }
     if (hw->gpu_pstate[0] && hw->gpu_throttle) {
         char th[128];
         hw_gpu_throttle_str(hw->gpu_throttle, th, sizeof th);
@@ -130,16 +134,17 @@ static int cmd_status(hw_state_t *hw)
             printf("\n");
     }
     if (hw->mem_total_mb > 0)
-        printf("  RAM            : %d/%d MB used · modules %s%s °C%s\n",
-               hw->mem_used_mb, hw->mem_total_mb,
+        printf("  RAM            : %s/%d MB used · modules %s%s °C%s\n",
+               dash_if(v2, sizeof(v2), hw->mem_used_mb), hw->mem_total_mb,
                hw->ram_temp_n > 0 ? dash_if(v1, sizeof(v1), hw->ram_temp[0]) : "--",
                hw->ram_temp_n > 1 ? "/…" : "",
                hw->ram_alarm ? " !over max" : "");
     if (hw->nvme_temp_n > 0 || hw->fs_total_mb > 0)
-        printf("  Storage        : NVMe %s °C%s · / %d/%d MB\n",
+        printf("  Storage        : NVMe %s °C%s · / %s/%s MB\n",
                hw->nvme_temp_n > 0 ? dash_if(v2, sizeof(v2), hw->nvme_temp[0]) : "--",
                hw->nvme_temp_n > 1 ? "+1" : "",
-               hw->fs_used_mb, hw->fs_total_mb);
+               dash_if(v3, sizeof(v3), hw->fs_used_mb),
+               hw->fs_total_mb > 0 ? dash_if(v4, sizeof(v4), hw->fs_total_mb) : "--");
     if (hw->net_n > 0) {
         char line[128];
         int len = snprintf(line, sizeof line, " ");
@@ -161,8 +166,8 @@ static int cmd_status(hw_state_t *hw)
                             " · wifi %d%%", hw->wifi_link_pct);
             if (hw->wifi_level_dbm < 0 && len > 0 &&
                 (size_t)len < sizeof line)
-                len += snprintf(line + len, sizeof line - len,
-                                " (%d dBm)", hw->wifi_level_dbm);
+                snprintf(line + len, sizeof line - len,
+                         " (%d dBm)", hw->wifi_level_dbm);
         }
         printf("  NET            : %s\n", line);
     }
@@ -201,8 +206,11 @@ static int cmd_status(hw_state_t *hw)
     }
     char pwr[24];
     hw_fmt_power(pwr, sizeof(pwr), hw->bat_mw_known, hw->bat_mw);
-    printf("  Battery        : %d%% %s %s%s limit %d%%\n", hw->bat_pct,
-           hw->bat_status, pwr, hw->ac_online ? " (AC)" : "", hw->bat_limit);
+    printf("  Battery        : %s%% %s %s%s limit %s%%\n",
+           dash_if(v1, sizeof(v1), hw->bat_pct),
+           hw->bat_status[0] ? hw->bat_status : "--",
+           pwr, hw->ac_online ? " (AC)" : "",
+           hw->bat_limit > 0 ? dash_if(v2, sizeof(v2), hw->bat_limit) : "--");
     printf("  PPT            : %s / %s / %s W (SPL/SPPT/FPPT; -- until written)\n",
            dash_if(v1, sizeof(v1), hw->ppt_spl),
            dash_if(v2, sizeof(v2), hw->ppt_sppt),
@@ -252,13 +260,18 @@ static int cmd_watch(hw_state_t *hw)
     setvbuf(stdout, NULL, _IONBF, 0);
     printf("ctron watch — Ctrl-C stops\n");
     while (s_watch_run) {
-        char rc[16], rg[16], pwr[24];
+        char tc[16], tg[16], hz[16], rc[16], rg[16], bp[16], pwr[24];
         hw_refresh_fast(hw);
         hw_fmt_power(pwr, sizeof(pwr), hw->bat_mw_known, hw->bat_mw);
-        printf("\r %3d°C  GPU %2d°C  %4d MHz  fan %4s/%4s rpm  BAT %3d%% %-11s %s  %s   ",
-               hw->cpu_temp, hw->gpu_temp, hw->cpu_mhz_cur,
-               dash_if(rc, sizeof(rc), hw->rpm_cpu), dash_if(rg, sizeof(rg), hw->rpm_gpu),
-               hw->bat_pct, hw->bat_status, pwr, hw_profile_name(hw->profile));
+        printf("\r %3s°C  GPU %3s°C  %4s MHz  fan %4s/%4s rpm  BAT %3s%% %-11s %s  %s   ",
+               dash_if(tc, sizeof(tc), hw->cpu_temp),
+               dash_if(tg, sizeof(tg), hw->gpu_temp),
+               hw->cpu_mhz_cur > 0 ? dash_if(hz, sizeof(hz), hw->cpu_mhz_cur) : "--",
+               dash_if(rc, sizeof(rc), hw->rpm_cpu),
+               dash_if(rg, sizeof(rg), hw->rpm_gpu),
+               dash_if(bp, sizeof(bp), hw->bat_pct),
+               hw->bat_status[0] ? hw->bat_status : "--",
+               pwr, hw_profile_name(hw->profile));
         usleep((useconds_t)g_prefs.poll_ms * 1000);
     }
     printf("\n");

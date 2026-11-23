@@ -604,7 +604,9 @@ int hw_parse_pp_dpm(const char *text, int *count, int *active,
             memcpy(line, p, len);
             line[len] = '\0';
             int lvl, mhz;
-            if (sscanf(line, "%d: %dMHz", &lvl, &mhz) >= 2 && mhz > 0) {
+            char unit[8] = {0};
+            if (sscanf(line, "%d: %d %7[A-Za-z]", &lvl, &mhz, unit) == 3 &&
+                strcasecmp(unit, "mhz") == 0 && lvl >= 0 && mhz > 0) {
                 if (count)
                     (*count)++;
                 if (active && strchr(line, '*')) {
@@ -773,7 +775,7 @@ int hw_parse_wireless(const char *text, const char *ifname,
     if (link)
         *link = -1;
     if (level_dbm)
-        *level_dbm = -1;
+        *level_dbm = 0;
     if (!text || !ifname || !ifname[0])
         return -1;
     size_t nlen = strlen(ifname);
@@ -793,7 +795,7 @@ int hw_parse_wireless(const char *text, const char *ifname,
                 lk >= 0 && lk <= 1000) {
                 if (link)
                     *link = (int)lk;
-                if (level_dbm && lv < 0)
+                if (level_dbm && (int)lv < 0)
                     *level_dbm = (int)lv;
                 return 0;
             }
@@ -1057,12 +1059,12 @@ static void read_net_ifs(hw_state_t *hw)
      * /proc/net/wireless — one proc read, no per-iface opens */
     hw->wifi_if[0] = '\0';
     hw->wifi_link_pct = -1;
-    hw->wifi_level_dbm = -1;
+    hw->wifi_level_dbm = 0;
     if (hw->net_n > 0) {
         char w[2048];
         if (ut_read_file_all("/proc/net/wireless", w, sizeof(w)) == 0) {
             for (int i = 0; i < hw->net_n; i++) {
-                int link = -1, dbm = -1;
+                int link = -1, dbm = 0;
                 if (hw_parse_wireless(w, hw->net_if[i], &link, &dbm) == 0 &&
                     link >= 0) {
                     snprintf(hw->wifi_if, sizeof(hw->wifi_if), "%s",
@@ -1104,7 +1106,7 @@ static void read_telem_extras(hw_state_t *hw)
         { "/proc/pressure/io", &hw->psi_io },
     };
     for (size_t i = 0; i < sizeof psi_files / sizeof psi_files[0]; i++) {
-        if (ut_read_file(psi_files[i].path, buf, 256) == 0)
+        if (ut_read_file_all(psi_files[i].path, buf, 512) == 0)
             hw_parse_psi(buf, psi_files[i].out);
     }
 
@@ -1155,7 +1157,7 @@ static void read_telem_extras(hw_state_t *hw)
                 hw->igpu_busy = ut_read_int(leaf);
             if (ut_path_join(leaf, sizeof leaf, dev, "pp_dpm_sclk") == 0) {
                 char dp[512];
-                if (ut_read_file(leaf, dp, sizeof dp) == 0)
+                if (ut_read_file_all(leaf, dp, sizeof dp) == 0)
                     hw_parse_pp_dpm(dp, &hw->igpu_dpm_n, &hw->igpu_dpm,
                                     &hw->igpu_dpm_mhz);
             }
@@ -1410,16 +1412,32 @@ void hw_init(hw_state_t *hw)
     hw->gpu_temp = -1;
     hw->rpm_cpu = -1;
     hw->rpm_gpu = -1;
+    hw->bat_pct = -1;
+    hw->bat_health = -1;
+    hw->bat_v_mv = -1;
+    hw->bat_a_ma = -1;
+    hw->nv_boost = -1;
+    hw->nv_temp = -1;
     hw->asusd_ac = -2;   /* unknown until asusd.ron is parsed */
     hw->asusd_bat = -2;
-    hw->load1 = -1;
+    hw->load1 = hw->load5 = hw->load15 = -1;
+    hw->psi_cpu = hw->psi_mem = hw->psi_io = -1;
     hw->mem_total_mb = hw->mem_avail_mb = hw->mem_used_mb = -1;
     hw->swap_total_mb = hw->swap_used_mb = -1;
+    hw->wifi_link_pct = -1;
+    hw->wifi_level_dbm = 0; /* 0 = unknown; valid dBm values are negative */
     hw->igpu_temp = hw->igpu_mhz = hw->igpu_mw = -1;
+    hw->igpu_vddgfx_mv = hw->igpu_vddnb_mv = -1;
+    hw->igpu_busy = -1;
+    hw->igpu_dpm = hw->igpu_dpm_mhz = -1;
+    hw->cpu_temp_ccd1 = hw->cpu_temp_ccd2 = -1;
+    hw->ram_thresh_max = hw->ram_thresh_crit = -1;
+    hw->nvme_sensor_max[0] = hw->nvme_sensor_max[1] = -1;
     hw->gpu_mw = hw->gpu_mhz = hw->gpu_util = -1;
     hw->gpu_vram_used_mb = hw->gpu_vram_total_mb = -1;
     hw->disk_rd_sectors = hw->disk_wr_sectors = -1;
-    hw->fs_used_mb = hw->fs_total_mb = -1;
+    hw->fs_used_mb = hw->fs_total_mb = hw->fs_avail_mb = -1;
+    hw->net_rx_tot = hw->net_tx_tot = -1;
 
     char vendor[64] = {0}, prod[64] = {0};
     ut_read_file("/sys/devices/virtual/dmi/id/sys_vendor", vendor, sizeof(vendor));
@@ -1488,9 +1506,9 @@ void hw_init(hw_state_t *hw)
     hw->ppt_sppt = ppt_from_node("ppt_pl2_sppt");
     hw->ppt_fppt = ppt_from_node("ppt_fppt");
     int v = nbwmi_read("nv_dynamic_boost");
-    hw->nv_boost = (v >= 5 && v <= 90) ? v : 0;
+    hw->nv_boost = (v >= 5 && v <= 90) ? v : -1;
     v = nbwmi_read("nv_temp_target");
-    hw->nv_temp = (v >= 70 && v <= 95) ? v : 0;
+    hw->nv_temp = (v >= 70 && v <= 95) ? v : -1;
     hw->panel_od = (nbwmi_read("panel_od") == 1);
     hw->cpu_boost = (ut_read_int("/sys/devices/system/cpu/cpufreq/boost") != 0);
 
@@ -1861,12 +1879,14 @@ void hw_refresh_fast(hw_state_t *hw)
             r1 = ut_read_int(q);
         if (ut_path_join(q, sizeof(q), p, "fan2_input") == 0)
             r2 = ut_read_int(q);
-        hw->rpm_cpu = r1 > 0 ? r1 : -1;
-        hw->rpm_gpu = r2 > 0 ? r2 : -1;
+        hw->rpm_cpu = r1 >= 0 ? r1 : -1;
+        hw->rpm_gpu = r2 >= 0 ? r2 : -1;
         if (r1 < 0 && r2 < 0)
             hw->paths.fan_rpm[0] = '\0';
     } else {
         hw->has_fan_rpm = false;
+        hw->rpm_cpu = -1;
+        hw->rpm_gpu = -1;
     }
 
     read_telem_extras(hw);

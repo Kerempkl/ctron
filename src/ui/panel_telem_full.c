@@ -44,6 +44,22 @@ static void fmt_int(char *out, size_t n, const char *unit, int v)
         snprintf(out, n, "%d%s", v, unit);
 }
 
+static void fmt_pos(char *out, size_t n, const char *unit, int v)
+{
+    if (v <= 0)
+        snprintf(out, n, "--");
+    else
+        snprintf(out, n, "%d%s", v, unit);
+}
+
+static void fmt_swap(char *out, size_t n, const char *sep, int used, int total)
+{
+    if (used < 0 || total < 0)
+        snprintf(out, n, "--");
+    else
+        snprintf(out, n, "%d%s%d MB", used, sep, total);
+}
+
 static void fmt_bs(char *out, size_t n, double bs)
 {
     if (bs < 0) {
@@ -551,9 +567,12 @@ static void sec_cpu(struct ncplane *n, const rect_t *r)
         snprintf(topo, sizeof topo, "%dc", hw->core_n);
     else
         snprintf(topo, sizeof topo, "%dt", hw->cpu_n);
+    char fc[16], fg[16];
+    fmt_int(fc, sizeof fc, "", hw->rpm_cpu);
+    fmt_int(fg, sizeof fg, "", hw->rpm_gpu);
     snprintf(line, sizeof line,
-             " fan %d/%d rpm · %s · EPP %s%s",
-             hw->rpm_cpu, hw->rpm_gpu, topo, hw_epp_name(hw->epp), cc);
+             " fan %s/%s rpm · %s · EPP %s%s",
+             fc, fg, topo, hw_epp_name(hw->epp), cc);
     const char *info[1] = { line };
     grid_rows(n, r, CD_CPU, CD_COUNT(CD_CPU), info, 1);
 }
@@ -561,14 +580,17 @@ static void sec_cpu(struct ncplane *n, const rect_t *r)
 static void sec_gpu(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    char line[160];
-    if (hw->gpu_vram_total_mb > 0)
-        snprintf(line, sizeof line, " util %d%% · pstate %s · VRAM %d/%d MB",
-                 hw->gpu_util,
+    char line[160], u[16], vu[16];
+    fmt_int(u, sizeof u, "%", hw->gpu_util);
+    if (hw->gpu_vram_total_mb > 0) {
+        fmt_int(vu, sizeof vu, "", hw->gpu_vram_used_mb);
+        snprintf(line, sizeof line, " util %s · pstate %s · VRAM %s/%d MB",
+                 u,
                  hw->gpu_pstate[0] ? hw->gpu_pstate : "--",
-                 hw->gpu_vram_used_mb, hw->gpu_vram_total_mb);
-    else
-        snprintf(line, sizeof line, " util %d%%", hw->gpu_util);
+                 vu, hw->gpu_vram_total_mb);
+    } else {
+        snprintf(line, sizeof line, " util %s", u);
+    }
     const char *info[1] = { line };
     grid_rows(n, r, CD_GPU, CD_COUNT(CD_GPU), info, 1);
 }
@@ -597,16 +619,16 @@ static void sec_ram(struct ncplane *n, const rect_t *r)
         else
             snprintf(al, sizeof al, " !");
     }
+    char sw[32];
+    fmt_swap(sw, sizeof sw, "/", hw->swap_used_mb, hw->swap_total_mb);
     if (hw->ram_temp_n == 2)
-        snprintf(line, sizeof line, " modules %d/%d °C%s · swap %d/%d MB",
-                 hw->ram_temp[0], hw->ram_temp[1], al,
-                 hw->swap_used_mb, hw->swap_total_mb);
+        snprintf(line, sizeof line, " modules %d/%d °C%s · swap %s",
+                 hw->ram_temp[0], hw->ram_temp[1], al, sw);
     else if (hw->ram_temp_n == 1)
-        snprintf(line, sizeof line, " module %d °C%s · swap %d/%d MB",
-                 hw->ram_temp[0], al, hw->swap_used_mb, hw->swap_total_mb);
+        snprintf(line, sizeof line, " module %d °C%s · swap %s",
+                 hw->ram_temp[0], al, sw);
     else
-        snprintf(line, sizeof line, " swap %d/%d MB",
-                 hw->swap_used_mb, hw->swap_total_mb);
+        snprintf(line, sizeof line, " swap %s", sw);
     const char *info[1] = { line };
     grid_rows(n, r, CD_RAM, CD_COUNT(CD_RAM), info, 1);
 }
@@ -668,8 +690,8 @@ static void sec_net(struct ncplane *n, const rect_t *r)
         if (len > 0 && (size_t)len < sizeof line - w &&
             hw->wifi_level_dbm < 0) {
             w += (size_t)len;
-            len = snprintf(line + w, sizeof line - w, " (%d dBm)",
-                           hw->wifi_level_dbm);
+            snprintf(line + w, sizeof line - w, " (%d dBm)",
+                     hw->wifi_level_dbm);
         }
     }
     if (hw->net_n == 0)
@@ -695,9 +717,11 @@ static void sec_power(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
     char line[176];
-    int len = snprintf(line, sizeof line, " %s · %s · charge limit %d%%",
-                       hw->bat_status, hw->ac_online ? "on AC" : "on battery",
-                       hw->bat_limit);
+    char bl[16];
+    fmt_pos(bl, sizeof bl, "%", hw->bat_limit);
+    int len = snprintf(line, sizeof line, " %s · %s · charge limit %s",
+                       hw->bat_status[0] ? hw->bat_status : "--",
+                       hw->ac_online ? "on AC" : "on battery", bl);
     if (len > 0 && (size_t)len < sizeof line && hw->pd_in_mw > 0)
         snprintf(line + len, sizeof line - len, " · USB-C in %.1f W",
                  hw->pd_in_mw / 1000.0);
@@ -780,13 +804,20 @@ static void detail_cpu(struct ncplane *n, const rect_t *r)
     snprintf(l0, sizeof l0, " %d threads · %d cores · %d CCD · EPP %s · boost %s",
              hw->cpu_n, hw->core_n, hw->ccd_n, hw_epp_name(hw->epp),
              hw->cpu_boost ? "on" : "off");
-    if (hw->ppt_spl > 0 || hw->ppt_sppt > 0 || hw->ppt_fppt > 0)
-        snprintf(l1, sizeof l1, " PPT %d / %d / %d W · fans %d / %d rpm%s",
-                 hw->ppt_spl, hw->ppt_sppt, hw->ppt_fppt,
-                 hw->rpm_cpu, hw->rpm_gpu, cc);
-    else
-        snprintf(l1, sizeof l1, " PPT -- · fans %d / %d rpm%s",
-                 hw->rpm_cpu, hw->rpm_gpu, cc);
+    char fc[16], fg[16];
+    fmt_int(fc, sizeof fc, "", hw->rpm_cpu);
+    fmt_int(fg, sizeof fg, "", hw->rpm_gpu);
+    if (hw->ppt_spl > 0 || hw->ppt_sppt > 0 || hw->ppt_fppt > 0) {
+        char ps[16], pp[16], pf[16];
+        fmt_pos(ps, sizeof ps, "", hw->ppt_spl);
+        fmt_pos(pp, sizeof pp, "", hw->ppt_sppt);
+        fmt_pos(pf, sizeof pf, "", hw->ppt_fppt);
+        snprintf(l1, sizeof l1, " PPT %s / %s / %s W · fans %s / %s rpm%s",
+                 ps, pp, pf, fc, fg, cc);
+    } else {
+        snprintf(l1, sizeof l1, " PPT -- · fans %s / %s rpm%s",
+                 fc, fg, cc);
+    }
 
     /* per-core ceilings as a numeric summary: the old one-block-per-
      * thread bar read as one solid rectangle at real font sizes (a
@@ -841,13 +872,15 @@ static void detail_cpu(struct ncplane *n, const rect_t *r)
 static void detail_gpu(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    char l0[160], l1[128], l2[128];
-    if (hw->gpu_vram_total_mb > 0)
-        snprintf(l0, sizeof l0, " VRAM %d / %d MB · clock max %d MHz",
-                 hw->gpu_vram_used_mb, hw->gpu_vram_total_mb,
-                 hw->gpu_mhz_max);
-    else
-        snprintf(l0, sizeof l0, " clock max %d MHz", hw->gpu_mhz_max);
+    char l0[160], l1[128], l2[128], vu[16], gm[24];
+    fmt_pos(gm, sizeof gm, " MHz", hw->gpu_mhz_max);
+    if (hw->gpu_vram_total_mb > 0) {
+        fmt_int(vu, sizeof vu, "", hw->gpu_vram_used_mb);
+        snprintf(l0, sizeof l0, " VRAM %s / %d MB · clock max %s",
+                 vu, hw->gpu_vram_total_mb, gm);
+    } else {
+        snprintf(l0, sizeof l0, " clock max %s", gm);
+    }
     if (hw->gpu_clock_lock > 0)
         snprintf(l0 + strlen(l0), sizeof(l0) - strlen(l0),
                  " · locked %d MHz (this session)", hw->gpu_clock_lock);
@@ -899,14 +932,15 @@ static void detail_igpu(struct ncplane *n, const rect_t *r)
 static void detail_ram(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    char l0[128], l1[96], l2[128];
-    if (hw->mem_total_mb > 0)
-        snprintf(l0, sizeof l0, " %d / %d MB · swap %d / %d MB",
-                 hw->mem_used_mb, hw->mem_total_mb,
-                 hw->swap_used_mb, hw->swap_total_mb);
-    else
-        snprintf(l0, sizeof l0, " swap %d / %d MB",
-                 hw->swap_used_mb, hw->swap_total_mb);
+    char l0[128], l1[96], l2[128], mu[16], sw[32];
+    fmt_swap(sw, sizeof sw, " / ", hw->swap_used_mb, hw->swap_total_mb);
+    if (hw->mem_total_mb > 0) {
+        fmt_int(mu, sizeof mu, "", hw->mem_used_mb);
+        snprintf(l0, sizeof l0, " %s / %d MB · swap %s",
+                 mu, hw->mem_total_mb, sw);
+    } else {
+        snprintf(l0, sizeof l0, " swap %s", sw);
+    }
     if (hw->ram_temp_n == 2)
         snprintf(l1, sizeof l1, " module temps %d / %d °C",
                  hw->ram_temp[0], hw->ram_temp[1]);
@@ -1020,11 +1054,11 @@ static void detail_net(struct ncplane *n, const rect_t *r)
     }
     if (hw->wifi_link_pct >= 0) {
         if (hw->wifi_level_dbm < 0)
-            snprintf(l[ni], sizeof l[ni], " wifi %s: link %d%%",
-                     hw->wifi_if, hw->wifi_link_pct);
-        else
             snprintf(l[ni], sizeof l[ni], " wifi %s: link %d%% · %d dBm",
                      hw->wifi_if, hw->wifi_link_pct, hw->wifi_level_dbm);
+        else
+            snprintf(l[ni], sizeof l[ni], " wifi %s: link %d%%",
+                     hw->wifi_if, hw->wifi_link_pct);
         info[ni] = l[ni];
         ni++;
     }
@@ -1062,10 +1096,11 @@ static void detail_fan(struct ncplane *n, const rect_t *r)
 static void detail_power(struct ncplane *n, const rect_t *r)
 {
     hw_state_t *hw = g_ui.hw;
-    char l0[176], l1[128], l2[96];
-    int len = snprintf(l0, sizeof l0, " %s · %s · charge limit %d%%",
-                       hw->bat_status, hw->ac_online ? "on AC" : "on battery",
-                       hw->bat_limit);
+    char l0[176], l1[128], l2[96], bl[16];
+    fmt_pos(bl, sizeof bl, "%", hw->bat_limit);
+    int len = snprintf(l0, sizeof l0, " %s · %s · charge limit %s",
+                       hw->bat_status[0] ? hw->bat_status : "--",
+                       hw->ac_online ? "on AC" : "on battery", bl);
     if (len > 0 && (size_t)len < sizeof l0 && hw->pd_in_mw > 0)
         snprintf(l0 + len, sizeof l0 - len, " · USB-C in %.1f W",
                  hw->pd_in_mw / 1000.0);
