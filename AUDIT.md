@@ -210,10 +210,11 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
   yalnız ut_exec_argv* → timeout -k1 3 tavanı; asusctl/busctl
   sabit-dizgi ut_exec → aynı tavan. Tüm dış çağrılar üst sınır
   taşıyor; soket tek istisna ve o da zaman aşımlı.*
-- [x] **C6. Kabuk enjeksiyonu** — system() yok; popen yalnız sabit
-  string'lerle (`ut_have_cmd`, nvidia_smi_bin); kullanıcı/config kökenli
-  string argv vektörüne bile girmeden doğrulanıyor (nvidia_smi_bin
-  '\''/boşluk reddi). *Yeni popen yasağı: kalıcı.*
+- [x] **C6. Kabuk enjeksiyonu** — *2026-11-24 (`REVIEW.md` 2.1) kapanışı:
+  tüm ağaçta sıfır `system()`, sıfır `popen()`, sıfır `/bin/sh`; `ut_exec`/
+  `ut_exec_raw` kaldırıldı, `ut_have_cmd`/`nvidia_smi_bin` saf C
+  `ut_find_in_path()` kullanıyor, kalan 17 `asusctl`/`busctl` çağrısı
+  `ut_exec_argv*`'ye taşındı. `nm`/`strings` ile kanıtlı.*
 - [x] **C7. /tmp ve öngörülebilir yol** — *Denetim 11-17: ctron runtime
   HİÇ geçici dosya yazmıyor — ut_log ring-only (dosya yok), tüm
   kalıcılık config dizininde (~/.config/ctron, mkdir_p 0755), testler

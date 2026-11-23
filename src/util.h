@@ -53,27 +53,22 @@ int ut_sudo_fallback_allowed(void);
  * that exits before reading (EPIPE is not fatal). */
 int ut_write_via_argv(const char *const argv[], const char *data);
 
-/* ---- process helpers ------------------------------------------------- */
+/* ---- process helpers (shell-free; zero popen / sh) ------------------- */
 
-/* Run `cmd` through the shell with a 3 s timeout, stderr dropped.
- * First line of stdout is trimmed into `out` (may be NULL).
- * Returns the exit status, or -1 if the command could not be run. */
-int ut_exec(const char *cmd, char *out, size_t n);
-
-/* Same as ut_exec but keeps the whole output (no line trimming, ANSI
- * escape sequences stripped). For multi-line tool output parsers. */
-int ut_exec_raw(const char *cmd, char *out, size_t n);
-
-/* Shell-free variants of the same contract: fork + execvp of a plain
- * argv vector under `timeout 3`. Nothing parses the arguments, so
- * quoting/metacharacters are never a concern. ut_exec_argv keeps the
- * first line only; _raw keeps everything with ANSI stripped; _both
- * additionally merges stderr into the capture (privileged driver calls
- * whose verdict text may land on either stream). Output beyond the
- * buffer is drained, so a chatty child cannot fake a SIGPIPE failure. */
+/* Shell-free fork + execvp of a plain argv vector under `timeout -k1 3`.
+ * Nothing parses the arguments, so quoting/metacharacters are never a
+ * concern. ut_exec_argv keeps the first line only; _raw keeps everything
+ * with ANSI stripped; _both additionally merges stderr into the capture
+ * (privileged driver calls whose verdict text may land on either stream).
+ * Output beyond the buffer is drained, so a chatty child cannot fake a
+ * SIGPIPE failure. */
 int ut_exec_argv(const char *const argv[], char *out, size_t n);
 int ut_exec_argv_raw(const char *const argv[], char *out, size_t n);
 int ut_exec_argv_both(const char *const argv[], char *out, size_t n);
+
+/* Pure-C PATH lookup (stat S_ISREG + X_OK; zero fork/shell). Writes the
+ * resolved executable path to out (when non-NULL) and returns 0 on match. */
+int ut_find_in_path(const char *name, char *out, size_t n);
 
 /* True when `name` resolves to an executable on PATH. */
 bool ut_have_cmd(const char *name);

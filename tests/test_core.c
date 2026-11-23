@@ -2099,6 +2099,19 @@ static void check_no_sudo(void)
     long t1 = ut_mono_ms();
     long t2 = ut_mono_ms();
     CHECK(t1 > 0 && t2 >= t1, "ut_mono_ms monotonic non-decreasing");
+
+    /* pure-C PATH lookup (no popen/shell) */
+    char binp[256] = {0};
+    CHECK(ut_find_in_path("sh", binp, sizeof(binp)) == 0 && binp[0] == '/',
+          "ut_find_in_path resolves sh");
+    CHECK(ut_have_cmd("sh"), "ut_have_cmd true for sh");
+    CHECK(!ut_have_cmd("ctron-nonexistent-binary-xyz"),
+          "ut_have_cmd false for missing binary");
+    CHECK(ut_find_in_path("/tmp", binp, sizeof(binp)) != 0,
+          "ut_find_in_path rejects directory even if +x");
+    CHECK(ut_find_in_path("", binp, sizeof(binp)) != 0 &&
+              ut_find_in_path(NULL, binp, sizeof(binp)) != 0,
+          "ut_find_in_path rejects empty/null");
 }
 
 int main(void)

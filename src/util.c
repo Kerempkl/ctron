@@ -236,20 +236,60 @@ int ut_priv_write(const char *path, const char *val)
     return ut_write_via_argv(av, val) == 0 ? 0 : -1;
 }
 
-/* ---- process helpers ------------------------------------------------- */
+/* ---- process helpers (shell-free; zero popen / sh) ------------------- */
+
+int ut_find_in_path(const char *name, char *out, size_t n)
+{
+    if (!name || !name[0])
+        return -1;
+    if (out && n > 0)
+        out[0] = '\0';
+
+    if (strchr(name, '/')) {
+        struct stat st;
+        if (stat(name, &st) == 0 && S_ISREG(st.st_mode) &&
+            access(name, X_OK) == 0) {
+            if (out && n > 0 && snprintf(out, n, "%s", name) >= (int)n)
+                return -1;
+            return 0;
+        }
+        return -1;
+    }
+
+    const char *path = getenv("PATH");
+    if (!path || !path[0])
+        return -1;
+
+    const char *p = path;
+    while (p) {
+        const char *colon = strchr(p, ':');
+        size_t dlen = colon ? (size_t)(colon - p) : strlen(p);
+        char cand[512];
+        int w;
+        if (dlen == 0) {
+            w = snprintf(cand, sizeof cand, "./%s", name);
+        } else {
+            while (dlen > 1 && p[dlen - 1] == '/')
+                dlen--;
+            w = snprintf(cand, sizeof cand, "%.*s/%s", (int)dlen, p, name);
+        }
+        if (w > 0 && (size_t)w < sizeof cand) {
+            struct stat st;
+            if (stat(cand, &st) == 0 && S_ISREG(st.st_mode) &&
+                access(cand, X_OK) == 0) {
+                if (out && n > 0 && snprintf(out, n, "%s", cand) >= (int)n)
+                    return -1;
+                return 0;
+            }
+        }
+        p = colon ? colon + 1 : NULL;
+    }
+    return -1;
+}
 
 bool ut_have_cmd(const char *name)
 {
-    /* `command` is a shell builtin, so this must not go through the
-     * timeout-prefixed helper (timeout cannot exec builtins). */
-    char cmd[256];
-    if (snprintf(cmd, sizeof(cmd), "command -v %s >/dev/null 2>&1", name) >= (int)sizeof(cmd))
-        return false;
-    FILE *p = popen(cmd, "r");
-    if (!p)
-        return false;
-    int st = pclose(p);
-    return st != -1 && WIFEXITED(st) && WEXITSTATUS(st) == 0;
+    return ut_find_in_path(name, NULL, 0) == 0;
 }
 
 static void strip_ansi_inplace(char *s)
@@ -264,51 +304,6 @@ static void strip_ansi_inplace(char *s)
         s[w++] = s[i];
     }
     s[w] = '\0';
-}
-
-static int exec_run(const char *cmd, char *out, size_t n, bool raw)
-{
-    char full[1024];
-    if (snprintf(full, sizeof(full), "timeout -k1 3 %s 2>/dev/null", cmd) >= (int)sizeof(full))
-        return -1;
-
-    FILE *p = popen(full, "r");
-    if (!p)
-        return -1;
-
-    if (out && n > 0) {
-        size_t r = fread(out, 1, n - 1, p);
-        out[r] = '\0';
-        if (raw)
-            strip_ansi_inplace(out);
-        else
-            out[strcspn(out, "\r\n")] = '\0';
-    } else {
-        /* drain anyway: a child that prints (ryzenadj does) while the
-         * caller wants no output races our pclose for the pipe — its
-         * write hits a closed read end and it dies on SIGPIPE (141),
-         * turning a successful command into a fake failure */
-        char sink[4096];
-        while (fread(sink, 1, sizeof sink, p) > 0)
-            ;
-    }
-
-    int st = pclose(p);
-    if (st == -1)
-        return -1;
-    if (WIFEXITED(st))
-        return WEXITSTATUS(st);
-    return -1;
-}
-
-int ut_exec(const char *cmd, char *out, size_t n)
-{
-    return exec_run(cmd, out, n, false);
-}
-
-int ut_exec_raw(const char *cmd, char *out, size_t n)
-{
-    return exec_run(cmd, out, n, true);
 }
 
 /* ---- direct argv exec (no shell) ------------------------------------- */

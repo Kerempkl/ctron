@@ -1375,11 +1375,13 @@ static void read_profile(hw_state_t *hw)
         if (strstr(buf, "balanced"))       { hw->profile = HW_BALANCED; return; }
         if (strstr(buf, "performance"))    { hw->profile = HW_PERFORMANCE; return; }
     }
-    if (hw->has_asusctl &&
-        ut_exec("asusctl profile get", buf, sizeof(buf)) == 0) {
-        if (strstr(buf, "Quiet"))          { hw->profile = HW_QUIET; return; }
-        if (strstr(buf, "Balanced"))       { hw->profile = HW_BALANCED; return; }
-        if (strstr(buf, "Performance"))    { hw->profile = HW_PERFORMANCE; return; }
+    if (hw->has_asusctl) {
+        const char *av[] = { "asusctl", "profile", "get", NULL };
+        if (ut_exec_argv(av, buf, sizeof(buf)) == 0) {
+            if (strstr(buf, "Quiet"))          { hw->profile = HW_QUIET; return; }
+            if (strstr(buf, "Balanced"))       { hw->profile = HW_BALANCED; return; }
+            if (strstr(buf, "Performance"))    { hw->profile = HW_PERFORMANCE; return; }
+        }
     }
 }
 
@@ -1899,11 +1901,11 @@ void hw_refresh_fast(hw_state_t *hw)
 int hw_asusd_auto_flag(const char *prop)
 {
     char out[64] = {0};
-    char cmd[200];
-    snprintf(cmd, sizeof(cmd),
-             "busctl get-property xyz.ljones.Asusd /xyz/ljones "
-             "xyz.ljones.Platform %s", prop);
-    if (ut_exec_raw(cmd, out, sizeof(out)) != 0)
+    const char *av[] = {
+        "busctl", "get-property", "xyz.ljones.Asusd", "/xyz/ljones",
+        "xyz.ljones.Platform", prop, NULL
+    };
+    if (ut_exec_argv_raw(av, out, sizeof(out)) != 0)
         return -2;
     if (strstr(out, "true"))
         return 1;
@@ -1936,9 +1938,10 @@ static int asusd_profile_from_get_out(const char *out, int ac)
 int hw_asusd_auto_profile(int ac)
 {
     char out[512] = {0};
+    const char *av[] = { "asusctl", "profile", "get", NULL };
     /* raw: the default exec capture truncates at the first newline,
      * and the AC/Battery lines are on later lines */
-    if (ut_exec_raw("asusctl profile get", out, sizeof(out)) != 0)
+    if (ut_exec_argv_raw(av, out, sizeof(out)) != 0)
         return -2;
     return asusd_profile_from_get_out(out, ac);
 }
@@ -2004,7 +2007,8 @@ void hw_asusd_auto_read(hw_state_t *hw)
     int pac = -2, pbat = -2;
     if (fac == 1 || fbat == 1) {
         char out[512] = {0};
-        if (ut_exec_raw("asusctl profile get", out, sizeof(out)) == 0) {
+        const char *av[] = { "asusctl", "profile", "get", NULL };
+        if (ut_exec_argv_raw(av, out, sizeof(out)) == 0) {
             if (fac == 1)
                 pac = asusd_profile_from_get_out(out, 1);
             if (fbat == 1)

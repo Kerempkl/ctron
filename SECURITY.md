@@ -39,19 +39,18 @@ Other privileged operations:
     boundaries, allowing malicious flags if invoked outside ctron.
 
 ### 2.2. Subshell Execution (`/bin/sh -c`)
-- **Current State:** No privileged path uses a shell: `ut_priv_write`
-  and the batched cpufreq `sudo -n tee` exec pure argv vectors
-  (`ut_write_via_argv`), the PPT calls go through `ctrl_ppt_*_argv` +
-  `ut_exec_argv`, and daeboard start/install exec argv vectors
-  (`system()` is gone from the tree).
-- **Residual Risk:** The remaining shell users are read-only and
-  code-constant: the `asusctl`/`busctl` calls (constant or integer
-  arguments) and the two `command -v` probes (`command` is a builtin).
-  Their `PATH` sensitivity is inherited, but nothing user- or
-  config-derived is ever parsed by a shell.
-  *(Writes resolved 2026-10-26 in two passes — Phase 1.1 for
-  `ut_priv_write`, then the same-day follow-up for cpufreq/PPT/daeboard;
-  see Phase 2.1.)*
+- **Current State:** Zero `system()`, zero `popen()`, and zero `/bin/sh`
+  invocations exist anywhere in the `ctron` binary. Every external command
+  (`asusctl`, `busctl`, `nvidia-smi`, `ryzenadj`, `kscreen-doctor`,
+  `hyprctl`, `sudo -n tee`, `daeboard` start/install) executes through pure
+  `fork` + `execvp` argv vectors (`ut_write_via_argv`, `ut_exec_argv*`)
+  bounded by `timeout -k1 3`. Binary discovery (`ut_have_cmd`,
+  `nvidia_smi_bin`) uses pure-C `PATH` scanning (`ut_find_in_path`,
+  `stat S_ISREG` + `access X_OK`) with zero forks.
+- **Residual Risk:** Standard `PATH` resolution is inherited for non-absolute
+  binary names, but no shell ever parses any argument or command string.
+  *(Writes resolved 2026-10-26; remaining read-only `popen`/`ut_exec` calls
+  retired 2026-11-24 in `v0.11.0`.)*
 
 ### 2.3. IPC & File Race Conditions
 - **Current State:**

@@ -140,9 +140,8 @@ int ctrl_set_profile(hw_state_t *hw, hw_profile_t p)
     int rc = -1;
 
     if (hw->has_asusctl && use_asusctl_first()) {
-        char cmd[128];
-        snprintf(cmd, sizeof(cmd), "asusctl profile set %s", name);
-        rc = ut_exec(cmd, NULL, 0);
+        const char *av[] = { "asusctl", "profile", "set", name, NULL };
+        rc = ut_exec_argv(av, NULL, 0);
     }
     if (rc != 0) {
         const char *acpi = (p == HW_QUIET) ? "quiet"
@@ -357,21 +356,23 @@ int ctrl_set_asusd_auto(hw_state_t *hw, int ac, int bat)
                                      : "ChangePlatformProfileOnBattery";
         const char *opt = side == 0 ? "-a" : "-b";
         const char *which = side == 0 ? "AC" : "battery";
-        char cmd[256];
 
-        snprintf(cmd, sizeof(cmd),
-                 "busctl set-property xyz.ljones.Asusd /xyz/ljones "
-                 "xyz.ljones.Platform %s b %s", flag,
-                 mode >= 0 ? "true" : "false");
-        if (ut_exec(cmd, NULL, 0) != 0) {
+        const char *bav[] = {
+            "busctl", "set-property", "xyz.ljones.Asusd", "/xyz/ljones",
+            "xyz.ljones.Platform", flag, "b", mode >= 0 ? "true" : "false",
+            NULL
+        };
+        if (ut_exec_argv(bav, NULL, 0) != 0) {
             ut_log("asusd %s auto-profile: busctl FAILED", which);
             rc = -1;
             continue;
         }
         if (mode >= 0) {
-            snprintf(cmd, sizeof(cmd), "asusctl profile set %s %s", opt,
-                     hw_profile_name((hw_profile_t)mode));
-            if (ut_exec(cmd, NULL, 0) != 0) {
+            const char *aav[] = {
+                "asusctl", "profile", "set", opt,
+                hw_profile_name((hw_profile_t)mode), NULL
+            };
+            if (ut_exec_argv(aav, NULL, 0) != 0) {
                 ut_log("asusd %s auto-profile: asusctl FAILED", which);
                 rc = -1;
             }
@@ -384,10 +385,11 @@ int ctrl_set_asusd_auto(hw_state_t *hw, int ac, int bat)
     if (prev_active >= 0) {
         int now = active_profile_read();
         if (now >= 0 && now != prev_active) {
-            char cmd[128];
-            snprintf(cmd, sizeof(cmd), "asusctl profile set %s",
-                     hw_profile_name((hw_profile_t)prev_active));
-            if (ut_exec(cmd, NULL, 0) == 0) {
+            const char *rav[] = {
+                "asusctl", "profile", "set",
+                hw_profile_name((hw_profile_t)prev_active), NULL
+            };
+            if (ut_exec_argv(rav, NULL, 0) == 0) {
                 hw->profile = (hw_profile_t)prev_active;
                 ut_log("asusd auto-profile: active mode restored to %s",
                        hw_profile_name((hw_profile_t)prev_active));
@@ -724,9 +726,10 @@ int ctrl_set_battery_limit(hw_state_t *hw, int pct)
     int rc = -1;
 
     if (hw->has_asusctl && use_asusctl_first()) {
-        char cmd[96];
-        snprintf(cmd, sizeof(cmd), "asusctl battery limit %d", pct);
-        rc = ut_exec(cmd, NULL, 0);
+        char val[16];
+        snprintf(val, sizeof(val), "%d", pct);
+        const char *av[] = { "asusctl", "battery", "limit", val, NULL };
+        rc = ut_exec_argv(av, NULL, 0);
     }
     if (rc != 0) {
         glob_t g;
@@ -751,7 +754,8 @@ int ctrl_set_battery_limit(hw_state_t *hw, int pct)
 
 int ctrl_battery_oneshot(void)
 {
-    int rc = ut_exec("asusctl battery oneshot", NULL, 0);
+    const char *av[] = { "asusctl", "battery", "oneshot", NULL };
+    int rc = ut_exec_argv(av, NULL, 0);
     ut_log("battery oneshot: %s", rc == 0 ? "ok" : "failed (asusctl only)");
     return rc;
 }
@@ -810,16 +814,8 @@ static int gpu_clock_verify(int mhz, char *samples, size_t n)
  * not /usr/sbin/nvidia-smi on NixOS or Debian. */
 static int nvidia_smi_bin(char *out, size_t n)
 {
-    FILE *p = popen("command -v nvidia-smi 2>/dev/null", "r");
-    if (!p)
+    if (ut_find_in_path("nvidia-smi", out, n) != 0)
         return -1;
-    if (!fgets(out, (int)n, p)) {
-        pclose(p);
-        out[0] = '\0';
-        return -1;
-    }
-    pclose(p);
-    out[strcspn(out, "\r\n")] = '\0';
     if (out[0] != '/' || strchr(out, '\'') || strchr(out, ' '))
         return -1;
     return 0;
@@ -923,9 +919,8 @@ int ctrl_set_kbd(hw_state_t *hw, hw_kbd_t lvl)
     int rc = -1;
 
     if (hw->has_asusctl && use_asusctl_first()) {
-        char cmd[96];
-        snprintf(cmd, sizeof(cmd), "asusctl leds set %s", hw_kbd_name(lvl));
-        rc = ut_exec(cmd, NULL, 0);
+        const char *av[] = { "asusctl", "leds", "set", hw_kbd_name(lvl), NULL };
+        rc = ut_exec_argv(av, NULL, 0);
     }
     if (rc != 0) {
         /* the leds node takes an integer level, not the name — a
@@ -970,28 +965,50 @@ int ctrl_set_aura(hw_state_t *hw, int effect_idx, int color_idx)
         ut_log("aura: asusctl not available");
         return -1;
     }
-    char cmd[192];
+    const char *av[12];
+    int n = 0;
+    av[n++] = "asusctl";
+    av[n++] = "aura";
+    av[n++] = "effect";
 
     if (!strcmp(effect, "static") || !strcmp(effect, "pulse") ||
         !strcmp(effect, "comet") || !strcmp(effect, "flash")) {
-        snprintf(cmd, sizeof(cmd), "asusctl aura effect %s -c %s", effect, hex);
+        av[n++] = effect;
+        av[n++] = "-c";
+        av[n++] = hex;
     } else if (!strcmp(effect, "highlight") || !strcmp(effect, "laser") ||
                !strcmp(effect, "ripple")) {
-        snprintf(cmd, sizeof(cmd), "asusctl aura effect %s -c %s --speed med", effect, hex);
+        av[n++] = effect;
+        av[n++] = "-c";
+        av[n++] = hex;
+        av[n++] = "--speed";
+        av[n++] = "med";
     } else if (!strcmp(effect, "breathe") || !strcmp(effect, "stars")) {
-        snprintf(cmd, sizeof(cmd),
-                 "asusctl aura effect %s --colour %s --colour2 000000 --speed med",
-                 effect, hex);
+        av[n++] = effect;
+        av[n++] = "--colour";
+        av[n++] = hex;
+        av[n++] = "--colour2";
+        av[n++] = "000000";
+        av[n++] = "--speed";
+        av[n++] = "med";
     } else if (!strcmp(effect, "rainbow-cycle") || !strcmp(effect, "rain")) {
-        snprintf(cmd, sizeof(cmd), "asusctl aura effect %s --speed med", effect);
+        av[n++] = effect;
+        av[n++] = "--speed";
+        av[n++] = "med";
     } else if (!strcmp(effect, "rainbow-wave")) {
-        snprintf(cmd, sizeof(cmd),
-                 "asusctl aura effect rainbow-wave --direction right --speed med");
+        av[n++] = "rainbow-wave";
+        av[n++] = "--direction";
+        av[n++] = "right";
+        av[n++] = "--speed";
+        av[n++] = "med";
     } else {
-        snprintf(cmd, sizeof(cmd), "asusctl aura effect %s -c %s", effect, hex);
+        av[n++] = effect;
+        av[n++] = "-c";
+        av[n++] = hex;
     }
+    av[n] = NULL;
 
-    int rc = ut_exec(cmd, NULL, 0);
+    int rc = ut_exec_argv(av, NULL, 0);
     ut_log("aura: %s (%s) %s", effect, AURA_COLOR_NAMES[color_idx],
            rc == 0 ? "ok" : "FAILED");
     return rc == 0 ? 0 : -1;
@@ -1013,9 +1030,8 @@ int ctrl_set_aura_hex(hw_state_t *hw, const char *hex)
         ut_log("aura: asusctl not available");
         return -1;
     }
-    char cmd[128];
-    snprintf(cmd, sizeof(cmd), "asusctl aura effect static -c %s", hex);
-    int rc = ut_exec(cmd, NULL, 0);
+    const char *av[] = { "asusctl", "aura", "effect", "static", "-c", hex, NULL };
+    int rc = ut_exec_argv(av, NULL, 0);
     ut_log("aura: static #%s %s", hex, rc == 0 ? "ok" : "FAILED");
     return rc == 0 ? 0 : -1;
 }
@@ -1187,24 +1203,32 @@ int ctrl_fan_write(hw_state_t *hw)
     int a_ok = -1; /* -1: not attempted */
     if (hw->has_asusctl) {
         const char *prof = hw_profile_name(hw->profile);
-        char data[256], cmd[512];
+        char data[256];
         int r1, r2, r3, r4;
         fan_curve_data_str(&hw->fan_cpu, data, sizeof(data));
-        snprintf(cmd, sizeof(cmd),
-                 "asusctl fan-curve --mod-profile %s --fan cpu --data '%s'", prof, data);
-        r1 = ut_exec(cmd, NULL, 0);
-        snprintf(cmd, sizeof(cmd),
-                 "asusctl fan-curve --mod-profile %s --enable-fan-curve %s --fan cpu",
-                 prof, hw->fan_cpu_on ? "true" : "false");
-        r2 = ut_exec(cmd, NULL, 0);
+        const char *av1[] = {
+            "asusctl", "fan-curve", "--mod-profile", prof,
+            "--fan", "cpu", "--data", data, NULL
+        };
+        r1 = ut_exec_argv(av1, NULL, 0);
+        const char *av2[] = {
+            "asusctl", "fan-curve", "--mod-profile", prof,
+            "--enable-fan-curve", hw->fan_cpu_on ? "true" : "false",
+            "--fan", "cpu", NULL
+        };
+        r2 = ut_exec_argv(av2, NULL, 0);
         fan_curve_data_str(&hw->fan_gpu, data, sizeof(data));
-        snprintf(cmd, sizeof(cmd),
-                 "asusctl fan-curve --mod-profile %s --fan gpu --data '%s'", prof, data);
-        r3 = ut_exec(cmd, NULL, 0);
-        snprintf(cmd, sizeof(cmd),
-                 "asusctl fan-curve --mod-profile %s --enable-fan-curve %s --fan gpu",
-                 prof, hw->fan_gpu_on ? "true" : "false");
-        r4 = ut_exec(cmd, NULL, 0);
+        const char *av3[] = {
+            "asusctl", "fan-curve", "--mod-profile", prof,
+            "--fan", "gpu", "--data", data, NULL
+        };
+        r3 = ut_exec_argv(av3, NULL, 0);
+        const char *av4[] = {
+            "asusctl", "fan-curve", "--mod-profile", prof,
+            "--enable-fan-curve", hw->fan_gpu_on ? "true" : "false",
+            "--fan", "gpu", NULL
+        };
+        r4 = ut_exec_argv(av4, NULL, 0);
         a_ok = (r1 == 0 && r2 == 0 && r3 == 0 && r4 == 0) ? 1 : 0;
     }
 
