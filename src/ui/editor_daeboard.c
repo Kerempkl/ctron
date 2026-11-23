@@ -10,8 +10,8 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include <unistd.h>
 #include <linux/input.h>
 
@@ -56,38 +56,72 @@ static void choose_key(const char *name);
 
 static const char *name_for_code(int code);
 
+static void close_capture(void)
+{
+	if (cap_fd >= 0) {
+		close(cap_fd);
+		cap_fd = -1;
+	}
+}
+
+static int is_evdev_keyboard(const char *evname)
+{
+	char path[512], buf[256];
+	unsigned long long ev, low;
+	const char *last;
+
+	snprintf(path, sizeof path, "/sys/class/input/%s/device/capabilities/ev", evname);
+	if (ut_read_file(path, buf, sizeof buf) != 0)
+		return 0;
+	ev = strtoull(buf, NULL, 16);
+	if ((ev & (1ULL << EV_KEY)) == 0)
+		return 0;
+
+	snprintf(path, sizeof path, "/sys/class/input/%s/device/capabilities/key", evname);
+	if (ut_read_file(path, buf, sizeof buf) != 0)
+		return 0;
+	/* sysfs prints bitmask words MSB-first; the last hex word covers
+	 * keycodes 0..63. Require KEY_ESC + KEY_ENTER so power buttons,
+	 * mice and WMI hotkey devices are skipped. */
+	last = strrchr(buf, ' ');
+	low = strtoull(last ? last + 1 : buf, NULL, 16);
+	return (low & ((1ULL << KEY_ESC) | (1ULL << KEY_ENTER))) ==
+	       ((1ULL << KEY_ESC) | (1ULL << KEY_ENTER));
+}
+
 static int open_keyboard(void)
 {
 	DIR *d;
 	struct dirent *de;
+	char fallback[512] = "";
 
 	d = opendir("/sys/class/input");
 	if (!d)
 		return -1;
 	while ((de = readdir(d)) != NULL) {
 		char path[512], name[128];
-		int fd, n;
 
 		if (strncmp(de->d_name, "event", 5) != 0)
 			continue;
+		if (!is_evdev_keyboard(de->d_name))
+			continue;
 		snprintf(path, sizeof path, "/sys/class/input/%s/device/name", de->d_name);
-		fd = open(path, O_RDONLY | O_CLOEXEC);
-		if (fd < 0)
-			continue;
-		n = (int)read(fd, name, sizeof name - 1);
-		close(fd);
-		if (n <= 0)
-			continue;
-		if (name[n - 1] == '\n')
-			n--;
-		name[n] = 0;
-		if (strcmp(name, "AT Translated Set 2 keyboard") != 0)
-			continue;
-		snprintf(path, sizeof path, "/dev/input/%s", de->d_name);
-		closedir(d);
-		return open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+		if (ut_read_file(path, name, sizeof name) == 0 &&
+		    strcmp(name, "AT Translated Set 2 keyboard") == 0) {
+			int fd;
+			snprintf(path, sizeof path, "/dev/input/%s", de->d_name);
+			fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+			if (fd >= 0) {
+				closedir(d);
+				return fd;
+			}
+		}
+		if (!fallback[0])
+			snprintf(fallback, sizeof fallback, "/dev/input/%s", de->d_name);
 	}
 	closedir(d);
+	if (fallback[0])
+		return open(fallback, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
 	return -1;
 }
 
@@ -192,9 +226,14 @@ static int load_file(void)
 		dirty = 0;
 		return 0;
 	}
-	while (fgets(line, sizeof line, f)) {
+	int r;
+	while ((r = ut_fgets_full(line, sizeof line, f)) != 0) {
 		char *s = line;
 		char *lb;
+		if (r < 0) {
+			ut_log("daeboard: overlong binds line skipped");
+			continue;
+		}
 		trim(s);
 		if (!*s || *s == '#')
 			continue;
@@ -257,8 +296,15 @@ static int save_file(void)
 	FILE *f;
 	int i, s;
 
-	char tmp[536];
+	char tmp[536], dir[512];
+	char *slash;
 	db_binds_path(path, (int)sizeof path);
+	snprintf(dir, sizeof dir, "%s", path);
+	slash = strrchr(dir, '/');
+	if (slash) {
+		*slash = 0;
+		ut_mkdir_p(dir);
+	}
 	f = ut_atomic_begin(path, tmp, (int)sizeof tmp);
 	if (!f) {
 		ut_log("daeboard: cannot write %s", path);
@@ -521,6 +567,7 @@ static void choose_key(const char *name)
 {
 	int i;
 
+	close_capture();
 	for (i = 0; i < nkeys; i++) {
 		if (strcmp(keys[i].name, name) != 0)
 			continue;
@@ -537,16 +584,21 @@ static void choose_key(const char *name)
 		return;
 	}
 	if (rebind) {
-		if (keyi < 0 || keyi >= nkeys)
+		if (keyi < 0 || keyi >= nkeys) {
+			keypick = 0;
+			rebind = 0;
 			return;
+		}
 		snprintf(keys[keyi].name, sizeof keys[keyi].name, "%s", name);
 		dirty = 1;
 		keypick = 0;
 		rebind = 0;
 		return;
 	}
-	if (nkeys >= DBE_KEYS)
+	if (nkeys >= DBE_KEYS) {
+		keypick = 0;
 		return;
+	}
 	memset(&keys[nkeys], 0, sizeof keys[nkeys]);
 	snprintf(keys[nkeys].name, sizeof keys[nkeys].name, "%s", name);
 	keyi = nkeys++;
@@ -702,6 +754,7 @@ static void draw_swatch(struct ncplane *pl, int x, int y, unsigned rgb, int id)
 
 void editor_daeboard_open(void)
 {
+	close_capture();
 	load_file();
 	keyi = 0;
 	side = 0;
@@ -711,6 +764,14 @@ void editor_daeboard_open(void)
 	picker = 0;
 	keypick = 0;
 	g_ui.db_overlay = true;
+}
+
+void editor_daeboard_close(void)
+{
+	close_capture();
+	keypick = 0;
+	picker = 0;
+	g_ui.db_overlay = false;
 }
 
 static void step_label(const char *slot, char *label, int ln, char *value, int vn, char *hex)
@@ -874,7 +935,10 @@ void editor_daeboard_draw(struct ncplane *pl, const rect_t *r)
 	k = &keys[keyi];
 	y = r->y + r->h - 3;
 	if (focus == 3) {
-		snprintf(line, sizeof line, "hex %.140s_", typed.buf);
+		const char *lbl = typing_ctron == 3 ? "hex"
+				: typing_ctron == 1 ? "ctron"
+				: typing_ctron == 2 ? "key" : "step";
+		snprintf(line, sizeof line, "%s %.140s_", lbl, typed.buf);
 		ui_putln(pl, x, y, w, line, pal->accent, true);
 	} else {
 		snprintf(line, sizeof line, "ctron  %s", k->ctron[0] ? k->ctron : "—");
@@ -1004,6 +1068,7 @@ void editor_daeboard_key(uint32_t key)
 		return;
 	if (key == NCKEY_ESC) {
 		if (keypick) {
+			close_capture();
 			keypick = 0;
 			return;
 		}
@@ -1011,19 +1076,11 @@ void editor_daeboard_key(uint32_t key)
 			picker = 0;
 			return;
 		}
-		g_ui.db_overlay = false;
+		editor_daeboard_close();
 		return;
 	}
 	if (key == 'p' || key == 'P') {
 		picker = !picker;
-		return;
-	}
-	if (key == NCKEY_UP) {
-		move_step(-1);
-		return;
-	}
-	if (key == NCKEY_DOWN) {
-		move_step(1);
 		return;
 	}
 	if (key == 'n' || key == 'N') {
@@ -1033,7 +1090,7 @@ void editor_daeboard_key(uint32_t key)
 	if (key == NCKEY_DEL || key == 'x' || key == 'X') {
 		if (focus == 0)
 			delete_key();
-		else
+		else if (focus == 1)
 			cut_step();
 		return;
 	}
@@ -1053,14 +1110,19 @@ void editor_daeboard_key(uint32_t key)
 		save_file();
 		return;
 	}
-	if (key == '\t') {
-		if (focus == 0)
+	if (key == NCKEY_TAB) {
+		if (focus == 0) {
 			focus = 1;
-		else if (focus == 1) {
-			side ^= 1;
+			side = 0;
 			step = 0;
-		} else
+		} else if (focus == 1 && side == 0) {
+			side = 1;
+			step = 0;
+		} else if (focus == 1) {
+			focus = 2;
+		} else {
 			focus = 0;
+		}
 		clamp_step();
 		return;
 	}
@@ -1088,6 +1150,20 @@ void editor_daeboard_key(uint32_t key)
 	if (n > 0 && step < n)
 		slot = step_at(k, step);
 
+	if (focus == 2 && (key == NCKEY_ENTER || key == '\r' || key == '\n')) {
+		focus = 3;
+		typing_ctron = 1;
+		tin_set(&typed, k->ctron);
+		return;
+	}
+	if (focus == 1 && key == NCKEY_UP) {
+		move_step(-1);
+		return;
+	}
+	if (focus == 1 && key == NCKEY_DOWN) {
+		move_step(1);
+		return;
+	}
 	if (key == 'j') {
 		focus = 1;
 		if (n)
@@ -1111,10 +1187,6 @@ void editor_daeboard_key(uint32_t key)
 			focus = 1;
 			dirty = 1;
 		}
-		return;
-	}
-	if (key == 'x' || key == 'X') {
-		cut_step();
 		return;
 	}
 	if ((key == 'h' || key == NCKEY_LEFT) && slot) {

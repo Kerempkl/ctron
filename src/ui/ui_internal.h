@@ -157,6 +157,7 @@ typedef struct ui_ctx {
 
     /* settings view */
     int set_sel;
+    bool set_in_modes;     /* true when keyboard focus is in CLI SHORTCUTS */
     int set_mode_sel;
     int set_mode_top;      /* first visible modes.ini entry (scroll) */
     int md_field; /* mode editor field: 0 name, 1 steps */
@@ -306,6 +307,7 @@ int  cf_apply_list(hw_state_t *hw, const int ids[HW_CPU_MAX],
 void cf_reset_staging(void);   /* reseed all staging from live (POWER revert) */
 
 void editor_daeboard_open(void);
+void editor_daeboard_close(void);
 void editor_daeboard_draw(struct ncplane *n, const rect_t *r);
 void editor_daeboard_key(uint32_t key);
 void editor_daeboard_act(int id);

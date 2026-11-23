@@ -183,10 +183,11 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
 
 ## C — Süreç/IO disiplini
 
-- [~] **C1. fd sızıntısı** — pipe çiftleri fork hata yolunda dahi
-  kapanıyor (A1 kanıtı). *2026-11-23 REVIEW.md 1.8 açığı:
-  `editor_daeboard.c:39,101` `cap_fd` (evdev) hiç `close()` edilmiyor —
-  v0.10.0'da kapatılınca tekrar [x].*
+- [x] **C1. fd sızıntısı** — pipe çiftleri fork hata yolunda dahi
+  kapanıyor (A1 kanıtı). *2026-11-23 `REVIEW.md` 1.8 kapatıldı:
+  `editor_daeboard_close()` + `close_capture()` eklendi; evdev `cap_fd`
+  `choose_key()` çıkışlarında, `keypick` ESC'de, overlay ESC/dış-tık
+  (`ui.c`) ve TUI kapanışında kesin kapatılıyor.*
 - [x] **C2. SIGPIPE yarışı** — ut_write_via_argv ignore-penceresi +
   exec_run/argv_run drain (141 sahte-FAILED dersi). *Yeni exec yardımcısı
   eklenince drain kuralı tekrarlanmalı.*

@@ -32,9 +32,6 @@ enum {
 enum {
     ACT_SET_ROW_BASE = 1,   /* + row (0..SET_ROW_COUNT-1) */
     ACT_SET_MODE_BASE = 20, /* + index */
-    ACT_SET_MODE_NEW = 90,
-    ACT_SET_MODE_EDIT,
-    ACT_SET_MODE_DEL,
     ACT_MD_SAVE = 95,
     ACT_MD_SAVE_APPLY,
 };
@@ -48,6 +45,12 @@ static const char *onoff(bool v) { return v ? "on" : "off"; }
 void settings_open(void)
 {
     g_ui.mode_n = modes_load(g_ui.modes, MODES_MAX);
+    if (g_ui.mode_n <= 0) {
+        g_ui.set_mode_sel = 0;
+        g_ui.set_in_modes = false;
+    } else if (g_ui.set_mode_sel >= g_ui.mode_n) {
+        g_ui.set_mode_sel = g_ui.mode_n - 1;
+    }
     g_ui.settings_overlay = true;
 }
 
@@ -150,14 +153,16 @@ static void draw_settings(struct ncplane *n, const rect_t *r)
     };
 
     int y = r->y + 1;
-    ui_putln(n, x, y, w, "Esc/s closes · click outside closes · changes persist on quit",
+    ui_putln(n, x, y, w,
+             "j/k/Tab move · h/l change · Enter apply · Esc/s closes · persists on quit",
              pal->muted, false);
     y += 2;
 
     ui_putln(n, x, y, w, "LAYOUT (applied instantly)", pal->accent, true);
     y += 1;
     for (int i = 0; i < SET_PREF_FIRST; i++, y++) {
-        ui_row(n, x, y, w, labels[i], vals[i], g_ui.set_sel == i);
+        ui_row(n, x, y, w, labels[i], vals[i],
+               !g_ui.set_in_modes && g_ui.set_sel == i);
         tgt_register(x, y, w, 1, TGT(TGT_PANEL_SETTINGS, ACT_SET_ROW_BASE + i));
     }
     y += 1;
@@ -165,7 +170,8 @@ static void draw_settings(struct ncplane *n, const rect_t *r)
     ui_putln(n, x, y, w, "PREFERENCES", pal->accent, true);
     y += 1;
     for (int i = SET_PREF_FIRST; i < SET_ROW_COUNT; i++, y++) {
-        ui_row(n, x, y, w, labels[i], vals[i], g_ui.set_sel == i);
+        ui_row(n, x, y, w, labels[i], vals[i],
+               !g_ui.set_in_modes && g_ui.set_sel == i);
         tgt_register(x, y, w, 1, TGT(TGT_PANEL_SETTINGS, ACT_SET_ROW_BASE + i));
     }
     y += 2;
@@ -196,7 +202,8 @@ static void draw_settings(struct ncplane *n, const rect_t *r)
                  g_ui.modes[i].name);
         char val[128];
         snprintf(val, sizeof(val), "%s", g_ui.modes[i].steps);
-        ui_row(n, x, y, w, label, val, i == g_ui.set_mode_sel);
+        ui_row(n, x, y, w, label, val,
+               g_ui.set_in_modes && i == g_ui.set_mode_sel);
         tgt_register(x, y, w, 1, TGT(TGT_PANEL_SETTINGS, ACT_SET_MODE_BASE + i));
     }
     if (g_ui.mode_n == 0 && y < last)
@@ -287,40 +294,78 @@ void panel_settings_key(uint32_t key)
             g_ui.md_field = -1;
             return;
         }
-        if (g_ui.md_field == 2 || key == NCKEY_ENTER || key == '\r' || key == '\n') {
+        if (key == NCKEY_ENTER || key == '\r' || key == '\n') {
             save_mode(false);
             return;
         }
-        if (key == NCKEY_TAB) {
+        if (key == NCKEY_TAB || key == NCKEY_UP || key == NCKEY_DOWN) {
             g_ui.md_field = (g_ui.md_field + 1) % 2;
             return;
         }
         tinput_t *t = g_ui.md_field == 0 ? &g_ui.md_name : &g_ui.md_steps;
-        if (!tin_key(t, key))
-            g_ui.md_field = -1; /* navigation keys leave the editor */
+        tin_key(t, key);
         return;
     }
 
     switch (key) {
+    case NCKEY_TAB:
+        if (g_ui.mode_n > 0)
+            g_ui.set_in_modes = !g_ui.set_in_modes;
+        break;
     case 'j':
     case NCKEY_DOWN:
-        g_ui.set_sel = (g_ui.set_sel + 1) % SET_ROW_COUNT;
+        if (g_ui.set_in_modes) {
+            if (g_ui.set_mode_sel + 1 < g_ui.mode_n) {
+                g_ui.set_mode_sel++;
+            } else {
+                g_ui.set_in_modes = false;
+                g_ui.set_sel = 0;
+            }
+        } else if (g_ui.set_sel + 1 < SET_ROW_COUNT) {
+            g_ui.set_sel++;
+        } else if (g_ui.mode_n > 0) {
+            g_ui.set_in_modes = true;
+            g_ui.set_mode_sel = 0;
+        } else {
+            g_ui.set_sel = 0;
+        }
         break;
     case 'k':
     case NCKEY_UP:
-        g_ui.set_sel = (g_ui.set_sel + SET_ROW_COUNT - 1) % SET_ROW_COUNT;
+        if (g_ui.set_in_modes) {
+            if (g_ui.set_mode_sel > 0) {
+                g_ui.set_mode_sel--;
+            } else {
+                g_ui.set_in_modes = false;
+                g_ui.set_sel = SET_ROW_COUNT - 1;
+            }
+        } else if (g_ui.set_sel > 0) {
+            g_ui.set_sel--;
+        } else if (g_ui.mode_n > 0) {
+            g_ui.set_in_modes = true;
+            g_ui.set_mode_sel = g_ui.mode_n - 1;
+        } else {
+            g_ui.set_sel = SET_ROW_COUNT - 1;
+        }
         break;
     case 'h':
     case NCKEY_LEFT:
-        row_apply(g_ui.set_sel, -1);
+        if (!g_ui.set_in_modes)
+            row_apply(g_ui.set_sel, -1);
         break;
     case 'l':
     case NCKEY_RIGHT:
+    case ' ':
+        if (!g_ui.set_in_modes)
+            row_apply(g_ui.set_sel, 1);
+        break;
     case NCKEY_ENTER:
     case '\r':
     case '\n':
-    case ' ':
-        row_apply(g_ui.set_sel, 1);
+        if (g_ui.set_in_modes)
+            mode_apply_idx(g_ui.set_mode_sel);
+        else
+            row_apply(g_ui.set_sel, 1);
         break;
     case 'n':
     case 'N':
@@ -339,6 +384,8 @@ void panel_settings_key(uint32_t key)
             g_ui.mode_n--;
             if (g_ui.set_mode_sel >= g_ui.mode_n && g_ui.set_mode_sel > 0)
                 g_ui.set_mode_sel--;
+            if (g_ui.mode_n == 0)
+                g_ui.set_in_modes = false;
             modes_save(g_ui.modes, g_ui.mode_n);
         }
         break;
@@ -351,6 +398,7 @@ void panel_settings_act(int id)
 {
     if (id >= ACT_SET_ROW_BASE && id < ACT_SET_ROW_BASE + SET_ROW_COUNT) {
         int row = id - ACT_SET_ROW_BASE;
+        g_ui.set_in_modes = false;
         g_ui.set_sel = row;
         row_apply(row, 1);
         return;
@@ -358,10 +406,12 @@ void panel_settings_act(int id)
     if (id >= ACT_SET_MODE_BASE && id < ACT_SET_MODE_BASE + MODES_MAX) {
         int i = id - ACT_SET_MODE_BASE;
         if (i < g_ui.mode_n) {
-            if (i == g_ui.set_mode_sel)
+            if (g_ui.set_in_modes && i == g_ui.set_mode_sel)
                 mode_apply_idx(i);
-            else
+            else {
+                g_ui.set_in_modes = true;
                 g_ui.set_mode_sel = i;
+            }
         }
         return;
     }

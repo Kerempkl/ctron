@@ -729,6 +729,11 @@ def flow_telem_full():
     finally:
         if s is not None:
             s.close()
+        if oldcfg is None:
+            os.environ.pop("CTRON_CONFIG", None)
+        else:
+            os.environ["CTRON_CONFIG"] = oldcfg
+        shutil.rmtree(tmpcfg, ignore_errors=True)
 
 
 def flow_snapshots():

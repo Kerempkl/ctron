@@ -506,7 +506,7 @@ static void handle_mouse(struct ncplane *stdn, const struct ncinput *ni, uint32_
         const rect_t *w = &g_ui.rc_overlay;
         int t;
         if (mx < w->x || mx >= w->x + w->w || my < w->y || my >= w->y + w->h) {
-            g_ui.db_overlay = false;
+            editor_daeboard_close();
             return;
         }
         t = tgt_find(mx, my);
@@ -1188,6 +1188,7 @@ int ui_run(hw_state_t *hw)
             g_ui.hw = g_ui.apply_hw;
     }
 
+    editor_daeboard_close();
     settings_save(hw);
     s_nc = NULL;
     s_stdn = NULL;
