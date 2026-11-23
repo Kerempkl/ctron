@@ -59,10 +59,7 @@ void panel_telemetry_draw(struct ncplane *n, const rect_t *r)
             char ptxt[96];
             int pct;
             ut_progress_get(ptxt, sizeof(ptxt), &pct);
-            struct timespec ts;
-            clock_gettime(CLOCK_MONOTONIC, &ts);
-            long el = ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
-            el = (el - g_ui.apply_start_ms) / 100; /* tenths of a s */
+            long el = (ut_mono_ms() - g_ui.apply_start_ms) / 100; /* tenths of a s */
             char line[160];
             if (pct >= 0)
                 snprintf(line, sizeof(line),

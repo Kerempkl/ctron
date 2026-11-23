@@ -444,32 +444,36 @@ int profile_set_note(const char *name, const char *note)
     return 0;
 }
 
+void profile_meta_summary(const profile_meta_t *m, char *out, size_t n)
+{
+    char head[96] = "";
+    if (m->note[0] || m->saved[0]) {
+        char date[16] = "";
+        if (strlen(m->saved) >= 16) /* "2026-10-09 21:14" -> "10-09 21:14" */
+            snprintf(date, sizeof(date), "%.5s %.5s", m->saved + 5, m->saved + 11);
+        snprintf(head, sizeof(head), "%s%s%s · ", date,
+                 date[0] && m->note[0] ? " " : "", m->note);
+    }
+    char hz[12], bat[12];
+    if (m->hz > 0)
+        snprintf(hz, sizeof(hz), "%d", m->hz);
+    else
+        snprintf(hz, sizeof(hz), "-");
+    if (m->bat > 0)
+        snprintf(bat, sizeof(bat), "%d", m->bat);
+    else
+        snprintf(bat, sizeof(bat), "-");
+    snprintf(out, n, "%s%s | %sHz | bat %s%% | kbd %s", head,
+             m->profile[0] ? m->profile : "?", hz, bat,
+             m->kbd[0] ? m->kbd : "-");
+}
+
 int profile_summary(const char *name, char *out, size_t n)
 {
     profile_meta_t m;
     if (profile_meta_parse(name, &m) != 0)
         return -1;
-
-    char head[96] = "";
-    if (m.note[0] || m.saved[0]) {
-        char date[16] = "";
-        if (strlen(m.saved) >= 16) /* "2026-10-09 21:14" -> "10-09 21:14" */
-            snprintf(date, sizeof(date), "%.5s %.5s", m.saved + 5, m.saved + 11);
-        snprintf(head, sizeof(head), "%s%s%s · ", date,
-                 date[0] && m.note[0] ? " " : "", m.note);
-    }
-    char hz[12], bat[12];
-    if (m.hz > 0)
-        snprintf(hz, sizeof(hz), "%d", m.hz);
-    else
-        snprintf(hz, sizeof(hz), "-");
-    if (m.bat > 0)
-        snprintf(bat, sizeof(bat), "%d", m.bat);
-    else
-        snprintf(bat, sizeof(bat), "-");
-    snprintf(out, n, "%s%s | %sHz | bat %s%% | kbd %s", head,
-             m.profile[0] ? m.profile : "?", hz, bat,
-             m.kbd[0] ? m.kbd : "-");
+    profile_meta_summary(&m, out, n);
     return 0;
 }
 

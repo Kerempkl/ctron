@@ -322,6 +322,11 @@ static void check_profiles(void)
         profile_meta_t pm;
         CHECK(profile_meta_parse("percore", &pm) == 0 && pm.freq == 5386,
               "percore meta preserves aggregate freq (not 0)");
+        char msum[128], fsum[128];
+        profile_meta_summary(&pm, msum, sizeof(msum));
+        CHECK(profile_summary("percore", fsum, sizeof(fsum)) == 0 &&
+                  strcmp(msum, fsum) == 0,
+              "profile_meta_summary matches profile_summary");
 
         /* import dispatch check: cpu 999 is not present in phw, so cmd_run
          * rejects it before touching sysfs — proving both formats dispatch
@@ -2090,6 +2095,10 @@ static void check_no_sudo(void)
 
     g_prefs.write_pref = saved;
     CHECK(ut_sudo_fallback_allowed() != 0, "sudo fallback restored");
+
+    long t1 = ut_mono_ms();
+    long t2 = ut_mono_ms();
+    CHECK(t1 > 0 && t2 >= t1, "ut_mono_ms monotonic non-decreasing");
 }
 
 int main(void)

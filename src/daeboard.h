@@ -10,6 +10,9 @@ int db_fmt_color(const char *hex, char *out, int n);
 
 /* 1 when the daemon answers ping. */
 int db_up(void);
+/* Cached draw-path ping (100 ms timeout cap, monotonic 2 s TTL; force=1
+ * refreshes immediately). Prevents a hung daemon from freezing the TUI. */
+int db_up_cached(int force);
 int db_set_brightness(int level);
 int db_set_color(const char *hex);
 int db_quit(void);

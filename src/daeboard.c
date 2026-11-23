@@ -40,7 +40,18 @@ int db_fmt_color(const char *hex, char *out, int n)
 	return 0;
 }
 
-static int exchange(const char *cmd, char *reply, int replyn)
+static int s_up_cached;
+static long s_up_ms;
+
+static int is_nixos(void)
+{
+	static int cached = -1;
+	if (cached < 0)
+		cached = (access("/etc/NIXOS", F_OK) == 0);
+	return cached;
+}
+
+static int exchange_ms(const char *cmd, char *reply, int replyn, int budget_ms)
 {
 	struct sockaddr_un addr;
 	int fd, n;
@@ -65,18 +76,12 @@ static int exchange(const char *cmd, char *reply, int replyn)
 		return -1;
 	}
 	/* A daemon that accepts and never replies must not freeze the
-	 * TUI. db_up() is called from the LIGHT view draw path. The
-	 * whole exchange, including skipped "fire" lines, is capped. */
-	struct timespec t0;
-	clock_gettime(CLOCK_MONOTONIC, &t0);
+	 * TUI. The whole exchange, including skipped "fire" lines, is
+	 * capped to budget_ms on the monotonic clock. */
+	long t0 = ut_mono_ms();
 	for (;;) {
-		struct timespec now;
 		struct timeval tv;
-		long elapsed_ms, left_ms;
-		clock_gettime(CLOCK_MONOTONIC, &now);
-		elapsed_ms = (now.tv_sec - t0.tv_sec) * 1000
-			+ (now.tv_nsec - t0.tv_nsec) / 1000000;
-		left_ms = 2000 - elapsed_ms;
+		long left_ms = budget_ms - (ut_mono_ms() - t0);
 		if (left_ms <= 0) {
 			close(fd);
 			return -1;
@@ -105,6 +110,11 @@ static int exchange(const char *cmd, char *reply, int replyn)
 	}
 }
 
+static int exchange(const char *cmd, char *reply, int replyn)
+{
+	return exchange_ms(cmd, reply, replyn, 2000);
+}
+
 int db_up(void)
 {
 	char reply[32];
@@ -112,6 +122,18 @@ int db_up(void)
 	if (exchange("ping", reply, (int)sizeof reply) != 0)
 		return 0;
 	return strcmp(reply, "pong") == 0;
+}
+
+int db_up_cached(int force)
+{
+	long now = ut_mono_ms();
+	if (force || s_up_ms == 0 || now - s_up_ms >= 2000) {
+		char reply[32];
+		s_up_cached = (exchange_ms("ping", reply, (int)sizeof reply, 100) == 0 &&
+			       strcmp(reply, "pong") == 0);
+		s_up_ms = now;
+	}
+	return s_up_cached;
 }
 
 int db_set_brightness(int level)
@@ -140,6 +162,7 @@ int db_quit(void)
 {
 	char reply[32];
 
+	s_up_ms = 0;
 	if (exchange("quit", reply, (int)sizeof reply) != 0)
 		return -1;
 	return strcmp(reply, "ok") == 0 ? 0 : -1;
@@ -236,6 +259,7 @@ int db_start(void)
 		ut_log("daeboard: systemd-run failed");
 		return -1;
 	}
+	s_up_ms = 0;
 	ut_log("daeboard: started");
 	return 0;
 }
@@ -247,7 +271,7 @@ int db_install(void)
 	const char *src = getenv("DAEBOARD_SRC");
 	const char *home;
 
-	if (access("/etc/NIXOS", F_OK) == 0) {
+	if (is_nixos()) {
 		ut_log("daeboard: NixOS uses Start, not install.sh");
 		return db_start();
 	}
@@ -283,7 +307,7 @@ int db_install(void)
 
 void db_install_note(char *out, int n)
 {
-	if (access("/etc/NIXOS", F_OK) == 0) {
+	if (is_nixos()) {
 		snprintf(out, (size_t)n,
 			 "NixOS: use Start. install.sh and nixos-rebuild stay out of ctron.");
 		return;

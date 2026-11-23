@@ -414,8 +414,8 @@ static void gpu_query_cached(hw_state_t *hw)
     static char s_pstate[8];
     static unsigned s_reasons;
     static bool s_ext_bad; /* this driver lacks an ext field: plain 6 */
-    static time_t last = 0;
-    time_t now = time(NULL);
+    static long last_ms = 0;
+    long now = ut_mono_ms();
     char runtime[32];
     const char *st = NULL;
 
@@ -425,8 +425,8 @@ static void gpu_query_cached(hw_state_t *hw)
         s_temp = s_mw = s_mhz = s_util = s_vu = s_vt = -1;
         s_pstate[0] = '\0';
         s_reasons = 0;
-        last = now;
-    } else if (now - last >= 2) {
+        last_ms = now;
+    } else if (last_ms == 0 || now - last_ms >= 2000) {
         char out[384] = {0};
         int rc = -1;
         if (!s_ext_bad) {
@@ -476,7 +476,7 @@ static void gpu_query_cached(hw_state_t *hw)
             s_pstate[0] = '\0';
             s_reasons = 0;
         }
-        last = now;
+        last_ms = now;
     }
     hw->gpu_temp = s_temp;
     hw->gpu_mw = s_mw;
@@ -1587,13 +1587,6 @@ static int cpu_present_ids(int *ids, int max)
 #define SWEEP_STATIC_MS 5000
 static long s_sweep_last_full_ms;
 
-static long hw_mono_ms(void)
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
-}
-
 static void cpu_limits_sweep(hw_state_t *hw, bool full)
 {
     if (full) {
@@ -1608,7 +1601,7 @@ static void cpu_limits_sweep(hw_state_t *hw, bool full)
                 hw->cpu_ids[kept++] = ids[c];
         }
         hw->cpu_n = kept > 0 ? kept : 1;
-        s_sweep_last_full_ms = hw_mono_ms();
+        s_sweep_last_full_ms = ut_mono_ms();
     }
     int min_khz = 0, max_khz = 0, lim_khz = 0;
     for (int c = 0; c < hw->cpu_n; c++) {
@@ -1815,7 +1808,7 @@ void hw_refresh_fast(hw_state_t *hw)
     char p[320], q[320];
 
     /* dynamic-only pass between full sweeps (see SWEEP_STATIC_MS) */
-    cpu_limits_sweep(hw, hw_mono_ms() - s_sweep_last_full_ms >=
+    cpu_limits_sweep(hw, ut_mono_ms() - s_sweep_last_full_ms >=
                             SWEEP_STATIC_MS);
 
     if (cached_hwmon(hw->paths.k10temp, "k10temp", p, sizeof(p)) == 0 &&

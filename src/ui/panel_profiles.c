@@ -111,15 +111,12 @@ void panel_profiles_draw(struct ncplane *n, const rect_t *r)
 
     /* selection footer: summary + live diff (meta cached per selection) */
     ensure_meta();
-    if (g_ui.prof_n > 0 && g_ui.prof_sel < g_ui.prof_n) {
-        char sum[128];
-        if (profile_summary(g_ui.profs[g_ui.prof_sel], sum, sizeof(sum)) == 0)
-            ui_putln(n, x, r->y + r->h - 4, w, sum, pal->text, false);
-        if (g_ui.prof_meta_ok) {
-            char diff[96];
-            profile_meta_diff(g_ui.hw, &g_ui.prof_meta, diff, sizeof(diff));
-            ui_putln(n, x, r->y + r->h - 3, w, diff, pal->muted, false);
-        }
+    if (g_ui.prof_n > 0 && g_ui.prof_sel < g_ui.prof_n && g_ui.prof_meta_ok) {
+        char sum[128], diff[96];
+        profile_meta_summary(&g_ui.prof_meta, sum, sizeof(sum));
+        ui_putln(n, x, r->y + r->h - 4, w, sum, pal->text, false);
+        profile_meta_diff(g_ui.hw, &g_ui.prof_meta, diff, sizeof(diff));
+        ui_putln(n, x, r->y + r->h - 3, w, diff, pal->muted, false);
     }
 
     int by = r->y + r->h - 2;

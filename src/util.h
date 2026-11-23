@@ -118,6 +118,9 @@ int ut_cells(const char *s);
 void ut_cell_join(char *dst, size_t n, const char *left, int cells,
                   const char *right);
 
+/* Monotonic clock in milliseconds (never steps backward on NTP updates). */
+long ut_mono_ms(void);
+
 /* ---- ring log (footer of the TUI, --status tail) --------------------- */
 
 #define UT_LOG_ENTRIES 24

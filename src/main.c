@@ -357,9 +357,7 @@ static int cmd_csv(hw_state_t *hw, const char *path)
              fc[16], fg[16], bp[16], bm[16], l1[16], wl[16], bu[16],
              ap[16], mu[16], su[16], rd[20], wr[20], rx[20], tx[20];
         hw_refresh_fast(hw);
-        struct timespec tsp;
-        clock_gettime(CLOCK_MONOTONIC, &tsp);
-        long now_ms = tsp.tv_sec * 1000L + tsp.tv_nsec / 1000000;
+        long now_ms = ut_mono_ms();
         double rd_bs = -1, wr_bs = -1, rx_bs = -1, tx_bs = -1;
         if (prev_ms > 0 && now_ms > prev_ms) {
             double dt = (double)(now_ms - prev_ms) / 1000.0;
@@ -727,11 +725,9 @@ int main(int argc, char *argv[])
             return 1;
         }
         char err[128];
-        struct timespec a, b;
-        clock_gettime(CLOCK_MONOTONIC, &a);
+        long a = ut_mono_ms();
         int rc = mode_apply(&hw, modes[i].steps, err, sizeof(err));
-        clock_gettime(CLOCK_MONOTONIC, &b);
-        double took = (b.tv_sec - a.tv_sec) + (b.tv_nsec - a.tv_nsec) / 1e9;
+        double took = (double)(ut_mono_ms() - a) / 1000.0;
         if (rc == 0)
             printf("mode '%s' applied (%.1f s)\n", argv[2], took);
         else

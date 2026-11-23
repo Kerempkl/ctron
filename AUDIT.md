@@ -22,14 +22,16 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
 
 ## A — Bellek güvenliği (buffer/taşma/tanımsız)
 
-- [~] **A1. Heap sızıntısı** — tüm malloc/fopen/popen noktalarında her yolda
+- [x] **A1. Heap sızıntısı** — tüm malloc/fopen/popen noktalarında her yolda
   free/fclose/pclose; realloc yok; poll döngüsünde heap tahsisi yok.
   *Kanıt 11-05: statik 24/24 nokta + yalnız-LSan derlemesi altında
   unit/--doctor/--status/tam TUI smoke sıfır rapor (ASan glibc-2.41
   artifact'ine dikkat — yalnız -fsanitize=leak kullan).*
-  *2026-11-23 REVIEW.md 1.9 notu: sızıntı yok ama `editor_fan_presets_draw`
-  modal açıkken her karede `fan_ron_parse` (`malloc`/`free`) çağırıyor —
-  v0.10.0'da önbelleklenince tekrar [x].*
+  *2026-11-23 `REVIEW.md` 1.9 kapatıldı: `editor_fan_presets_draw` artık
+  önizlemeyi açılış/seçim değişiminde önbellekliyor (açık modalda sıfır
+  kare-başı disk/RON `malloc`); `panel_profiles.c` önbellekli
+  `profile_meta_summary()` kullanıyor; `db_up_cached()` + `is_nixos()`
+  önbelleklendi.*
 - [x] **A2. Stack overflow, `off += snprintf` kalıbı** — dönüş değeri
   out[] ötesine taşır, size_t sarar. `profile_set_note`'ta kanıtlanmıştı;
   `note_append` clamp + test ile kapandı (v0.8.1). *Ağaç-geneli yoklama
@@ -481,14 +483,14 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
   `count == 0 → -1`; since `s_lt_n == 0 → -1`; ilk poll core_util -1
   tohumlu; -1 sentinel'leri val_or_dash/dash_if ile "--" olarak
   çizilir. Boş-mengeç semantiği her tabloya aynı kuraldan akıyor.*
-- [~] **K4. Zaman hesapları** — *Denetim 11-17: ana geçen-süre
+- [x] **K4. Zaman hesapları** — *Denetim 11-17: ana geçen-süre
   matematiği CLOCK_MONOTONIC (mono_ms, tmono_ms, apply_start_ms,
   telem_ack_ms, s_last_refresh_ms); ut_log'un localtime_r dönüşü
   korunuyor; since-reset akümülatörleri DEĞER biriktirir (saat
-  kaymasından bağımsız).* *2026-11-23 REVIEW.md 1.7 açığı: üç önbellek
-  zamanlayıcısı (`hw.c:418`, `panel_workspace.c:1106`,
-  `editor_daeboard.c:767`) hâlâ `time(NULL)` kullanıyor — `ut_mono_ms()`
-  birleştirmesiyle v0.10.0'da tekrar [x].*
+  kaymasından bağımsız).* *2026-11-23 `REVIEW.md` 1.7 kapatıldı: ortak
+  `ut_mono_ms()` (`src/util.c`) eklendi; 3 `time(NULL)` önbellek zamanlayıcısı
+  (`hw.c`, `panel_workspace.c`, `editor_daeboard.c`) ve tüm kopya
+  `CLOCK_MONOTONIC` ms hesapları tek yardımcıya geçirildi.*
 
 ## L — Hata raporlama dürüstlüğü (ctron'un imzası)
 

@@ -591,13 +591,6 @@ static void handle_mouse(struct ncplane *stdn, const struct ncinput *ni, uint32_
 
 /* ---- background apply worker ------------------------------------------- */
 
-static long mono_ms(void)
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
-}
-
 /* Post-key refresh rate limit: every keypress used to run a full
  * hw_refresh_fast (~70 file reads) plus telem sampling; navigation
  * keys don't need data that fresh, and a held key ran it at the
@@ -613,7 +606,7 @@ static void maybe_refresh(hw_state_t *hw, bool force)
 {
     if (atomic_load(&g_ui.apply_busy))
         return;
-    long now = mono_ms();
+    long now = ut_mono_ms();
     if (!force && s_last_refresh_ms > 0 &&
         now - s_last_refresh_ms < KEY_REFRESH_MIN_MS)
         return;
@@ -693,7 +686,7 @@ void ui_spawn_apply(int kind, const char *what, const char *arg)
     snprintf(g_ui.apply_what, sizeof(g_ui.apply_what), "%s", what ? what : "");
     snprintf(g_ui.apply_arg, sizeof(g_ui.apply_arg), "%s", arg ? arg : "");
     g_ui.apply_sum[0] = '\0';
-    g_ui.apply_start_ms = mono_ms();
+    g_ui.apply_start_ms = ut_mono_ms();
     ut_progress_clear();
     ut_progress("%s: starting", g_ui.apply_what);
 
@@ -720,7 +713,7 @@ void ui_spawn_apply(int kind, const char *what, const char *arg)
 static void finalize_apply(void)
 {
     g_ui.hw = g_ui.apply_hw; /* back to the real hw the worker wrote */
-    long took = (mono_ms() - g_ui.apply_start_ms) / 100;
+    long took = (ut_mono_ms() - g_ui.apply_start_ms) / 100;
     switch (g_ui.apply_kind) {
     case APPLY_SNAPSHOT:
         if (g_ui.apply_ok)
@@ -746,7 +739,7 @@ static void finalize_apply(void)
                 snprintf(g_ui.pw_msg, sizeof(g_ui.pw_msg), "✓ %.150s",
                          g_ui.apply_sum);
             g_ui.pw_msg_fail = g_ui.apply_fails > 0;
-            g_ui.pw_msg_ms = mono_ms();
+            g_ui.pw_msg_ms = ut_mono_ms();
         }
         break;
     }

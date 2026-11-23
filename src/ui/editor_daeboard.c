@@ -762,16 +762,11 @@ void editor_daeboard_draw(struct ncplane *pl, const rect_t *r)
 		" Fast ", " Slow "
 	};
 	ui_btndef_t top[4];
-	static time_t probed;
-	static int up;
-	time_t now = time(NULL);
+	int up;
 
 	poll_key_capture();
 	ui_window(pl, r, keypick ? "PRESS A KEY" : "DAEBOARD");
-	if (now != probed) {
-		up = db_up();
-		probed = now;
-	}
+	up = db_up_cached(0);
 	top[0] = (ui_btndef_t){ " Start ", up, TGT(TGT_PANEL_DAEBOARD, ID_START) };
 	top[1] = (ui_btndef_t){ " Stop ", 0, TGT(TGT_PANEL_DAEBOARD, ID_STOP) };
 	top[2] = (ui_btndef_t){ " Install ", 0, TGT(TGT_PANEL_DAEBOARD, ID_INSTALL) };
@@ -1168,14 +1163,12 @@ void editor_daeboard_key(uint32_t key)
 
 static int doubled(int id)
 {
-	struct timespec ts;
-	static long long last_ms;
+	static long last_ms;
 	static int last_id = -1;
-	long long ms;
+	long ms;
 	int yes;
 
-	clock_gettime(CLOCK_MONOTONIC, &ts);
-	ms = (long long)ts.tv_sec * 1000LL + ts.tv_nsec / 1000000LL;
+	ms = ut_mono_ms();
 	yes = (id == last_id && ms - last_ms < 450);
 	last_ms = ms;
 	last_id = id;

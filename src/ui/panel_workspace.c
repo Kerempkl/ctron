@@ -80,13 +80,6 @@ static bool view_binds_key(ws_view_t v, uint32_t key)
 #define PW_FW_TEMP_ON  90
 #define PW_FW_TEMP_OFF 88
 
-static long now_ms(void)
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
-}
-
 enum {
     PW_PROFILE = 0,
     PW_AC_AUTO,         /* asusd AC takeover */
@@ -682,7 +675,7 @@ static long pw_lim_ms;
 
 static void pw_refresh_limits(void)
 {
-    long t = now_ms();
+    long t = ut_mono_ms();
     if (pw_lim_ms != 0 && t - pw_lim_ms <= 1000)
         return;
     ctrl_ppt_limits(g_ui.hw, &pw_smin, &pw_smax,
@@ -916,7 +909,7 @@ static void draw_power(struct ncplane *n, const rect_t *r)
      * room to spare, a description line (h-4) and the preview/toast slot
      * (h-3) stay reserved — very short panels fall back to the old
      * toast-only layout */
-    bool toast = g_ui.pw_msg_ms > 0 && now_ms() - g_ui.pw_msg_ms < PW_TOAST_MS;
+    bool toast = g_ui.pw_msg_ms > 0 && ut_mono_ms() - g_ui.pw_msg_ms < PW_TOAST_MS;
     bool extras = r->h >= 13;
     int budget = r->h - (extras ? 6 : (toast ? 5 : 4));
     if (budget < 0)
@@ -1101,14 +1094,8 @@ static void draw_light(struct ncplane *n, const rect_t *r)
         snprintf(hexline, sizeof(hexline), "#%.90s (type 0-9a-f, Enter applies)",
                  g_ui.lt_hex.buf);
 
-    static time_t probed;
-    static int up;
-    time_t now = time(NULL);
+    int up = db_up_cached(0);
     char note[160];
-    if (now != probed) {
-        up = db_up();
-        probed = now;
-    }
     db_install_note(note, (int)sizeof note);
     const char *vals[LT_ROWS] = {
         KBDS[ut_clamp_i(g_ui.ctl_kbd_idx, 0, 3)],

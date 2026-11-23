@@ -51,6 +51,9 @@ typedef struct {
 
 int profile_meta_parse(const char *name, profile_meta_t *m);
 
+/* Pure: format one-line snapshot summary from already-parsed metadata. */
+void profile_meta_summary(const profile_meta_t *m, char *out, size_t n);
+
 /* Pure: which tracked fields a snapshot apply would change right now
  * ("Δ profile · hz · fan-curve cpu"; "≡ live" when nothing differs,
  * absent fields never count). */

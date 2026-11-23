@@ -724,3 +724,10 @@ void ut_progress_clear(void)
     s_prog_pct = -1;
     pthread_mutex_unlock(&s_prog_mtx);
 }
+
+long ut_mono_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long)ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
+}

@@ -1129,17 +1129,10 @@ static void detail_power(struct ncplane *n, const rect_t *r)
  * run the test — however long — read the stats, 's' switches the
  * table to "since reset"). "now" values refill on the next poll tick
  * (<= 250 ms). */
-static long tmono_ms(void)
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
-}
-
 static void telem_stats_reset(void)
 {
     telem_reset();
-    g_ui.telem_ack_ms = tmono_ms();
+    g_ui.telem_ack_ms = ut_mono_ms();
 }
 
 /* overlay footer: key hints left, a clickable "[r] reset stats" button
@@ -1188,7 +1181,7 @@ void panel_telem_full_draw(struct ncplane *n, const rect_t *r)
      * no draw-count clock, so a closed overlay can never carry a stale
      * flash into a reopen) */
     if (g_ui.telem_ack_ms > 0 &&
-        tmono_ms() - g_ui.telem_ack_ms < 3000)
+        ut_mono_ms() - g_ui.telem_ack_ms < 3000)
         snprintf(title + strlen(title), sizeof(title) - strlen(title),
                  " · cleared");
     ui_window(n, r, title);

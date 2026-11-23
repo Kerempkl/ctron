@@ -544,9 +544,17 @@ static const char *const s_preset_labels[4] = {
     "4: Active (Live)",
 };
 
+/* Preview cache for the fan presets modal: populated on modal open and
+ * selection change so the draw loop never re-reads asusd RON (malloc)
+ * or hwmon nodes every frame. */
+static int s_pr_cached_sel = -1;
+static fan_curve_t s_pr_cpu, s_pr_gpu;
+static fan_preset_info_t s_pr_info;
+
 void editor_fan_presets_open(void)
 {
     g_ui.fe_presets_overlay = true;
+    s_pr_cached_sel = -1;
     if (g_ui.fe_pr_sel < 0 || g_ui.fe_pr_sel >= 4)
         g_ui.fe_pr_sel = 0;
     if (!g_ui.fe_pr_target_cpu && !g_ui.fe_pr_target_gpu) {
@@ -641,35 +649,44 @@ void editor_fan_presets_draw(struct ncplane *n, const rect_t *r)
         tgt_register(x, py, w, 1, TGT(TGT_PANEL_FAN_PRESETS, ACT_FPR_ITEM + i));
     }
 
-    /* Preview + source (rows 9..11, clipped on tiny frames) */
-    fan_curve_t prev_cpu = {0}, prev_gpu = {0};
-    fan_preset_info_t info = {0};
-    fan_preset_get(g_ui.hw, (fan_preset_t)g_ui.fe_pr_sel, &prev_cpu, &prev_gpu, &info);
+    /* Preview + source (rows 9..11, clipped on tiny frames; cached per
+     * selection so open modal draws do zero disk/heap I/O per frame) */
+    if (s_pr_cached_sel != g_ui.fe_pr_sel) {
+        memset(&s_pr_cpu, 0, sizeof(s_pr_cpu));
+        memset(&s_pr_gpu, 0, sizeof(s_pr_gpu));
+        memset(&s_pr_info, 0, sizeof(s_pr_info));
+        fan_preset_get(g_ui.hw, (fan_preset_t)g_ui.fe_pr_sel,
+                       &s_pr_cpu, &s_pr_gpu, &s_pr_info);
+        s_pr_cached_sel = g_ui.fe_pr_sel;
+    }
+    const fan_curve_t *prev_cpu = &s_pr_cpu;
+    const fan_curve_t *prev_gpu = &s_pr_gpu;
+    const fan_preset_info_t *info = &s_pr_info;
 
     if (r->y + 9 <= last) {
         char src[96];
-        if (info.src == FAN_PSRC_RON) {
+        if (info->src == FAN_PSRC_RON) {
             /* the enabled flags only exist in the ron; a disabled fan
              * means asusd runs the factory curve for it in this
              * profile — loading the points would mislead */
-            const char *off = !info.cpu_en && !info.gpu_en ? "CPU+GPU"
-                             : !info.cpu_en ? "CPU"
-                             : !info.gpu_en ? "GPU" : NULL;
+            const char *off = !info->cpu_en && !info->gpu_en ? "CPU+GPU"
+                             : !info->cpu_en ? "CPU"
+                             : !info->gpu_en ? "GPU" : NULL;
             if (off)
                 snprintf(src, sizeof(src), "Source: %s · %s off (factory runs)",
-                         preset_src_str(info.src), off);
+                         preset_src_str(info->src), off);
             else
                 snprintf(src, sizeof(src), "Source: %s · CPU ✓ GPU ✓",
-                         preset_src_str(info.src));
+                         preset_src_str(info->src));
         } else {
-            snprintf(src, sizeof(src), "Source: %s", preset_src_str(info.src));
+            snprintf(src, sizeof(src), "Source: %s", preset_src_str(info->src));
         }
         ui_putln(n, x, r->y + 9, w, src, pal->muted, true);
     }
 
     char c_sum[128], g_sum[128];
-    fmt_curve_summary(&prev_cpu, c_sum, sizeof(c_sum));
-    fmt_curve_summary(&prev_gpu, g_sum, sizeof(g_sum));
+    fmt_curve_summary(prev_cpu, c_sum, sizeof(c_sum));
+    fmt_curve_summary(prev_gpu, g_sum, sizeof(g_sum));
 
     char c_line[160], g_line[160];
     if (g_ui.fe_pr_target_cpu)
