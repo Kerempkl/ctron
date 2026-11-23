@@ -641,6 +641,27 @@ static int follow_fire(const char *key, void *ud)
 
 /* ---- main ------------------------------------------------------------------ */
 
+static int run_tui(void)
+{
+    /* one fullscreen TUI at a time: a second instance (e.g. a stale key
+     * binding that spawns `konsole -e ctron` on every press) bows out
+     * instead of stacking windows */
+    int other = ut_singleton_enter("ctron");
+    if (other > 0) {
+        fprintf(stderr,
+                "ctron: TUI already running (pid %d) — closing this window\n",
+                other);
+        sleep(2); /* keep the note readable in the flash window */
+        return 0;
+    }
+    hw_state_t hw;
+    hw_init(&hw);
+    settings_load(&hw);
+    int rc = ui_run(&hw);
+    ut_singleton_leave();
+    return rc == 0 ? 0 : 1;
+}
+
 int main(int argc, char *argv[])
 {
     /* --config-dir DIR (removes itself from argv) */
@@ -670,30 +691,20 @@ int main(int argc, char *argv[])
 
     if (argc == 1) {
         /* no args: fullscreen TUI when interactive, help otherwise */
-        if (isatty(0) && isatty(1)) {
-            /* one fullscreen TUI at a time: a second instance (e.g. a
-             * stale key binding that spawns `konsole -e ctron` on
-             * every press) bows out instead of stacking windows */
-            int other = ut_singleton_enter("ctron");
-            if (other > 0) {
-                fprintf(stderr,
-                        "ctron: TUI already running (pid %d) — "
-                        "closing this window\n",
-                        other);
-                sleep(2); /* keep the note readable in the flash window */
-                return 0;
-            }
-            hw_state_t hw;
-            hw_init(&hw);
-            settings_load(&hw);
-            int rc = ui_run(&hw);
-            ut_singleton_leave();
-            return rc == 0 ? 0 : 1;
-        }
+        if (isatty(0) && isatty(1))
+            return run_tui();
         print_version();
         printf("No terminal attached — printing help instead of the TUI.\n\n");
         print_usage(argv[0]);
         return 2;
+    }
+
+    if (!strcmp(argv[1], "--tui") || !strcmp(argv[1], "-t")) {
+        if (!isatty(0) || !isatty(1)) {
+            fprintf(stderr, "ctron: --tui needs a terminal\n");
+            return 1;
+        }
+        return run_tui();
     }
 
     hw_state_t hw;
@@ -701,14 +712,6 @@ int main(int argc, char *argv[])
     settings_load(&hw);
 
     /* commands that never touch hardware state */
-    if (!strcmp(argv[1], "--tui") || !strcmp(argv[1], "-t")) {
-        if (!isatty(0) || !isatty(1)) {
-            fprintf(stderr, "ctron: --tui needs a terminal\n");
-            return 1;
-        }
-        int rc = ui_run(&hw);
-        return rc == 0 ? 0 : 1;
-    }
     if (!strcmp(argv[1], "--doctor")) {
         hw_refresh_live(&hw);
         return cmd_doctor(&hw);
@@ -780,7 +783,7 @@ int main(int argc, char *argv[])
     }
 
     /* everything else: hardware flags applied in order */
-    int rc = 0;
+    int rc = 0, ran = 0;
     for (int i = 1; i < argc; i++) {
         const char *flag = argv[i];
         if (flag[0] != '-' || flag[1] != '-') {
@@ -805,6 +808,8 @@ int main(int argc, char *argv[])
         if (!strcmp(key, "fan-write") || !strcmp(key, "battery-oneshot")) {
             if (run_flag(&hw, key, "") != 0)
                 rc = 1;
+            else
+                ran++;
             continue;
         }
 
@@ -822,6 +827,8 @@ int main(int argc, char *argv[])
             }
             if (run_flag(&hw, key, joined) != 0)
                 rc = 1;
+            else
+                ran++;
             continue;
         }
 
@@ -836,6 +843,8 @@ int main(int argc, char *argv[])
             i += 2;
             if (run_flag(&hw, key, joined) != 0)
                 rc = 1;
+            else
+                ran++;
             continue;
         }
 
@@ -861,6 +870,8 @@ int main(int argc, char *argv[])
             }
             if (run_flag(&hw, key, joined) != 0)
                 rc = 1;
+            else
+                ran++;
             continue;
         }
 
@@ -873,8 +884,11 @@ int main(int argc, char *argv[])
         }
         if (run_flag(&hw, key, val) != 0)
             rc = 1;
+        else
+            ran++;
     }
 
-    settings_save(&hw);
+    if (rc == 0 && ran > 0)
+        settings_save(&hw);
     return rc;
 }

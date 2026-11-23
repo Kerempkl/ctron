@@ -207,6 +207,10 @@ int db_start(void)
 	const char *probe[] = { "sudo", "-n", "true", NULL };
 	const char *av[10];
 
+	if (!ut_sudo_fallback_allowed()) {
+		ut_log("daeboard: start disabled by write_pref=no sudo");
+		return -1;
+	}
 	if (pick_bin(bin, (int)sizeof bin) != 0) {
 		ut_log("daeboard: binary not found (set DAEBOARD_BIN)");
 		return -1;
@@ -246,6 +250,10 @@ int db_install(void)
 	if (access("/etc/NIXOS", F_OK) == 0) {
 		ut_log("daeboard: NixOS uses Start, not install.sh");
 		return db_start();
+	}
+	if (!ut_sudo_fallback_allowed()) {
+		ut_log("daeboard: install disabled by write_pref=no sudo");
+		return -1;
 	}
 	if (src && src[0])
 		snprintf(path, sizeof path, "%s/install.sh", src);

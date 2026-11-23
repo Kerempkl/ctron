@@ -56,8 +56,8 @@ Other privileged operations:
 ### 2.3. IPC & File Race Conditions
 - **Current State:**
   - Singleton lock: `$XDG_RUNTIME_DIR/ctron-tui.pid` (falls back to
-    `$TMPDIR/ctron-tui.pid` or `/tmp/ctron-tui.pid`; adding `<uid>` on the
-    `/tmp` fallback and gating `--tui` are tracked in `REVIEW.md` 1.6).
+    `$TMPDIR/ctron-tui-<uid>.pid` or `/tmp/ctron-tui-<uid>.pid`, shared by
+    no-args TUI and `--tui`).
   - Toggle claim: `$XDG_RUNTIME_DIR/ctron-toggle.launching`.
   - `daeboard` socket: `/run/daeboard/daeboard.sock` (mode `0660`, group `wheel`).
 - **Residual Risk:** If `$XDG_RUNTIME_DIR` is not set and `/tmp` is shared,

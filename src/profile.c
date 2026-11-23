@@ -194,7 +194,7 @@ int profile_export(const char *name, const hw_state_t *hw)
     for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
         int id = hw->cpu_ids[c];
         if (hw->cpu_mhz_core[id] > 0 && hw->cpu_mhz_core[id] < hw->cpu_mhz_limit)
-            fprintf(f, "freq core %d %d\n", id, hw->cpu_mhz_core[id]);
+            fprintf(f, "freq = core %d %d\n", id, hw->cpu_mhz_core[id]);
     }
     fprintf(f, "[power]\n");
     if (hw->hz_cur > 0)
@@ -229,7 +229,7 @@ int profile_import(const char *name, hw_state_t *hw, char *err, size_t errn)
     char line[512];
     bool fan_cpu_on = true, fan_gpu_on = true;
     char fc_t[128] = {0}, fc_p[128] = {0}, fg_t[128] = {0}, fg_p[128] = {0};
-    char freq_replay[4][64];
+    char freq_replay[HW_CPU_MAX + 1][64];
     int n_freq = 0;
     int failed = 0;
 
@@ -242,12 +242,21 @@ int profile_import(const char *name, hw_state_t *hw, char *err, size_t errn)
         char *s = ut_trim(line);
         if (*s == '#' || *s == ';' || *s == '[' || !*s)
             continue;
+        const char *key, *val;
         char *eq = strchr(s, '=');
-        if (!eq)
-            continue;
-        *eq = '\0';
-        char *key = ut_trim(s);
-        char *val = ut_trim(eq + 1);
+        if (!eq) {
+            /* legacy snapshots wrote "freq core <id> <mhz>" without '=' */
+            if (!strncasecmp(s, "freq core ", 10)) {
+                key = "freq";
+                val = ut_trim(s + 5);
+            } else {
+                continue;
+            }
+        } else {
+            *eq = '\0';
+            key = ut_trim(s);
+            val = ut_trim(eq + 1);
+        }
 
         /* fan enable flags ride along with the curves */
         if (!strcasecmp(key, "fan_cpu")) {
@@ -291,7 +300,7 @@ int profile_import(const char *name, hw_state_t *hw, char *err, size_t errn)
          * (the honest-fail rounds already exhausted), it only guards
          * against the post-verify re-pin, so replaying a failure just
          * burns another ~8 s of wait rounds */
-        if (!strcasecmp(key, "freq") && step_rc == 0 && n_freq < 4)
+        if (!strcasecmp(key, "freq") && step_rc == 0 && n_freq < HW_CPU_MAX + 1)
             snprintf(freq_replay[n_freq++], sizeof(freq_replay[0]), "%s", val);
     }
     fclose(f);
@@ -444,7 +453,7 @@ int profile_summary(const char *name, char *out, size_t n)
     char head[96] = "";
     if (m.note[0] || m.saved[0]) {
         char date[16] = "";
-        if (m.saved[0]) /* "2026-10-09 21:14" -> "10-09 21:14" */
+        if (strlen(m.saved) >= 16) /* "2026-10-09 21:14" -> "10-09 21:14" */
             snprintf(date, sizeof(date), "%.5s %.5s", m.saved + 5, m.saved + 11);
         snprintf(head, sizeof(head), "%s%s%s · ", date,
                  date[0] && m.note[0] ? " " : "", m.note);
@@ -517,8 +526,12 @@ int profile_meta_parse(const char *name, profile_meta_t *m)
                 snprintf(m->profile, sizeof(m->profile), "%s", val);
             else if (!strcasecmp(key, "epp"))
                 snprintf(m->epp, sizeof(m->epp), "%s", val);
-            else if (!strcasecmp(key, "freq"))
-                m->freq = atoi(val);
+            else if (!strcasecmp(key, "freq")) {
+                /* per-core/per-CCD lines must not overwrite the aggregate */
+                if (strncasecmp(val, "core", 4) != 0 &&
+                    strncasecmp(val, "ccd", 3) != 0)
+                    m->freq = atoi(val);
+            }
             else if (!strcasecmp(key, "hz"))
                 m->hz = atoi(val);
             else if (!strcasecmp(key, "battery"))

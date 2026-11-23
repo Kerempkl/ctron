@@ -153,9 +153,11 @@ static void save_current(void)
     if (!g_ui.prof_name.buf[0])
         return;
     if (profile_export(g_ui.prof_name.buf, g_ui.hw) == 0) {
+        char safe[PROFILE_NAME_MAX];
+        profile_sanitize_name(g_ui.prof_name.buf, safe, sizeof(safe));
         g_ui.prof_n = profile_list(g_ui.profs, MAX_PROFILES);
         for (int i = 0; i < g_ui.prof_n; i++)
-            if (!strcmp(g_ui.profs[i], g_ui.prof_name.buf))
+            if (!strcmp(g_ui.profs[i], safe))
                 g_ui.prof_sel = i;
         g_ui.prof_meta_sel = -1;
     }
@@ -168,9 +170,11 @@ static void rename_selected(void)
     const char *old = g_ui.profs[g_ui.prof_sel];
     if (profile_rename(old, g_ui.prof_name.buf) != 0)
         return;
+    char safe[PROFILE_NAME_MAX];
+    profile_sanitize_name(g_ui.prof_name.buf, safe, sizeof(safe));
     refresh_list();
     for (int i = 0; i < g_ui.prof_n; i++)
-        if (!strcmp(g_ui.profs[i], g_ui.prof_name.buf))
+        if (!strcmp(g_ui.profs[i], safe))
             g_ui.prof_sel = i;
     g_ui.prof_meta_sel = -1;
 }

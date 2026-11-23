@@ -13,6 +13,7 @@
 
 #include "cmds.h"
 #include "control.h"
+#include "daeboard.h"
 #include "fan.h"
 #include "hw.h"
 #include "modes.h"
@@ -285,6 +286,65 @@ static void check_profiles(void)
         unlink(pth);
         rmdir(pdir);
         rmdir(tmp2);
+    }
+
+    /* per-core freq limits: export writes "freq = core <id> <mhz>",
+     * profile_meta_parse must keep the aggregate m.freq intact (not
+     * overwrite it with atoi("core ...") == 0), and profile_import must
+     * actually dispatch both new "freq = core ..." and legacy
+     * "freq core ..." lines instead of silently dropping them */
+    {
+        char tmpc[] = "/tmp/ctron2-test-XXXXXX";
+        CHECK(mkdtemp(tmpc) != NULL, "percore mkdtemp");
+        setenv("CTRON_CONFIG", tmpc, 1);
+
+        hw_state_t phw;
+        memset(&phw, 0, sizeof(phw));
+        snprintf(phw.model, sizeof(phw.model), "test");
+        phw.profile = HW_PERFORMANCE;
+        phw.cpu_n = 2;
+        phw.cpu_ids[0] = 0;
+        phw.cpu_ids[1] = 4;
+        phw.cpu_mhz_limit = 5386;
+        phw.cpu_mhz_core[0] = 5386;
+        phw.cpu_mhz_core[4] = 2400;
+        fan_default(&phw.fan_cpu);
+        fan_default(&phw.fan_gpu);
+
+        CHECK(profile_export("percore", &phw) == 0, "percore export");
+        char pth[460], body[2048] = {0};
+        snprintf(pth, sizeof(pth), "%s/profiles/percore.ctr", tmpc);
+        CHECK(ut_read_file_all(pth, body, sizeof(body)) == 0, "percore read");
+        CHECK(strstr(body, "freq = 5386\n") != NULL, "percore has aggregate");
+        CHECK(strstr(body, "freq = core 4 2400\n") != NULL,
+              "percore exports '=' syntax");
+
+        profile_meta_t pm;
+        CHECK(profile_meta_parse("percore", &pm) == 0 && pm.freq == 5386,
+              "percore meta preserves aggregate freq (not 0)");
+
+        /* import dispatch check: cpu 999 is not present in phw, so cmd_run
+         * rejects it before touching sysfs — proving both formats dispatch
+         * rather than being silently skipped */
+        char pnew[460], pleg[460], ierr[128];
+        snprintf(pnew, sizeof(pnew), "%s/profiles/pc-new.ctr", tmpc);
+        snprintf(pleg, sizeof(pleg), "%s/profiles/pc-leg.ctr", tmpc);
+        CHECK(ut_write_file(pnew, "[perf]\nfreq = core 999 2400\n") == 0,
+              "write new percore ctr");
+        CHECK(ut_write_file(pleg, "[perf]\nfreq core 999 2400\n") == 0,
+              "write legacy percore ctr");
+        CHECK(profile_import("pc-new", &phw, ierr, sizeof(ierr)) != 0,
+              "import dispatches freq = core");
+        CHECK(profile_import("pc-leg", &phw, ierr, sizeof(ierr)) != 0,
+              "import dispatches legacy freq core");
+
+        unlink(pth);
+        unlink(pnew);
+        unlink(pleg);
+        char pdir[400];
+        snprintf(pdir, sizeof(pdir), "%s/profiles", tmpc);
+        rmdir(pdir);
+        rmdir(tmpc);
     }
 
     /* oversized .ctr must not smash the stack through set_note's
@@ -1522,6 +1582,25 @@ static void check_singleton(void)
     ut_singleton_leave();
     CHECK(!ut_path_exists(path), "leave removes (post-symlink)");
 
+    /* fallback dir without XDG_RUNTIME_DIR must scope pidfile by UID */
+    {
+        const char *old_tmp = getenv("TMPDIR");
+        unsetenv("XDG_RUNTIME_DIR");
+        setenv("TMPDIR", tmp, 1);
+        char upath[320];
+        snprintf(upath, sizeof(upath), "%s/ctron-tui-%lu.pid",
+                 tmp, (unsigned long)geteuid());
+        CHECK(ut_singleton_enter("test_core") == 0,
+              "fallback enter creates uid-scoped pidfile");
+        CHECK(ut_path_exists(upath), "fallback pidfile includes uid");
+        ut_singleton_leave();
+        CHECK(!ut_path_exists(upath), "fallback leave removes uid pidfile");
+        if (old_tmp)
+            setenv("TMPDIR", old_tmp, 1);
+        else
+            unsetenv("TMPDIR");
+    }
+
     if (old)
         setenv("XDG_RUNTIME_DIR", old, 1);
     else
@@ -1976,6 +2055,43 @@ static void check_fan_presets(void)
     CHECK(live_hw.fan_gpu.n == 2 && live_hw.fan_gpu.temp_c[0] == 40, "live gpu curve preserved");
 }
 
+static void check_no_sudo(void)
+{
+    int saved = g_prefs.write_pref;
+    g_prefs.write_pref = PREF_NO_SUDO;
+    CHECK(ut_sudo_fallback_allowed() == 0, "PREF_NO_SUDO disables sudo");
+
+    hw_state_t hw;
+    memset(&hw, 0, sizeof(hw));
+    hw.ppt_mode = HW_PPT_RYZENADJ;
+    hw.has_nvidia_smi = true;
+    hw.gpu_mhz_max = 2400;
+
+    CHECK(ctrl_set_ppt(&hw, 45, 55, 55) != 0, "no-sudo blocks ryzenadj ppt");
+    CHECK(strstr(ut_log_get(0), "write_pref=no sudo") != NULL,
+          "no-sudo ppt logs honest reason");
+
+    CHECK(ctrl_ppt_off(&hw) != 0, "no-sudo blocks ppt_off");
+    CHECK(strstr(ut_log_get(0), "write_pref=no sudo") != NULL,
+          "no-sudo ppt_off logs honest reason");
+
+    if (ut_have_cmd("nvidia-smi")) {
+        CHECK(ctrl_gpu_clock_lock(&hw, 1500) != 0, "no-sudo blocks gpu lock");
+        CHECK(strstr(ut_log_get(0), "write_pref=no sudo") != NULL,
+              "no-sudo gpu lock logs honest reason");
+        CHECK(ctrl_gpu_clock_reset(&hw) != 0, "no-sudo blocks gpu reset");
+        CHECK(strstr(ut_log_get(0), "write_pref=no sudo") != NULL,
+              "no-sudo gpu reset logs honest reason");
+    }
+
+    CHECK(db_start() != 0, "no-sudo blocks db_start");
+    CHECK(strstr(ut_log_get(0), "write_pref=no sudo") != NULL,
+          "no-sudo db_start logs honest reason");
+
+    g_prefs.write_pref = saved;
+    CHECK(ut_sudo_fallback_allowed() != 0, "sudo fallback restored");
+}
+
 int main(void)
 {
     check_fan_csv();
@@ -2014,6 +2130,7 @@ int main(void)
     check_gpu_clock();
     check_snapshots();
     check_progress_and_log();
+    check_no_sudo();
 
     if (failures) {
         fprintf(stderr, "%d failure(s)\n", failures);

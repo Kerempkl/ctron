@@ -454,13 +454,18 @@ int ut_singleton_enter(const char *comm)
         return -1;
 
     const char *dir = getenv("XDG_RUNTIME_DIR");
-    if (!dir || !*dir)
+    if (dir && *dir) {
+        if (snprintf(s_pidfile, sizeof s_pidfile, "%s/ctron-tui.pid", dir)
+            >= (int)sizeof s_pidfile)
+            return -1;
+    } else {
         dir = getenv("TMPDIR");
-    if (!dir || !*dir)
-        dir = "/tmp";
-    if (snprintf(s_pidfile, sizeof s_pidfile, "%s/ctron-tui.pid", dir)
-        >= (int)sizeof s_pidfile)
-        return -1;
+        if (!dir || !*dir)
+            dir = "/tmp";
+        if (snprintf(s_pidfile, sizeof s_pidfile, "%s/ctron-tui-%lu.pid",
+                     dir, (unsigned long)geteuid()) >= (int)sizeof s_pidfile)
+            return -1;
+    }
 
     s_pidfile_pid = (long)getpid();
 

@@ -292,15 +292,18 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
 - [x] **E2. asusd ezişi** — güç olayında profil zorlaması; management
   satırları + snapshot/restore + explicit-staging-önceliği (10-01).
   "AC/battery ters" false alarm'ı da kapandı.
-- [~] **E3. Yazma zinciri önceliği** — *Denetim 11-17: yapısal kanıt —
+- [x] **E3. Yazma zinciri önceliği** — *Denetim 11-17: yapısal kanıt —
   ut_write_file/ut_priv_write/ut_write_via_argv çağrılarının TÜMÜ
   (16 nokta) control.c içinde; UI/main/cmds yalnız ctrl_* çağırır;
   zincir dışı kapı yok. Sıra temsilcide doğrulandı (ctrl_set_profile:
   asusctl → ut_priv_write sysfs [kendisi direkt→sudo -n]). Sudo'suz
   makine davranışı önceden kanıtlı (fan_sysfs_dead + üçlü verdict,
-  7011b56).* *2026-11-23 REVIEW.md 1.11 & 2.2 açıkları: `cpufreq_write_all`
-  önce `sudo -n tee` deniyor ve `PREF_NO_SUDO` 4 ayrıcalıklı yolda
-  atlanıyor — v0.10.0/v0.12.0'da kapanınca tekrar [x].*
+  7011b56).* *2026-11-23 `REVIEW.md` 1.11 & 2.2 (kod) kapatıldı:
+  `cpufreq_write_all` artık önce doğrudan `ut_write_file()` dener, yalnızca
+  izin reddedilirse ve `ut_sudo_fallback_allowed()` açıksa toplu `sudo -n tee`
+  çalıştırır; `PREF_NO_SUDO` 4 ayrıcalıklı yolun tamamında (`cpufreq_write_all`,
+  `ppt_write`, `ctrl_gpu_clock_lock`/`reset`, `db_start`/`db_install`)
+  doğrulandı (`check_no_sudo` birim testi + dürüst log).*
 - [x] **E4. Stale-PPT etkileşimi** — *Kod doğrulaması 11-17, NEXT-19
   kapanış kaydıyla birebir: tek doğrulama kümesi pw_write_mask —
   her alanın yazım koşulu tek yerde (PPT: touched BAYRAĞI veya
@@ -405,16 +408,17 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
   *Yeni komut eklenince kural.*
 - [x] **H3. Borulanmış çıktıda TUI açılmama** — (no-args=kural) piped
   tespiti. *Yeni giriş yollarında tekrar doğrulanır.*
-- [~] **H4. Çoklu örnek çatışması** — *Denetim 11-17: iki TUI → singleton
+- [x] **H4. Çoklu örnek çatışması** — *Denetim 11-17: iki TUI → singleton
   pidfile (ut_singleton: O_EXCL|O_NOFOLLOW 0600, bayat-pid ezme,
   comm doğrulaması; ikinci örnek "TUI already running (pid %d)" ile
   reddedilir — smoke CTRON_TEST=1 ile bilinçli muaf). TUI+CLI → CLI
   slot almaz, headless; yazılar kernel sysfs'ünde son-yazan-kazanır
   (atomik), dürüst okumalar dış değişimi izler (asusd drift kanıtı).
   İki csv logger aynı dosyaya → O_APPEND satır-atomik girişleşme,
-  kabul edilen sözleşme.* *2026-11-23 REVIEW.md 1.6 açıkları: `--tui`
-  singleton'ı atlıyor ve `/tmp/ctron-tui.pid`'de `<uid>` yok —
-  v0.10.0'da kapatılınca tekrar [x].*
+  kabul edilen sözleşme.* *2026-11-23 `REVIEW.md` 1.6 kapatıldı: `--tui`/`-t`
+  artık ortak `run_tui()` singleton kapısından geçiyor; `XDG_RUNTIME_DIR`
+  yokken `/tmp/ctron-tui-<uid>.pid` yolu kullanılıyor (`check_singleton`
+  birim testli + `SECURITY.md §2.3` eşlendi).*
 
 ## I — Taşınabilirlik/ortam
 

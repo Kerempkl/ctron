@@ -81,9 +81,31 @@ static int cpufreq_write_all(const hw_state_t *hw, const char *leaf,
     if (!hw || hw->cpu_n <= 0)
         return -1;
 
+    char pathv[HW_CPU_MAX][96];
+    int ncpus = hw->cpu_n < HW_CPU_MAX ? hw->cpu_n : HW_CPU_MAX;
+    for (int c = 0; c < ncpus; c++)
+        snprintf(pathv[c], sizeof pathv[c],
+                 "/sys/devices/system/cpu/cpu%d/cpufreq/%s",
+                 hw->cpu_ids[c], leaf);
+
+    /* Direct sysfs first (zero forks when running as root or when
+     * systemd-tmpfiles.d / udev grants group write access); stop on the
+     * first denied node and fall back to a single batched sudo tee. */
+    bool direct_ok = true;
+    for (int c = 0; c < ncpus; c++) {
+        if (ut_write_file(pathv[c], val) != 0) {
+            direct_ok = false;
+            break;
+        }
+    }
+    if (direct_ok)
+        return 0;
+
+    if (!ut_sudo_fallback_allowed())
+        return -1;
+
     /* "timeout -k1 3 sudo -n tee p1 p2 ... pn" — one invocation,
      * explicit paths as argv words, value fed through the pipe */
-    char pathv[HW_CPU_MAX][96];
     const char *av[HW_CPU_MAX + 7];
     int n = 0;
 
@@ -93,24 +115,15 @@ static int cpufreq_write_all(const hw_state_t *hw, const char *leaf,
     av[n++] = "sudo";
     av[n++] = "-n";
     av[n++] = "tee";
-    for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
-        snprintf(pathv[c], sizeof pathv[c],
-                 "/sys/devices/system/cpu/cpu%d/cpufreq/%s",
-                 hw->cpu_ids[c], leaf);
+    for (int c = 0; c < ncpus; c++)
         av[n++] = pathv[c];
-    }
     av[n] = NULL;
     int rc = ut_write_via_argv(av, val);
     if (rc != 0) {
-        /* fallback for the no-sudo path: per-node ut_priv_write (also
-         * covers a sudoers rule that somehow rejects multi-arg tee) */
+        /* fallback for a sudoers rule that rejects multi-arg tee */
         rc = -1;
-        for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
-            char path[96];
-            snprintf(path, sizeof(path),
-                     "/sys/devices/system/cpu/cpu%d/cpufreq/%s",
-                     hw->cpu_ids[c], leaf);
-            if (ut_priv_write(path, val) == 0)
+        for (int c = 0; c < ncpus; c++) {
+            if (ut_priv_write(pathv[c], val) == 0)
                 rc = 0;
         }
     }
@@ -155,6 +168,8 @@ int ctrl_set_epp(hw_state_t *hw, hw_epp_t e)
     if (rc == 0) {
         hw->epp = e;
         ut_log("epp: %s", hw_epp_name(e));
+    } else if (!ut_sudo_fallback_allowed()) {
+        ut_log("epp: FAILED (disabled by write_pref=no sudo)");
     } else {
         ut_log("epp: FAILED (needs root; no passwordless sudo)");
     }
@@ -259,6 +274,8 @@ int ctrl_set_cpu_max_mhz(hw_state_t *hw, int mhz)
         if (back_khz > 0)
             hw->cpu_mhz_limit = back_khz / 1000;
         return -1;
+    } else if (!ut_sudo_fallback_allowed()) {
+        ut_log("cpu max: FAILED (disabled by write_pref=no sudo)");
     } else {
         ut_log("cpu max: FAILED (needs root; no passwordless sudo)");
     }
@@ -281,16 +298,21 @@ int ctrl_set_cpu_max_mhz_core(hw_state_t *hw, int cpu, int mhz)
     snprintf(val, sizeof(val), "%d", mhz * 1000);
     int rc = ut_priv_write(path, val);
     if (rc != 0) {
-        ut_log("cpu %d max: FAILED (needs root; no passwordless sudo)", cpu);
+        if (!ut_sudo_fallback_allowed())
+            ut_log("cpu %d max: FAILED (disabled by write_pref=no sudo)", cpu);
+        else
+            ut_log("cpu %d max: FAILED (needs root; no passwordless sudo)", cpu);
         return rc;
     }
     hw->cpu_mhz_core[cpu] = mhz;
     if (mhz > hw->cpu_mhz_limit)
         hw->cpu_mhz_limit = mhz;
 
-    /* rule 4: verify by reading back */
-    int back = ut_read_int(path) / 1000;
-    if (back == mhz) {
+    /* rule 4: verify by reading back (±2 MHz matches the all-cores check
+     * so kHz rounding does not produce false failures) */
+    int back_khz = ut_read_int(path);
+    int back = back_khz > 0 ? back_khz / 1000 : -1;
+    if (back > 0 && back - mhz <= 2 && mhz - back <= 2) {
         ut_log("cpu %d max: %d MHz (verified)", cpu, mhz);
     } else {
         ut_log("cpu %d max: %d MHz (VERIFY FAILED: reads %d)", cpu, mhz, back);
@@ -478,6 +500,8 @@ static int ppt_write(hw_state_t *hw, int spl, int sppt, int fppt)
         return rc;
     }
     case HW_PPT_RYZENADJ: {
+        if (!ut_sudo_fallback_allowed())
+            return -1;
         /* SECURITY.md §4.3: the three-integers wrapper is tried first
          * when installed and executable — the sudoers surface then
          * shrinks to exactly three watt values instead of every
@@ -586,6 +610,8 @@ int ctrl_set_ppt(hw_state_t *hw, int spl, int sppt, int fppt)
         hw->ppt_fppt = fppt;
         hw->ppt_off = false;
         ppt_log_ok(hw, spl, sppt, fppt);
+    } else if (!ut_sudo_fallback_allowed()) {
+        ut_log("ppt: FAILED (disabled by write_pref=no sudo)");
     } else {
         ut_log("ppt: FAILED (needs the sudoers rule for the write path — see --doctor)");
     }
@@ -611,6 +637,8 @@ int ctrl_ppt_off(hw_state_t *hw)
         hw->ppt_off = true;
         ut_log("ppt: limits removed (%d/%d/%d W maxima — now actually enforced "
                "where the interface works)", smax, pmax, fmax);
+    } else if (!ut_sudo_fallback_allowed()) {
+        ut_log("ppt: removing limits FAILED (disabled by write_pref=no sudo)");
     } else {
         ut_log("ppt: removing limits FAILED (needs the sudoers rule)");
     }
@@ -807,6 +835,12 @@ int ctrl_gpu_clock_lock(hw_state_t *hw, int mhz)
     int cap = hw->gpu_mhz_max > 0 ? hw->gpu_mhz_max : 4096;
     mhz = ut_clamp_i(mhz, 200, cap);
 
+    if (!ut_sudo_fallback_allowed()) {
+        ut_log("gpu clock: lock %d FAILED (disabled by write_pref=no sudo)",
+               mhz);
+        return -1;
+    }
+
     char out[256] = {0};
     char pair[24];
     snprintf(pair, sizeof(pair), "%d,%d", mhz, mhz);
@@ -832,6 +866,10 @@ int ctrl_gpu_clock_reset(hw_state_t *hw)
     char bin[256];
     if (!hw->has_nvidia_smi || nvidia_smi_bin(bin, sizeof(bin)) != 0) {
         ut_log("gpu clock: nvidia-smi is not on PATH");
+        return -1;
+    }
+    if (!ut_sudo_fallback_allowed()) {
+        ut_log("gpu clock: reset FAILED (disabled by write_pref=no sudo)");
         return -1;
     }
     char out[256] = {0};
