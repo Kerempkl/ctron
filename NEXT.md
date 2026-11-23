@@ -13,17 +13,14 @@
 - `src/main.c` `VERSION`, `README.md` sürüm rozeti ve `flake.nix` `version`
   aynı release commit'inde birlikte güncellenir (`vX.Y.Z` annotated tag o
   commit'i gösterir; push kullanıcı tarafındadır).
-- Güncel sürüm: **`v0.10.0`** (geçmiş kesimler: `CHANGELOG.md`).
+- Güncel sürüm: **`v0.11.0`** (geçmiş kesimler: `CHANGELOG.md`).
 
 ## Planlanan sürümler (`REVIEW.md` yol haritası)
 
 Ayrıntılı satır-satır kanıtlar ve kapsam için bkz. [REVIEW.md](REVIEW.md)
-(`v0.10.0` P0 doğruluk & hata kapanışı tamamlandı):
+(`v0.10.0` P0 doğruluk/hata kapanışı ve `v0.11.0` UX/CLI/sıfır-shell paketi
+tamamlandı):
 
-- **`v0.11.0` (P1 UX, CLI & Sıfır-Shell):** `--status --json` / `--doctor --json`,
-  `snapshot diff`, `--dry-run`, çıkış kodu sözleşmesi, TUI log viewer (24 satır),
-  imleçli `tinput_t`, çift-`d` silme onayı, `.ctr` kapsam tamamlama, kalan tüm
-  `popen`/`ut_exec` çağrılarının kaldırılması.
 - **`v0.12.0` (P1 Paketleme, CI/CD & Mimari):** `Makefile` `PREFIX`/`DESTDIR` +
   tek `VERSION`, `man/ctron.1`, shell completions, `contrib/` (`99-ctron.rules`
   + `ctron.tmpfiles.conf`, `ctron-ppt`, `sudoers`, `.desktop`, `PKGBUILD`),

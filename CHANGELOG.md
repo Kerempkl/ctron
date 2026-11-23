@@ -13,6 +13,48 @@ see [docs/history/changelog-2026-09-11.md](docs/history/changelog-2026-09-11.md)
 
 ---
 
+## [0.11.0] — 2026-11-24
+
+### Added
+- **Machine-readable JSON output (`--status --json`, `--doctor --json`)** with
+  zero external libraries — unknown/stale sensor reads serialize honestly as
+  JSON `null` (ready for `jq`, Waybar custom modules, and scripts).
+- **`ctron snapshot diff <name>`** exposing `profile_meta_diff()` on the CLI
+  (and live-refreshing before `snapshot export` so exported values match).
+- **`--dry-run` validation & preview** for `--mode <name>`, `snapshot apply <name>`,
+  and hardware CLI flags without touching hardware.
+- **Documented exit-code contract:** `0` ok · `1` runtime/verify error · `2`
+  usage error · `3` permission/sudo denied (`ut_priv_denied` sticky indicator).
+- **Full `.ctr` snapshot scope:** export, capture preview, parse, and diff now
+  cover `panel-od`, `cpu-boost`, `gpu-clock` (only when locked `> 0`), and
+  `ppt` (only when all 3 limits read `> 0`; stale `-1` never written).
+- **TUI Event Log viewer (`L`):** floating window displaying the 24-entry
+  `ut_log` ring newest-first with error highlighting, `j`/`k`/`g`/`G` scrolling,
+  `Esc`/`L`/outside-click close; also accessible via `l` in LIVE or clicking the
+  LIVE log row.
+- **Cursor-aware `tinput_t` (`src/tinput.{h,c}`):** full `Left`/`Right`,
+  `Home`/`End`, `Delete`, `Ctrl+A`/`E`/`K`/`U`/`W`, and mid-string `|` / end `_`
+  cursor rendering across every TUI input widget (unit-tested + PTY smoke tested).
+- **Double-`d` delete confirmation** for snapshots (`panel_profiles.c`) and
+  modes (`panel_settings.c`): first `d` arms with an inline prompt, second `d`
+  deletes, any other key or focus/overlay exit cancels.
+
+### Security
+- **Zero `/bin/sh` and zero `popen()` in the entire binary (`AUDIT.md C6`):**
+  replaced `ut_have_cmd()` and `nvidia_smi_bin()` with pure-C `ut_find_in_path()`
+  (`stat S_ISREG + X_OK`, zero fork/shell), migrated all 17 remaining `asusctl`/
+  `busctl` calls to `ut_exec_argv*`, and deleted `ut_exec` / `ut_exec_raw`
+  (verified via `nm -u build/ctron`).
+
+### Fixed
+- **Honest unsupported POWER rows:** when `asusd_ac == -2` / `asusd_bat == -2`,
+  `pw_nudge_row()` no longer mutates hidden staging values and displays
+  `-- (asusd absent)`.
+- **`snapshot export` stale state:** `cmd_profile()` now calls `hw_refresh_live()`
+  before exporting so battery limit and other live fields are fresh.
+
+---
+
 ## [0.10.0] — 2026-11-23
 
 ### Added

@@ -6,7 +6,7 @@
 
 One C binary. One dependency ([notcurses](https://github.com/dankamongmen/notcurses)). No daemon.
 
-![version](https://img.shields.io/badge/version-v0.10.0-0072c6)
+![version](https://img.shields.io/badge/version-v0.11.0-0072c6)
 ![license](https://img.shields.io/badge/license-MIT-0072c6)
 ![language](https://img.shields.io/badge/language-C-659ad2)
 ![deps](https://img.shields.io/badge/dependency-notcurses%20only-2ea043)
@@ -86,6 +86,8 @@ ctron --battery 80
 | `5`–`8` | workspace view from anywhere — fan · power · light · help |
 | `j` / `k` | navigate · `h` / `l` change the value |
 | `Enter` | apply · `w` write staged values · `r` revert staging |
+| `t` / `T` | fullscreen read-only telemetry (`T` works everywhere) |
+| `L` | event log overlay (last 24 entries; or click the LIVE log line) |
 | `ESC` | settings overlay — panel layout is adjustable live |
 | `?` | help · `q` quit |
 
@@ -145,18 +147,18 @@ Usage: ctron [flags] | ctron mode <sub> | ctron snapshot <sub>
 No arguments opens the fullscreen TUI (needs a terminal).
 
 Information:
-  --status, -s        live hardware snapshot
-  --watch, -w         rolling one-line telemetry (Ctrl-C stops)
-  --csv <file>        append telemetry rows to a CSV (Ctrl-C stops)
-  --doctor            capability report
-  --help, -h          this help
-  --version, -V       version
+  --status, -s [--json]   live hardware snapshot
+  --watch, -w             rolling one-line telemetry (Ctrl-C stops)
+  --csv <file>            append telemetry rows to a CSV (Ctrl-C stops)
+  --doctor [--json]       capability report
+  --help, -h              this help
+  --version, -V           version
 
 Modes & snapshots:
-  --mode <name>       apply a shortcut bundle (see modes.ini)
+  --mode <name> [--dry-run]   apply (or preview) a shortcut bundle
   mode list|show <n>|add <name> <steps>|delete <n>
   snapshot list   (alias: profile)
-  snapshot apply|export|delete <name>
+  snapshot apply [--dry-run]|diff|export|delete <name>
 
 Hardware (key = value pairs, same as mode steps):
   --profile quiet|balanced|performance
@@ -184,8 +186,10 @@ Hardware (key = value pairs, same as mode steps):
   --fan stock|silent|cool|full|on|off|cpu on|cpu off|gpu on|gpu off
   --fan-curve cpu|gpu <temps> <pwms>
   --fan-write             write in-memory curve to the EC
+  --dry-run               validate flags/mode/snapshot without writing
 
 Config: ctron [--config-dir DIR]
+Exit codes: 0 ok · 1 runtime/verify error · 2 usage error · 3 permission/sudo denied
 ```
 
 </details>
@@ -302,6 +306,7 @@ src/
   profile.c     snapshots (.ctr files, free-form names)
   settings.c    prefs + hardware persistence
   telem.c       sample rings + stats for the 't' screen (pure, unit-tested)
+  tinput.c      cursor-aware single-line text input (pure, unit-tested)
   daeboard.c    optional LED daemon client (AF_UNIX seqpacket socket)
   ui/           fullscreen TUI: layout engine + independent panels
   display/      compositor backends (see above)
@@ -333,5 +338,5 @@ daeboard daemon-side work (lives in the daeboard repo).
 | `docs/history/` | archived plans (`PLAN.md`, `PLANS.md`) & older session/change logs |
 
 Config lives in `~/.config/ctron/` (`settings.ini`, `modes.ini`,
-`profiles/*.ctr` snapshots); the TUI footer keeps a ring buffer of the
-last 24 actions.
+`profiles/*.ctr` snapshots); the TUI keeps a ring buffer of the last 24
+actions (press `L` or click the LIVE log line to inspect).

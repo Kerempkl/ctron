@@ -106,7 +106,7 @@ Aşağıdaki her madde doğrudan koddan doğrulanmıştır; `ctron`'un çekirdek
 
 Kodun uzun ömürlü, başkalarının katkı verebileceği ve güvenle denetlenebileceği bir seviyeye çıkması için:
 
-### 2.1. "Sıfır `/bin/sh` ve sıfır `popen`" hedefini tamamla
+### 2.1. "Sıfır `/bin/sh` ve sıfır `popen`" hedefini tamamla — **[TAMAMLANDI: `v0.11.0`, `143d2f7`]**
 - **Mevcut durum:** Ayrıcalıklı yazmalar zaten shell'siz (`ut_write_via_argv` / `ut_exec_argv`), ama `src/control.c` (**13** `ut_exec` noktası) ve `src/hw.c` (**4** nokta: `ut_exec` ×1, `ut_exec_raw` ×3) hâlâ `asusctl` ve `busctl` için `popen("timeout -k1 3 %s ...")` kullanıyor; `ut_have_cmd()` (`src/util.c:248`) ve `nvidia_smi_bin()` (`src/control.c:785`) ise `popen("command -v ...")` kullanıyor.
 - **Yapılacak:**
   - `PATH` üzerinde `access(candidate, X_OK)` gezen ~25 satırlık saf C `ut_find_in_path()` yaz → hem `ut_have_cmd` hem `nvidia_smi_bin` sıfır fork/shell ile mikrosaniyede çalışır.
@@ -144,9 +144,9 @@ Kodun uzun ömürlü, başkalarının katkı verebileceği ve güvenle denetlene
 
 ---
 
-## 3. Ürün ve UX Profesyonelliği (P1–P2)
+## 3. Ürün ve UX Profesyonelliği (P1–P2) — **[TAMAMLANDI: `v0.11.0`, `e77622f` + `2241130`]**
 
-Bir son kullanıcının aracı ilk açtığında "bu gerçekten profesyonel yapılmış" demesini sağlayacak yükseltmeler:
+*3.1, 3.2, 3.3, 3.4 ve 3.5 (çift-`d` onay + dürüst desteklenmeyen POWER satırları) `v0.11.0` içinde kapatıldı. 3.5'teki FAN `'w'` senkron kararı `AUDIT.md E5` uyarınca bilinçli korundu (`v0.12.0` udev kuralları `sudo` gecikmesini doğrudan ortadan kaldırıyor).*
 
 ### 3.1. Makinece okunabilir CLI (`--json`), `--dry-run`, `snapshot diff` ve çıkış kodu sözleşmesi
 - **`ctron --status --json` ve `ctron --doctor --json`:** Modern Linux ekosisteminde (`jq`, Waybar custom module, Polybar, Eww, AGS, shell betikleri, monitoring agent'ları) altın standart. Waybar desteğini doğrudan kodlamadan Waybar kullanıcılarına temiz entegrasyon sunar. Sıfır ekstra bağımlılıkla ~120 satır temiz JSON serializer yeterli.
@@ -219,7 +219,7 @@ Her aşama kendi içinde derlenir, test edilir ve bağımsız sürümlenebilir:
 | Hedef | Odak | Kapsam |
 |---|---|---|
 | **`v0.10.0`** | **Doğruluk & Hata Kapanışı (P0)** — **[TAMAMLANDI]** | Bölüm 1'in tamamı (1.1–1.11) + `cpufreq_write_all` direct-first + `tui_smoke.py` `flow_telem_full` cleanup (`8a70b77`..`b1eabe3`). |
-| **`v0.11.0`** | **UX, CLI & Sıfır-Shell (P1)** | `--status --json` / `--doctor --json`, `snapshot diff`, `--dry-run`, çıkış kodları; TUI log viewer (`24` satır), imleçli `tinput_t`, çift-`d` silme onayı, `.ctr` kapsam tamamlama; kalan tüm `popen`/`ut_exec` noktalarının kaldırılması (`ut_find_in_path` + `ut_exec_argv`). |
+| **`v0.11.0`** | **UX, CLI & Sıfır-Shell (P1)** — **[TAMAMLANDI]** | `--status --json` / `--doctor --json`, `snapshot diff`, `--dry-run`, çıkış kodları (`0/1/2/3`); TUI log viewer (`L`, 24 satır), imleçli `tinput_t`, çift-`d` silme onayı, dürüst POWER satırları, `.ctr` kapsam tamamlama; kalan tüm `popen`/`ut_exec` noktalarının kaldırılması (`143d2f7`, `e77622f`, `2241130`). |
 | **`v0.12.0`** | **Paketleme, CI/CD & Mimari Temizlik (P1)** | `Makefile` `PREFIX`/`DESTDIR` + `VERSION`, `man/ctron.1`, shell completions, `contrib/` (`99-ctron.rules` + `ctron.tmpfiles.conf`, `ctron-ppt`, `sudoers`, `.desktop`, `PKGBUILD`), `cpufreq_write_all` direct-first, `.github/workflows/ci.yml`, `CONTRIBUTING.md` + issue şablonu, `.clang-format`/`.editorconfig`, `hw.c`/`panel_workspace.c` modül bölünmesi, `CTRON_SYSFS_ROOT` mock testleri + `tui_smoke.py --offline`. |
 | **`v1.0.0`** | **Saha Kapanışı & Kararlı Sürüm** | FA507NVR (Arcioth / NixOS / Hyprland) açık saha maddeleri (`AUDIT.md I2` / `NEXT.md`: `flake.lock`, çok monitör canlı kanıt, Hyprland mouse, Rembrandt sensör kontrolü), tam sanitizers + uzun koşu doğrulaması, kararlı CLI/config format garantisi. |
 

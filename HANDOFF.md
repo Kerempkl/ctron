@@ -5,7 +5,57 @@
 
 ---
 
-## Latest session — 2026-11-23 (`v0.10.0` P0 accuracy & honesty release)
+## Latest session — 2026-11-24 (`v0.11.0` UX, CLI & zero-shell release)
+
+**Antigravity / Kerempkl / FA608PP** — implemented, verified, and released
+**`v0.11.0`** covering `REVIEW.md §2.1` and `§3.1–3.5` across 3 focused
+commits plus release bump:
+
+- **`143d2f7` (Paket 2A — Zero `/bin/sh` & zero `popen()`, `AUDIT.md C6` → `[x]`):**
+  added pure-C `ut_find_in_path()` (`stat S_ISREG + X_OK`, zero fork/shell),
+  rewrote `ut_have_cmd()` and `nvidia_smi_bin()`, migrated all 17 remaining
+  `asusctl`/`busctl` calls (`control.c` ×13, `hw.c` ×4) to `ut_exec_argv*`,
+  deleted `ut_exec` / `ut_exec_raw`, synced `SECURITY.md §2.2`, and verified
+  zero `popen`/`pclose`/`system` symbols via `nm -u build/ctron`.
+- **`e77622f` (Paket 2B — JSON/dry-run/diff CLI, exit code 3, `.ctr` scope):**
+  added zero-dep `--status --json` and `--doctor --json` (unknown values emit
+  JSON `null`), `cmd_validate()` / `mode_dry_run()` / `profile_dry_run()` and
+  `--dry-run` across `--mode`, `snapshot apply`, and hardware flags,
+  `snapshot diff <name>` (fixing missing `hw_refresh_live()` in `snapshot export`),
+  `ut_priv_denied` sticky flag with exit code `3` (`0/1/2/3` contract in `--help`),
+  and extended `.ctr` export/parse/diff/capture-line with `panel-od`, `cpu-boost`,
+  `gpu-clock` (only `> 0`), and `ppt` (only all 3 `> 0`).
+- **`2241130` (Paket 2C — Cursor `tinput_t`, `L` event log overlay, double-`d`, honest POWER):**
+  extracted pure `src/tinput.{h,c}` (`Left`/`Right`, `Home`/`End`, `Del`,
+  `Ctrl+A/E/K/U/W`, `|` mid / `_` end cursor rendering across all 6 UI inputs,
+  notcurses Ctrl chord normalization in `dispatch_key()`, unit-tested in
+  `check_tinput()`); added floating `EVENT LOG` overlay (`L` globally, `l` in
+  LIVE, or click LIVE log row, 24 entries newest-first, red error highlight,
+  `j`/`k`/`g`/`G` scroll); added double-`d` delete confirmation on snapshots
+  and modes; guarded unsupported `asusd_ac`/`asusd_bat == -2` rows in
+  `pw_nudge_row()` and displayed `-- (asusd absent)`.
+- **Verification:** `make` & `make HARDEN=1` 0 warnings; `make test` +
+  UBSan/LSan clean; `clang --analyze` 0 findings on all modified units;
+  `nm -u build/ctron` 0 `popen`/`pclose`/`system` symbols; `python3 -m json.tool`
+  validated live `--status --json` and `--doctor --json`; `make tuitest`
+  13/14 flows (50/51 assertions, including mid-string cursor rename, double-`d`
+  delete, and `flow_log_overlay`) pass in sandbox (only `mode_drift` requires
+  host D-Bus/`asusctl`).
+- **Release:** bumped `VERSION` (`src/main.c`, `README.md`, `flake.nix`) to
+  `0.11.0`, synced `README.md` CLI help & TUI table, updated `CHANGELOG.md`/
+  `NEXT.md`/`REVIEW.md`, tagged `v0.11.0` (local commits & tag ready for user
+  to push).
+- **Next:** Phase 3 — **`v0.12.0`** (Packaging, CI/CD & Architecture: `Makefile`
+  `PREFIX`/`DESTDIR` + `VERSION`, `man/ctron.1`, completions, `contrib/` udev +
+  tmpfiles + `ctron-ppt` + sudoers + `.desktop` + `PKGBUILD`, GitHub Actions CI,
+  `CONTRIBUTING.md`, `.clang-format`/`.editorconfig`, `hw.c`/`panel_workspace.c`
+  split, `CTRON_SYSFS_ROOT` mock tests + `tui_smoke.py --offline`).
+
+Signed: **Antigravity** — `v0.11.0` UX, CLI & zero-shell release.
+
+---
+
+## Previous session — 2026-11-23 (`v0.10.0` P0 accuracy & honesty release)
 
 **Antigravity / Kerempkl / FA608PP** — committed the 2026-11-23 documentation
 streamlining (`9072975`), then implemented, verified, and released **`v0.10.0`**
