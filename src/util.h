@@ -47,6 +47,12 @@ int ut_write_int(const char *path, long v);
 int ut_priv_write(const char *path, const char *val);
 int ut_sudo_fallback_allowed(void);
 
+/* Sticky privilege-denial indicator for the CLI exit code contract
+ * (exit 3 when a write failed for lack of permission / sudo). */
+void ut_priv_denied_clear(void);
+void ut_priv_denied_mark(void);
+bool ut_priv_denied(void);
+
 /* Feed `data` to a child's stdin and wait for it: fork + execvp of a
  * plain argv vector (no shell). Returns the child's exit status, or -1
  * when it could not be started/reaped. The writer survives a child

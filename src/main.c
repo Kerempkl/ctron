@@ -35,17 +35,17 @@ static void print_usage(const char *prog)
     printf("Usage: %s [flags] | %s mode <sub> | %s snapshot <sub>\n\n", prog, prog, prog);
     printf("No arguments opens the fullscreen TUI (needs a terminal).\n\n");
     printf("Information:\n");
-    printf("  --status, -s        live hardware snapshot\n");
-    printf("  --watch, -w         rolling one-line telemetry (Ctrl-C stops)\n");
-    printf("  --csv <file>        append telemetry rows to a CSV (Ctrl-C stops)\n");
-    printf("  --doctor            capability report\n");
-    printf("  --help, -h          this help\n");
-    printf("  --version, -V       version\n\n");
+    printf("  --status, -s [--json]   live hardware snapshot\n");
+    printf("  --watch, -w             rolling one-line telemetry (Ctrl-C stops)\n");
+    printf("  --csv <file>            append telemetry rows to a CSV (Ctrl-C stops)\n");
+    printf("  --doctor [--json]       capability report\n");
+    printf("  --help, -h              this help\n");
+    printf("  --version, -V           version\n\n");
     printf("Modes & snapshots:\n");
-    printf("  --mode <name>       apply a shortcut bundle (see modes.ini)\n");
+    printf("  --mode <name> [--dry-run]   apply (or preview) a shortcut bundle\n");
     printf("  mode list|show <n>|add <name> <steps>|delete <n>\n");
     printf("  snapshot list   (alias: profile)\n");
-    printf("  snapshot apply|export|delete <name>\n\n");
+    printf("  snapshot apply [--dry-run]|diff|export|delete <name>\n\n");
     printf("Hardware (key = value pairs, same as mode steps):\n");
     printf("  --profile quiet|balanced|performance\n");
     printf("  --ac-profile off|quiet|balanced|performance\n");
@@ -71,8 +71,72 @@ static void print_usage(const char *prog)
     printf("  --aura <effect> [color|hex]\n");
     printf("  --fan stock|silent|cool|full|on|off|cpu on|cpu off|gpu on|gpu off\n");
     printf("  --fan-curve cpu|gpu <temps> <pwms>\n");
-    printf("  --fan-write             write in-memory curve to the EC\n\n");
+    printf("  --fan-write             write in-memory curve to the EC\n");
+    printf("  --dry-run               validate flags/mode/snapshot without writing\n\n");
     printf("Config: %s [--config-dir DIR]\n", prog);
+    printf("Exit codes: 0 ok · 1 runtime/verify error · 2 usage error · 3 permission/sudo denied\n");
+}
+
+/* ---- minimal zero-dependency JSON helpers -------------------------------- */
+
+static void json_str(const char *s)
+{
+    if (!s) {
+        fputs("null", stdout);
+        return;
+    }
+    putchar('"');
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
+        switch (*p) {
+        case '"':  fputs("\\\"", stdout); break;
+        case '\\': fputs("\\\\", stdout); break;
+        case '\b': fputs("\\b", stdout);  break;
+        case '\f': fputs("\\f", stdout);  break;
+        case '\n': fputs("\\n", stdout);  break;
+        case '\r': fputs("\\r", stdout);  break;
+        case '\t': fputs("\\t", stdout);  break;
+        default:
+            if (*p < 0x20)
+                printf("\\u%04x", *p);
+            else
+                putchar(*p);
+        }
+    }
+    putchar('"');
+}
+
+static void json_int_min(int v, int min_valid)
+{
+    if (v < min_valid)
+        fputs("null", stdout);
+    else
+        printf("%d", v);
+}
+
+static void json_ll(long long v)
+{
+    if (v < 0)
+        fputs("null", stdout);
+    else
+        printf("%lld", v);
+}
+
+static void json_dbl(double v, const char *fmt)
+{
+    if (v < 0)
+        fputs("null", stdout);
+    else
+        printf(fmt, v);
+}
+
+static void json_asusd_auto(int v)
+{
+    if (v == -1)
+        json_str("off");
+    else if (v >= 0 && v < HW_PROF_COUNT)
+        json_str(hw_profile_name((hw_profile_t)v));
+    else
+        fputs("null", stdout);
 }
 
 /* ---- status / doctor / watch --------------------------------------------- */
@@ -244,6 +308,136 @@ static int cmd_status(hw_state_t *hw)
                    "(--freq ccd N M | --freq core ID M)\n",
                    below, hw->cpu_n, hw->cpu_mhz_limit);
     }
+    return 0;
+}
+
+static int cmd_status_json(const hw_state_t *hw)
+{
+    const display_ops_t *d = display_get();
+    printf("{\n  \"version\": "); json_str(VERSION);
+    printf(",\n  \"model\": "); json_str(hw->model);
+    printf(",\n  \"cpu\": "); json_str(hw->cpu);
+
+    printf(",\n  \"temps\": {\"cpu_c\": "); json_int_min(hw->cpu_temp, 0);
+    printf(", \"ccd1_c\": "); json_int_min(hw->cpu_temp_ccd1, 1);
+    printf(", \"ccd2_c\": "); json_int_min(hw->cpu_temp_ccd2, 1);
+    printf(", \"gpu_c\": "); json_int_min(hw->gpu_temp, 0);
+    printf(", \"igpu_c\": "); json_int_min(hw->igpu_temp, 0);
+    printf(", \"ram_c\": [");
+    for (int i = 0; i < hw->ram_temp_n; i++)
+        printf("%s%d", i ? ", " : "", hw->ram_temp[i]);
+    printf("], \"nvme_c\": [");
+    for (int i = 0; i < hw->nvme_temp_n; i++)
+        printf("%s%d", i ? ", " : "", hw->nvme_temp[i]);
+    printf("]}");
+
+    printf(",\n  \"clocks\": {\"cpu_cur_mhz\": "); json_int_min(hw->cpu_mhz_cur, 1);
+    printf(", \"cpu_limit_mhz\": "); json_int_min(hw->cpu_mhz_limit, 1);
+    printf(", \"cpu_max_mhz\": "); json_int_min(hw->cpu_mhz_max, 1);
+    printf(", \"gpu_mhz\": "); json_int_min(hw->gpu_mhz, 0);
+    printf(", \"gpu_lock_mhz\": "); json_int_min(hw->gpu_clock_lock, 1);
+    printf(", \"gpu_max_mhz\": "); json_int_min(hw->gpu_mhz_max, 1);
+    printf(", \"igpu_mhz\": "); json_int_min(hw->igpu_mhz, 0);
+    printf(", \"igpu_dpm\": "); json_int_min(hw->igpu_dpm, 0);
+    printf(", \"igpu_dpm_n\": "); json_int_min(hw->igpu_dpm_n, 1);
+    printf(", \"igpu_dpm_mhz\": "); json_int_min(hw->igpu_dpm_mhz, 1);
+    printf("}");
+
+    printf(",\n  \"gpu\": {\"power_w\": ");
+    if (hw->gpu_mw >= 0) printf("%.3f", hw->gpu_mw / 1000.0); else fputs("null", stdout);
+    printf(", \"util_pct\": "); json_int_min(hw->gpu_util, 0);
+    printf(", \"vram_used_mb\": "); json_int_min(hw->gpu_vram_used_mb, 0);
+    printf(", \"vram_total_mb\": "); json_int_min(hw->gpu_vram_total_mb, 1);
+    printf(", \"pstate\": "); json_str(hw->gpu_pstate[0] ? hw->gpu_pstate : NULL);
+    printf(", \"throttle\": ");
+    if (hw->gpu_pstate[0]) {
+        char th[128];
+        hw_gpu_throttle_str(hw->gpu_throttle, th, sizeof th);
+        json_str(th);
+    } else {
+        fputs("null", stdout);
+    }
+    printf("}");
+
+    printf(",\n  \"igpu\": {\"busy_pct\": "); json_int_min(hw->igpu_busy, 0);
+    printf(", \"power_w\": ");
+    if (hw->igpu_mw >= 0) printf("%.3f", hw->igpu_mw / 1000.0); else fputs("null", stdout);
+    printf(", \"vddgfx_mv\": "); json_int_min(hw->igpu_vddgfx_mv, 1);
+    printf(", \"vddnb_mv\": "); json_int_min(hw->igpu_vddnb_mv, 1);
+    printf("}");
+
+    printf(",\n  \"fans\": {\"cpu_rpm\": "); json_int_min(hw->rpm_cpu, 0);
+    printf(", \"gpu_rpm\": "); json_int_min(hw->rpm_gpu, 0);
+    printf(", \"cpu_custom\": %s, \"gpu_custom\": %s}",
+           hw->fan_cpu_on ? "true" : "false", hw->fan_gpu_on ? "true" : "false");
+
+    printf(",\n  \"memory\": {\"used_mb\": "); json_int_min(hw->mem_used_mb, 0);
+    printf(", \"total_mb\": "); json_int_min(hw->mem_total_mb, 1);
+    printf(", \"swap_used_mb\": "); json_int_min(hw->swap_used_mb, 0);
+    printf(", \"swap_total_mb\": "); json_int_min(hw->swap_total_mb, 0);
+    printf(", \"ram_alarm\": %s}", hw->ram_alarm ? "true" : "false");
+
+    printf(",\n  \"storage\": {\"root_used_mb\": "); json_int_min(hw->fs_used_mb, 0);
+    printf(", \"root_total_mb\": "); json_int_min(hw->fs_total_mb, 1);
+    printf("}");
+
+    printf(",\n  \"network\": {\"interfaces\": [");
+    for (int i = 0; i < hw->net_n; i++) {
+        printf("%s{\"name\": ", i ? ", " : "");
+        json_str(hw->net_if[i]);
+        printf(", \"up\": %s, \"rx_bytes\": %lld, \"tx_bytes\": %lld}",
+               hw->net_up[i] ? "true" : "false", hw->net_rx[i], hw->net_tx[i]);
+    }
+    printf("], \"rx_total_bytes\": "); json_ll(hw->net_rx_tot);
+    printf(", \"tx_total_bytes\": "); json_ll(hw->net_tx_tot);
+    printf(", \"wifi_if\": "); json_str(hw->wifi_if[0] ? hw->wifi_if : NULL);
+    printf(", \"wifi_link_pct\": "); json_int_min(hw->wifi_link_pct, 0);
+    printf(", \"wifi_dbm\": ");
+    if (hw->wifi_level_dbm < 0) printf("%d", hw->wifi_level_dbm); else fputs("null", stdout);
+    printf("}");
+
+    printf(",\n  \"load\": {\"m1\": "); json_dbl(hw->load1, "%.2f");
+    printf(", \"m5\": "); json_dbl(hw->load5, "%.2f");
+    printf(", \"m15\": "); json_dbl(hw->load15, "%.2f");
+    printf("}");
+
+    printf(",\n  \"psi\": {\"cpu\": "); json_dbl(hw->psi_cpu, "%.2f");
+    printf(", \"mem\": "); json_dbl(hw->psi_mem, "%.2f");
+    printf(", \"io\": "); json_dbl(hw->psi_io, "%.2f");
+    printf("}");
+
+    printf(",\n  \"power\": {\"profile\": "); json_str(hw_profile_name(hw->profile));
+    printf(", \"asusd_ac\": "); json_asusd_auto(hw->asusd_ac);
+    printf(", \"asusd_bat\": "); json_asusd_auto(hw->asusd_bat);
+    printf(", \"epp\": "); json_str(hw_epp_name(hw->epp));
+    printf(", \"ppt_spl_w\": "); json_int_min(hw->ppt_spl, 1);
+    printf(", \"ppt_sppt_w\": "); json_int_min(hw->ppt_sppt, 1);
+    printf(", \"ppt_fppt_w\": "); json_int_min(hw->ppt_fppt, 1);
+    printf(", \"ppt_off\": %s", hw->ppt_off ? "true" : "false");
+    printf(", \"nv_boost_w\": "); json_int_min(hw->nv_boost, 1);
+    printf(", \"nv_temp_c\": "); json_int_min(hw->nv_temp, 1);
+    printf(", \"cpu_boost\": %s}", hw->cpu_boost ? "true" : "false");
+
+    printf(",\n  \"battery\": {\"pct\": "); json_int_min(hw->bat_pct, 0);
+    printf(", \"status\": "); json_str(hw->bat_status[0] ? hw->bat_status : NULL);
+    printf(", \"ac_online\": %s", hw->ac_online ? "true" : "false");
+    printf(", \"power_mw\": ");
+    if (hw->bat_mw_known) printf("%d", hw->bat_mw); else fputs("null", stdout);
+    printf(", \"limit_pct\": "); json_int_min(hw->bat_limit, 1);
+    printf(", \"health_pct\": "); json_int_min(hw->bat_health, 0);
+    printf(", \"pd_in_mw\": ");
+    if (hw->pd_n > 0) printf("%d", hw->pd_in_mw); else fputs("null", stdout);
+    printf("}");
+
+    printf(",\n  \"display\": {\"hz\": "); json_int_min(hw->hz_cur, 1);
+    printf(", \"backend\": "); json_str(d ? d->name : NULL);
+    printf(", \"modes\": [");
+    for (int i = 0; i < hw->hz_count; i++)
+        printf("%s%d", i ? ", " : "", hw->hz_modes[i]);
+    printf("], \"panel_od\": %s}", hw->panel_od ? "true" : "false");
+
+    printf(",\n  \"keyboard\": {\"brightness\": "); json_str(hw_kbd_name(hw->kbd));
+    printf("}\n}\n");
     return 0;
 }
 
@@ -424,7 +618,7 @@ static int cmd_csv(hw_state_t *hw, const char *path)
     return 0;
 }
 
-static int cmd_doctor(hw_state_t *hw)
+static int cmd_doctor(hw_state_t *hw, bool as_json)
 {
     char os[128] = "?", dir[400];
     ut_read_file("/etc/os-release", os, sizeof(os)); /* first line; fine */
@@ -447,6 +641,38 @@ static int cmd_doctor(hw_state_t *hw)
     }
     settings_dir(dir, sizeof(dir));
     const display_ops_t *d = display_get();
+    bool ppt_sysfs = ut_path_exists("/sys/devices/platform/asus-nb-wmi/ppt_pl1_spl");
+    const char *ppt_iface = hw->ppt_mode == HW_PPT_ARMOURY ? "armoury"
+                          : hw->ppt_mode == HW_PPT_RYZENADJ ? "ryzenadj"
+                          : "legacy";
+    bool sudo_ok = ut_exec_argv((const char *[]){ "sudo", "-n", "true", NULL },
+                                NULL, 0) == 0;
+
+    if (as_json) {
+        printf("{\n  \"version\": "); json_str(VERSION);
+        printf(",\n  \"os\": "); json_str(os[0] ? os : NULL);
+        printf(",\n  \"model\": "); json_str(hw->model);
+        printf(",\n  \"is_asus\": %s", hw->is_asus ? "true" : "false");
+        printf(",\n  \"cpu\": "); json_str(hw->cpu);
+        printf(",\n  \"capabilities\": {");
+        printf("\"asusctl\": %s", hw->has_asusctl ? "true" : "false");
+        printf(", \"armoury\": %s", hw->has_armoury ? "true" : "false");
+        printf(", \"fan_curve\": %s", hw->has_fan_curve ? "true" : "false");
+        printf(", \"fan_rpm\": %s", hw->has_fan_rpm ? "true" : "false");
+        printf(", \"k10temp_c\": "); json_int_min(hw->cpu_temp, 0);
+        printf(", \"nvidia_smi\": %s", hw->has_nvidia_smi ? "true" : "false");
+        printf(", \"gpu_temp_c\": "); json_int_min(hw->gpu_temp, 0);
+        printf(", \"gpu_clock_lock\": "); json_int_min(hw->gpu_clock_lock, 1);
+        printf(", \"gpu_mhz_max\": "); json_int_min(hw->gpu_mhz_max, 1);
+        printf(", \"kbd_led\": %s", hw->has_kbd_led ? "true" : "false");
+        printf(", \"ppt_sysfs\": %s", ppt_sysfs ? "true" : "false");
+        printf(", \"ppt_iface\": "); json_str(ppt_iface);
+        printf(", \"display_backend\": "); json_str(d ? d->name : NULL);
+        printf(", \"sudo_nopass\": %s}", sudo_ok ? "true" : "false");
+        printf(",\n  \"config_dir\": "); json_str(dir);
+        printf("\n}\n");
+        return 0;
+    }
 
     printf("ctron doctor\n");
     printf("  os            : %s\n", os[0] ? os : "?");
@@ -459,26 +685,23 @@ static int cmd_doctor(hw_state_t *hw)
     {
         char t1[16], t2[16];
         printf("  k10temp       : %s °C\n", dash_if(t1, sizeof(t1), hw->cpu_temp));
-    printf("  nvidia-smi    : %s (%s °C)\n", hw->has_nvidia_smi ? "yes" : "no",
-           dash_if(t2, sizeof(t2), hw->gpu_temp));
-    printf("  gpu clock lock: %s%s\n",
-           hw->gpu_clock_lock > 0 ? "locked (this session)" : "driver default",
-           hw->gpu_mhz_max > 0 ? "" : " (max unknown)");
-    if (hw->gpu_mhz_max > 0)
-        printf("  gpu clock max : %d MHz (lock: --gpu-clock <mhz>|reset)\n",
-               hw->gpu_mhz_max);
+        printf("  nvidia-smi    : %s (%s °C)\n", hw->has_nvidia_smi ? "yes" : "no",
+               dash_if(t2, sizeof(t2), hw->gpu_temp));
+        printf("  gpu clock lock: %s%s\n",
+               hw->gpu_clock_lock > 0 ? "locked (this session)" : "driver default",
+               hw->gpu_mhz_max > 0 ? "" : " (max unknown)");
+        if (hw->gpu_mhz_max > 0)
+            printf("  gpu clock max : %d MHz (lock: --gpu-clock <mhz>|reset)\n",
+                   hw->gpu_mhz_max);
     }
     printf("  kbd led       : %s\n", hw->has_kbd_led ? "asus::kbd_backlight" : "missing");
-    printf("  ppt sysfs     : %s\n",
-           ut_path_exists("/sys/devices/platform/asus-nb-wmi/ppt_pl1_spl") ? "yes" : "no");
+    printf("  ppt sysfs     : %s\n", ppt_sysfs ? "yes" : "no");
     printf("  ppt iface     : %s\n",
            hw->ppt_mode == HW_PPT_ARMOURY ? "armoury firmware-attributes"
            : hw->ppt_mode == HW_PPT_RYZENADJ ? "ryzenadj (sudo -n; no read-back)"
            : "legacy nb-wmi (unverifiable)");
     printf("  display       : %s\n", d ? d->name : "no backend detected");
-    printf("  sudo -n       : %s\n",
-           ut_exec_argv((const char *[]){ "sudo", "-n", "true", NULL },
-                        NULL, 0) == 0 ? "passwordless" : "unavailable");
+    printf("  sudo -n       : %s\n", sudo_ok ? "passwordless" : "unavailable");
     printf("  config        : %s\n", dir);
     return 0;
 }
@@ -561,10 +784,10 @@ static int cmd_mode(int argc, char **argv, hw_state_t *hw)
     return 2;
 }
 
-static int cmd_profile(int argc, char **argv, hw_state_t *hw)
+static int cmd_profile(int argc, char **argv, hw_state_t *hw, bool dry_run)
 {
     if (argc < 3) {
-        fprintf(stderr, "usage: ctron snapshot list|apply|export|delete <name> (alias: profile)\n");
+        fprintf(stderr, "usage: ctron snapshot list|apply|diff|export|delete <name> (alias: profile)\n");
         return 2;
     }
     const char *sub = argv[2];
@@ -582,17 +805,40 @@ static int cmd_profile(int argc, char **argv, hw_state_t *hw)
     }
     const char *name = argv[3];
 
+    if (!strcmp(sub, "diff")) {
+        hw_refresh_live(hw);
+        profile_meta_t m;
+        if (profile_meta_parse(name, &m) != 0) {
+            fprintf(stderr, "ctron: no such snapshot: %s\n", name);
+            return 1;
+        }
+        char diff[192];
+        profile_meta_diff(hw, &m, diff, sizeof(diff));
+        printf("%s: %s\n", name, diff);
+        return 0;
+    }
     if (!strcmp(sub, "apply")) {
         char err[128];
+        if (dry_run) {
+            int rc = profile_dry_run(name, hw, stdout, err, sizeof(err));
+            if (rc != 0)
+                fprintf(stderr, "ctron: %s\n", err[0] ? err : "dry-run failed");
+            return rc == 0 ? 0 : 1;
+        }
+        ut_priv_denied_clear();
         int rc = profile_import(name, hw, err, sizeof(err));
         if (rc == 0)
-            ctrl_fan_write(hw);
+            rc = ctrl_fan_write(hw);
         else
             fprintf(stderr, "%s\n", err[0] ? err : "apply failed");
-        return rc == 0 ? 0 : 1;
+        if (rc == 0)
+            return 0;
+        return ut_priv_denied() ? 3 : 1;
     }
-    if (!strcmp(sub, "export"))
+    if (!strcmp(sub, "export")) {
+        hw_refresh_live(hw);
         return profile_export(name, hw) == 0 ? 0 : 1;
+    }
     if (!strcmp(sub, "delete"))
         return profile_delete(name) == 0 ? 0 : 1;
 
@@ -602,12 +848,19 @@ static int cmd_profile(int argc, char **argv, hw_state_t *hw)
 
 /* ---- flag → cmd_run bridge ------------------------------------------------ */
 
-static int run_flag(hw_state_t *hw, const char *key, const char *val)
+static int run_flag(hw_state_t *hw, const char *key, const char *val, bool dry)
 {
     char err[192];
-    int rc = cmd_run(hw, key, val, err, sizeof(err));
-    if (rc != 0)
+    int rc = dry ? cmd_validate(hw, key, val, err, sizeof(err))
+                 : cmd_run(hw, key, val, err, sizeof(err));
+    if (rc != 0) {
         fprintf(stderr, "ctron: %s\n", err[0] ? err : "command failed");
+    } else if (dry) {
+        if (val && val[0])
+            printf("dry-run: %s = %s\n", key, val);
+        else
+            printf("dry-run: %s\n", key);
+    }
     return rc;
 }
 
@@ -633,7 +886,7 @@ static int follow_fire(const char *key, void *ud)
     if (db_action_in(text, key, cmd, (int)sizeof cmd, val, (int)sizeof val) != 0)
         return 0;
     fprintf(stderr, "ctron: fire %s -> %s %s\n", key, cmd, val);
-    run_flag(hw, cmd, val);
+    run_flag(hw, cmd, val, false);
     return 0;
 }
 
@@ -662,7 +915,8 @@ static int run_tui(void)
 
 int main(int argc, char *argv[])
 {
-    /* --config-dir DIR (removes itself from argv) */
+    /* --config-dir DIR, --json, --dry-run (remove themselves from argv) */
+    bool opt_json = false, opt_dry_run = false;
     int w = 1;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--config-dir") && i + 1 < argc) {
@@ -671,6 +925,14 @@ int main(int argc, char *argv[])
         }
         if (!strncmp(argv[i], "--config-dir=", 13)) {
             setenv("CTRON_CONFIG", argv[i] + 13, 1);
+            continue;
+        }
+        if (!strcmp(argv[i], "--json")) {
+            opt_json = true;
+            continue;
+        }
+        if (!strcmp(argv[i], "--dry-run")) {
+            opt_dry_run = true;
             continue;
         }
         argv[w++] = argv[i];
@@ -688,6 +950,11 @@ int main(int argc, char *argv[])
     }
 
     if (argc == 1) {
+        if (opt_json || opt_dry_run) {
+            fprintf(stderr, "ctron: %s requires a command (e.g. --status --json, --mode <name> --dry-run)\n",
+                    opt_json ? "--json" : "--dry-run");
+            return 2;
+        }
         /* no args: fullscreen TUI when interactive, help otherwise */
         if (isatty(0) && isatty(1))
             return run_tui();
@@ -712,7 +979,7 @@ int main(int argc, char *argv[])
     /* commands that never touch hardware state */
     if (!strcmp(argv[1], "--doctor")) {
         hw_refresh_live(&hw);
-        return cmd_doctor(&hw);
+        return cmd_doctor(&hw, opt_json);
     }
     if (!strcmp(argv[1], "--mode") && argc > 2) {
         /* documented in the help text but never wired: the generic
@@ -725,6 +992,14 @@ int main(int argc, char *argv[])
             return 1;
         }
         char err[128];
+        if (opt_dry_run) {
+            int rc = mode_dry_run(&hw, modes[i].steps, stdout, err, sizeof(err));
+            if (rc != 0)
+                fprintf(stderr, "ctron: mode '%s' invalid: %s\n", argv[2],
+                        err[0] ? err : "?");
+            return rc == 0 ? 0 : 1;
+        }
+        ut_priv_denied_clear();
         long a = ut_mono_ms();
         int rc = mode_apply(&hw, modes[i].steps, err, sizeof(err));
         double took = (double)(ut_mono_ms() - a) / 1000.0;
@@ -733,7 +1008,9 @@ int main(int argc, char *argv[])
         else
             fprintf(stderr, "ctron: mode '%s' failed: %s\n", argv[2],
                     err[0] ? err : "?");
-        return rc == 0 ? 0 : 1;
+        if (rc == 0)
+            return 0;
+        return ut_priv_denied() ? 3 : 1;
     }
     if (!strcmp(argv[1], "--setup")) {
         char dir[400];
@@ -746,14 +1023,17 @@ int main(int argc, char *argv[])
     if (!strcmp(argv[1], "mode"))
         return cmd_mode(argc, argv, &hw);
     if (!strcmp(argv[1], "snapshot") || !strcmp(argv[1], "profile"))
-        return cmd_profile(argc, argv, &hw);
+        return cmd_profile(argc, argv, &hw, opt_dry_run);
 
     /* status / watch need a live snapshot */
     if (!strcmp(argv[1], "--follow")) {
         return db_follow(follow_fire, &hw);
     }
     if (!strcmp(argv[1], "--daeboard-start")) {
-        return db_start() == 0 ? 0 : 1;
+        ut_priv_denied_clear();
+        if (db_start() == 0)
+            return 0;
+        return ut_priv_denied() ? 3 : 1;
     }
     if (!strcmp(argv[1], "--daeboard-stop")) {
         return db_quit() == 0 ? 0 : 1;
@@ -767,7 +1047,7 @@ int main(int argc, char *argv[])
     }
     if (!strcmp(argv[1], "--status") || !strcmp(argv[1], "-s")) {
         hw_refresh_live(&hw);
-        return cmd_status(&hw);
+        return opt_json ? cmd_status_json(&hw) : cmd_status(&hw);
     }
     if (!strcmp(argv[1], "--watch") || !strcmp(argv[1], "-w")) {
         hw_refresh_fast(&hw);
@@ -779,6 +1059,7 @@ int main(int argc, char *argv[])
     }
 
     /* everything else: hardware flags applied in order */
+    ut_priv_denied_clear();
     int rc = 0, ran = 0;
     for (int i = 1; i < argc; i++) {
         const char *flag = argv[i];
@@ -802,7 +1083,7 @@ int main(int argc, char *argv[])
 
         /* valueless flags */
         if (!strcmp(key, "fan-write") || !strcmp(key, "battery-oneshot")) {
-            if (run_flag(&hw, key, "") != 0)
+            if (run_flag(&hw, key, "", opt_dry_run) != 0)
                 rc = 1;
             else
                 ran++;
@@ -821,7 +1102,7 @@ int main(int argc, char *argv[])
                 strncat(joined, argv[++i], sizeof(joined) - strlen(joined) - 1);
                 got++;
             }
-            if (run_flag(&hw, key, joined) != 0)
+            if (run_flag(&hw, key, joined, opt_dry_run) != 0)
                 rc = 1;
             else
                 ran++;
@@ -837,7 +1118,7 @@ int main(int argc, char *argv[])
             char joined[32];
             snprintf(joined, sizeof(joined), "%s %s", argv[i + 1], argv[i + 2]);
             i += 2;
-            if (run_flag(&hw, key, joined) != 0)
+            if (run_flag(&hw, key, joined, opt_dry_run) != 0)
                 rc = 1;
             else
                 ran++;
@@ -864,7 +1145,7 @@ int main(int argc, char *argv[])
                 fprintf(stderr, "ctron: %s needs a value\n", flag);
                 return 2;
             }
-            if (run_flag(&hw, key, joined) != 0)
+            if (run_flag(&hw, key, joined, opt_dry_run) != 0)
                 rc = 1;
             else
                 ran++;
@@ -878,13 +1159,15 @@ int main(int argc, char *argv[])
             }
             val = argv[++i];
         }
-        if (run_flag(&hw, key, val) != 0)
+        if (run_flag(&hw, key, val, opt_dry_run) != 0)
             rc = 1;
         else
             ran++;
     }
 
-    if (rc == 0 && ran > 0)
+    if (!opt_dry_run && rc == 0 && ran > 0)
         settings_save(&hw);
+    if (rc != 0 && ut_priv_denied())
+        return 3;
     return rc;
 }

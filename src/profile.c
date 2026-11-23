@@ -149,13 +149,25 @@ int profile_list(char list[][PROFILE_NAME_MAX], int max)
 
 void profile_capture_line(const hw_state_t *hw, char *out, size_t n)
 {
-    snprintf(out, n,
-             "%s · epp %s · %d MHz · %d Hz · bat %d · kbd %s · fans %s/%s +curves",
-             hw_profile_name(hw->profile), hw_epp_name(hw->epp),
-             hw->cpu_mhz_limit, hw->hz_cur,
-             hw->bat_limit > 0 ? hw->bat_limit : 0,
-             hw_kbd_name(hw->kbd),
-             hw->fan_cpu_on ? "on" : "off", hw->fan_gpu_on ? "on" : "off");
+    int w = snprintf(out, n,
+                     "%s · epp %s · %d MHz · boost %s · %d Hz · od %s · bat %d · kbd %s · fans %s/%s +curves",
+                     hw_profile_name(hw->profile), hw_epp_name(hw->epp),
+                     hw->cpu_mhz_limit, hw->cpu_boost ? "on" : "off",
+                     hw->hz_cur, hw->panel_od ? "on" : "off",
+                     hw->bat_limit > 0 ? hw->bat_limit : 0,
+                     hw_kbd_name(hw->kbd),
+                     hw->fan_cpu_on ? "on" : "off", hw->fan_gpu_on ? "on" : "off");
+    if (w < 0 || (size_t)w >= n)
+        return;
+    size_t off = (size_t)w;
+    if (hw->gpu_clock_lock > 0 && off < n) {
+        w = snprintf(out + off, n - off, " · gpu %d", hw->gpu_clock_lock);
+        if (w > 0 && (size_t)w < n - off)
+            off += (size_t)w;
+    }
+    if (hw->ppt_spl > 0 && hw->ppt_sppt > 0 && hw->ppt_fppt > 0 && off < n)
+        snprintf(out + off, n - off, " · ppt %d/%d/%d",
+                 hw->ppt_spl, hw->ppt_sppt, hw->ppt_fppt);
 }
 
 int profile_export(const char *name, const hw_state_t *hw)
@@ -187,6 +199,7 @@ int profile_export(const char *name, const hw_state_t *hw)
     fprintf(f, "[perf]\n");
     fprintf(f, "profile = %s\n", hw_profile_name(hw->profile));
     fprintf(f, "epp = %s\n", hw_epp_name(hw->epp));
+    fprintf(f, "cpu-boost = %s\n", hw->cpu_boost ? "on" : "off");
     fprintf(f, "freq = %d\n", hw->cpu_mhz_limit);
     /* per-core limits ride along when any core is capped below the
      * aggregate; import replays them after the all-cores line. Real
@@ -197,6 +210,11 @@ int profile_export(const char *name, const hw_state_t *hw)
             fprintf(f, "freq = core %d %d\n", id, hw->cpu_mhz_core[id]);
     }
     fprintf(f, "[power]\n");
+    if (hw->ppt_spl > 0 && hw->ppt_sppt > 0 && hw->ppt_fppt > 0)
+        fprintf(f, "ppt = %d,%d,%d\n", hw->ppt_spl, hw->ppt_sppt, hw->ppt_fppt);
+    if (hw->gpu_clock_lock > 0)
+        fprintf(f, "gpu-clock = %d\n", hw->gpu_clock_lock);
+    fprintf(f, "panel-od = %s\n", hw->panel_od ? "on" : "off");
     if (hw->hz_cur > 0)
         fprintf(f, "hz = %d\n", hw->hz_cur);
     fprintf(f, "battery = %d\n", hw->bat_limit > 0 ? hw->bat_limit : 80);
@@ -332,6 +350,81 @@ int profile_import(const char *name, hw_state_t *hw, char *err, size_t errn)
     if (failed && err && errn)
         snprintf(err, errn, "%d step(s) failed (see log)", failed);
     ut_log("profile applied: %s", name);
+    return failed ? -1 : 0;
+}
+
+int profile_dry_run(const char *name, const hw_state_t *hw, FILE *out,
+                    char *err, size_t errn)
+{
+    char path[520];
+    profile_path(name, path, sizeof(path));
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        if (err && errn)
+            snprintf(err, errn, "no such profile");
+        return -1;
+    }
+
+    char line[512];
+    int failed = 0;
+    bool has_curves = false;
+    int r;
+    while ((r = ut_fgets_full(line, sizeof(line), f)) != 0) {
+        if (r < 0)
+            continue;
+        char *s = ut_trim(line);
+        if (*s == '#' || *s == ';' || *s == '[' || !*s)
+            continue;
+        const char *key, *val;
+        char *eq = strchr(s, '=');
+        if (!eq) {
+            if (!strncasecmp(s, "freq core ", 10)) {
+                key = "freq";
+                val = ut_trim(s + 5);
+            } else {
+                continue;
+            }
+        } else {
+            *eq = '\0';
+            key = ut_trim(s);
+            val = ut_trim(eq + 1);
+        }
+        if (!strcasecmp(key, "fan_cpu") || !strcasecmp(key, "fan_gpu")) {
+            if (out)
+                fprintf(out, "dry-run: %s = %s\n", key, atoi(val) ? "on" : "off");
+            continue;
+        }
+        if (!strncasecmp(key, "fan-curve", 9)) {
+            const char *side = key + 9;
+            while (*side == ' ' || *side == '\t')
+                side++;
+            char t[96] = {0}, p[96] = {0};
+            fan_curve_t fc;
+            if (sscanf(val, "%95s %95s", t, p) != 2 ||
+                fan_from_csv(&fc, t, p) < 0) {
+                if (err && errn && !failed)
+                    snprintf(err, errn, "fan-curve %s: bad csv", side);
+                failed++;
+                continue;
+            }
+            has_curves = true;
+            if (out)
+                fprintf(out, "dry-run: fan-curve %s = %s %s\n", side, t, p);
+            continue;
+        }
+        char serr[128];
+        if (cmd_validate(hw, key, val, serr, sizeof(serr)) != 0) {
+            if (err && errn && !failed)
+                snprintf(err, errn, "%s: %s", key, serr[0] ? serr : "invalid");
+            failed++;
+            continue;
+        }
+        if (out)
+            fprintf(out, "dry-run: %s = %s\n", key, val);
+    }
+    fclose(f);
+    if (has_curves && out)
+        fprintf(out, "dry-run: fan-write\n");
     return failed ? -1 : 0;
 }
 
@@ -488,6 +581,7 @@ int profile_meta_parse(const char *name, profile_meta_t *m)
         return -1;
 
     memset(m, 0, sizeof(*m));
+    m->panel_od = m->cpu_boost = m->gpu_clock = -1;
     m->fan_cpu_on = m->fan_gpu_on = -1;
     char line[512];
     int r;
@@ -542,6 +636,29 @@ int profile_meta_parse(const char *name, profile_meta_t *m)
                 m->bat = atoi(val);
             else if (!strcasecmp(key, "kbd"))
                 snprintf(m->kbd, sizeof(m->kbd), "%s", val);
+            else if (!strcasecmp(key, "panel-od"))
+                m->panel_od = cmd_parse_bool(val);
+            else if (!strcasecmp(key, "cpu-boost"))
+                m->cpu_boost = cmd_parse_bool(val);
+            else if (!strcasecmp(key, "gpu-clock")) {
+                if (!strcasecmp(val, "reset") || !strcasecmp(val, "off"))
+                    m->gpu_clock = 0;
+                else {
+                    int gc = atoi(val);
+                    if (gc > 0)
+                        m->gpu_clock = gc;
+                }
+            }
+            else if (!strcasecmp(key, "ppt")) {
+                int a, b, c;
+                if (!strcasecmp(val, "Q45")) { m->ppt_spl = 45; m->ppt_sppt = 55; m->ppt_fppt = 55; }
+                else if (!strcasecmp(val, "B60")) { m->ppt_spl = 60; m->ppt_sppt = 75; m->ppt_fppt = 75; }
+                else if (!strcasecmp(val, "P80")) { m->ppt_spl = 80; m->ppt_sppt = 80; m->ppt_fppt = 80; }
+                else if (sscanf(val, "%d,%d,%d", &a, &b, &c) == 3 &&
+                         a > 0 && b > 0 && c > 0) {
+                    m->ppt_spl = a; m->ppt_sppt = b; m->ppt_fppt = c;
+                }
+            }
             else if (!strcasecmp(key, "fan_cpu"))
                 m->fan_cpu_on = atoi(val);
             else if (!strcasecmp(key, "fan_gpu"))
@@ -596,6 +713,16 @@ void profile_meta_diff(const hw_state_t *hw, const profile_meta_t *m,
         ADD_LABEL("battery");
     if (m->kbd[0] && strcasecmp(m->kbd, hw_kbd_name(hw->kbd)))
         ADD_LABEL("kbd");
+    if (m->panel_od >= 0 && m->panel_od != (int)hw->panel_od)
+        ADD_LABEL("panel-od");
+    if (m->cpu_boost >= 0 && m->cpu_boost != (int)hw->cpu_boost)
+        ADD_LABEL("cpu-boost");
+    if (m->gpu_clock >= 0 && m->gpu_clock != hw->gpu_clock_lock)
+        ADD_LABEL("gpu-clock");
+    if (m->ppt_spl > 0 && hw->ppt_spl > 0 &&
+        (m->ppt_spl != hw->ppt_spl || m->ppt_sppt != hw->ppt_sppt ||
+         m->ppt_fppt != hw->ppt_fppt))
+        ADD_LABEL("ppt");
     if (m->fan_cpu_on >= 0 && m->fan_cpu_on != (int)hw->fan_cpu_on)
         ADD_LABEL("fan-cpu");
     if (m->fan_gpu_on >= 0 && m->fan_gpu_on != (int)hw->fan_gpu_on)

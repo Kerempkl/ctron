@@ -221,19 +221,34 @@ int ut_write_via_argv(const char *const argv[], const char *data)
     return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
 }
 
+static bool s_priv_denied;
+
+void ut_priv_denied_clear(void) { s_priv_denied = false; }
+void ut_priv_denied_mark(void)  { s_priv_denied = true; }
+bool ut_priv_denied(void)       { return s_priv_denied; }
+
 int ut_priv_write(const char *path, const char *val)
 {
     if (ut_write_file(path, val) == 0)
         return 0;
+    int saved_err = errno;
+    bool perm_err = (saved_err == EACCES || saved_err == EPERM);
 
-    if (!ut_sudo_fallback_allowed())
+    if (!ut_sudo_fallback_allowed()) {
+        if (perm_err)
+            ut_priv_denied_mark();
         return -1;
+    }
 
     /* No shell anywhere in the chain: the value rides a pipe into
      * `timeout 3 sudo -n tee <path>` exec'd as a pure argv vector, so
      * quotes and metacharacters in path or value are never parsed. */
     const char *av[] = { "timeout", "-k1", "3", "sudo", "-n", "tee", path, NULL };
-    return ut_write_via_argv(av, val) == 0 ? 0 : -1;
+    if (ut_write_via_argv(av, val) == 0)
+        return 0;
+    if (perm_err)
+        ut_priv_denied_mark();
+    return -1;
 }
 
 /* ---- process helpers (shell-free; zero popen / sh) ------------------- */

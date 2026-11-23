@@ -2112,6 +2112,106 @@ static void check_no_sudo(void)
     CHECK(ut_find_in_path("", binp, sizeof(binp)) != 0 &&
               ut_find_in_path(NULL, binp, sizeof(binp)) != 0,
           "ut_find_in_path rejects empty/null");
+
+    /* dry-run validation & .ctr extended scope */
+    {
+        hw_state_t dhw;
+        memset(&dhw, 0, sizeof(dhw));
+        dhw.cpu_n = 2;
+        dhw.cpu_ids[0] = 0;
+        dhw.cpu_ids[1] = 2;
+        dhw.panel_od = true;
+        dhw.cpu_boost = false;
+        dhw.gpu_clock_lock = 1800;
+        dhw.ppt_spl = 60;
+        dhw.ppt_sppt = 75;
+        dhw.ppt_fppt = 75;
+        dhw.cpu_mhz_limit = 4200;
+        dhw.bat_limit = 80;
+        fan_default(&dhw.fan_cpu);
+        fan_default(&dhw.fan_gpu);
+
+        char derr[128];
+        CHECK(cmd_validate(&dhw, "profile", "quiet", derr, sizeof(derr)) == 0,
+              "cmd_validate accepts valid profile");
+        CHECK(cmd_validate(&dhw, "freq", "core 2 2400", derr, sizeof(derr)) == 0,
+              "cmd_validate accepts present core freq");
+        CHECK(cmd_validate(&dhw, "freq", "core 99 2400", derr, sizeof(derr)) != 0,
+              "cmd_validate rejects absent core freq");
+        CHECK(cmd_validate(&dhw, "gpu-clock", "1800", derr, sizeof(derr)) == 0 &&
+                  cmd_validate(&dhw, "gpu-clock", "reset", derr, sizeof(derr)) == 0 &&
+                  cmd_validate(&dhw, "gpu-clock", "50", derr, sizeof(derr)) != 0,
+              "cmd_validate gpu-clock bounds");
+        CHECK(mode_dry_run(&dhw, "profile quiet, epp power, ppt B60, gpu-clock 1800",
+                           NULL, derr, sizeof(derr)) == 0,
+              "mode_dry_run accepts valid multi-step mode");
+        CHECK(mode_dry_run(&dhw, "profile quiet, hz 99999",
+                           NULL, derr, sizeof(derr)) != 0,
+              "mode_dry_run rejects invalid step");
+
+        char tmpx[] = "/tmp/ctron2-test-XXXXXX";
+        CHECK(mkdtemp(tmpx) != NULL, "scope mkdtemp");
+        setenv("CTRON_CONFIG", tmpx, 1);
+        CHECK(profile_export("ext", &dhw) == 0, "extended snapshot export");
+        char epth[460], ebody[2048] = {0};
+        snprintf(epth, sizeof(epth), "%s/profiles/ext.ctr", tmpx);
+        CHECK(ut_read_file_all(epth, ebody, sizeof(ebody)) == 0, "ext read");
+        CHECK(strstr(ebody, "panel-od = on\n") != NULL &&
+                  strstr(ebody, "cpu-boost = off\n") != NULL &&
+                  strstr(ebody, "gpu-clock = 1800\n") != NULL &&
+                  strstr(ebody, "ppt = 60,75,75\n") != NULL,
+              "ext export includes panel-od/cpu-boost/gpu-clock/ppt");
+        CHECK(profile_dry_run("ext", &dhw, NULL, derr, sizeof(derr)) == 0,
+              "profile_dry_run passes on extended snapshot");
+
+        profile_meta_t em;
+        CHECK(profile_meta_parse("ext", &em) == 0 &&
+                  em.panel_od == 1 && em.cpu_boost == 0 &&
+                  em.gpu_clock == 1800 && em.ppt_spl == 60,
+              "ext meta parse captures new fields");
+        char ediff[192];
+        profile_meta_diff(&dhw, &em, ediff, sizeof(ediff));
+        CHECK(strcmp(ediff, "≡ live") == 0, "ext diff matches identical live");
+        dhw.panel_od = false;
+        dhw.cpu_boost = true;
+        dhw.gpu_clock_lock = 0;
+        dhw.ppt_spl = 45;
+        profile_meta_diff(&dhw, &em, ediff, sizeof(ediff));
+        CHECK(strstr(ediff, "panel-od") != NULL &&
+                  strstr(ediff, "cpu-boost") != NULL &&
+                  strstr(ediff, "gpu-clock") != NULL &&
+                  strstr(ediff, "ppt") != NULL,
+              "ext diff detects all 4 new fields");
+        /* stale live PPT (-1) must NOT produce a false PPT diff */
+        dhw.ppt_spl = -1;
+        profile_meta_diff(&dhw, &em, ediff, sizeof(ediff));
+        CHECK(strstr(ediff, "ppt") == NULL, "stale live PPT omitted from diff");
+
+        /* export with stale PPT (-1) & unlocked GPU (0) must NOT write them */
+        CHECK(profile_export("stale", &dhw) == 0, "stale export");
+        char spth[460], sbody[2048] = {0};
+        snprintf(spth, sizeof(spth), "%s/profiles/stale.ctr", tmpx);
+        CHECK(ut_read_file_all(spth, sbody, sizeof(sbody)) == 0, "stale read");
+        CHECK(strstr(sbody, "ppt =") == NULL &&
+                  strstr(sbody, "gpu-clock =") == NULL,
+              "stale PPT and unlocked GPU omitted on export");
+
+        unlink(epth);
+        unlink(spth);
+        char pdir[400];
+        snprintf(pdir, sizeof(pdir), "%s/profiles", tmpx);
+        rmdir(pdir);
+        rmdir(tmpx);
+    }
+
+    /* privilege denial indicator for exit code 3 */
+    ut_priv_denied_clear();
+    CHECK(!ut_priv_denied(), "priv_denied starts clear");
+    g_prefs.write_pref = PREF_NO_SUDO;
+    CHECK(db_start() != 0 && ut_priv_denied(),
+          "no-sudo db_start marks priv_denied");
+    ut_priv_denied_clear();
+    g_prefs.write_pref = saved;
 }
 
 int main(void)

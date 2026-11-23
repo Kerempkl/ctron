@@ -16,6 +16,11 @@
 int cmd_run(hw_state_t *hw, const char *key, const char *val,
             char *err, size_t errn);
 
+/* Validate `key` + `val` using the exact same syntax/range/CPU-present
+ * rules as cmd_run(), without mutating `hw` or touching hardware. */
+int cmd_validate(const hw_state_t *hw, const char *key, const char *val,
+                 char *err, size_t errn);
+
 /* Parse a boolean-ish value: on/off/1/0/true/false. -1 when invalid. */
 int cmd_parse_bool(const char *s);
 

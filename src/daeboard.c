@@ -231,6 +231,7 @@ int db_start(void)
 	const char *av[10];
 
 	if (!ut_sudo_fallback_allowed()) {
+		ut_priv_denied_mark();
 		ut_log("daeboard: start disabled by write_pref=no sudo");
 		return -1;
 	}
@@ -240,6 +241,7 @@ int db_start(void)
 	}
 	db_binds_path(binds, (int)sizeof binds);
 	if (ut_exec_argv(probe, NULL, 0) != 0) {
+		ut_priv_denied_mark();
 		ut_log("daeboard: start needs passwordless sudo");
 		return -1;
 	}
@@ -276,6 +278,7 @@ int db_install(void)
 		return db_start();
 	}
 	if (!ut_sudo_fallback_allowed()) {
+		ut_priv_denied_mark();
 		ut_log("daeboard: install disabled by write_pref=no sudo");
 		return -1;
 	}
@@ -291,6 +294,7 @@ int db_install(void)
 		return -1;
 	}
 	if (ut_exec_argv(probe, NULL, 0) != 0) {
+		ut_priv_denied_mark();
 		ut_log("daeboard: install needs passwordless sudo");
 		return -1;
 	}

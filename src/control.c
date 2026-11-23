@@ -7,6 +7,7 @@
 #include "settings.h"
 #include "display/display.h"
 
+#include <errno.h>
 #include <glob.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -92,8 +93,10 @@ static int cpufreq_write_all(const hw_state_t *hw, const char *leaf,
      * systemd-tmpfiles.d / udev grants group write access); stop on the
      * first denied node and fall back to a single batched sudo tee. */
     bool direct_ok = true;
+    int first_err = 0;
     for (int c = 0; c < ncpus; c++) {
         if (ut_write_file(pathv[c], val) != 0) {
+            first_err = errno;
             direct_ok = false;
             break;
         }
@@ -101,8 +104,11 @@ static int cpufreq_write_all(const hw_state_t *hw, const char *leaf,
     if (direct_ok)
         return 0;
 
-    if (!ut_sudo_fallback_allowed())
+    if (!ut_sudo_fallback_allowed()) {
+        if (first_err == EACCES || first_err == EPERM)
+            ut_priv_denied_mark();
         return -1;
+    }
 
     /* "timeout -k1 3 sudo -n tee p1 p2 ... pn" — one invocation,
      * explicit paths as argv words, value fed through the pipe */
@@ -127,6 +133,8 @@ static int cpufreq_write_all(const hw_state_t *hw, const char *leaf,
                 rc = 0;
         }
     }
+    if (rc != 0 && (first_err == EACCES || first_err == EPERM))
+        ut_priv_denied_mark();
     return rc;
 }
 
@@ -502,8 +510,10 @@ static int ppt_write(hw_state_t *hw, int spl, int sppt, int fppt)
         return rc;
     }
     case HW_PPT_RYZENADJ: {
-        if (!ut_sudo_fallback_allowed())
+        if (!ut_sudo_fallback_allowed()) {
+            ut_priv_denied_mark();
             return -1;
+        }
         /* SECURITY.md §4.3: the three-integers wrapper is tried first
          * when installed and executable — the sudoers surface then
          * shrinks to exactly three watt values instead of every
@@ -527,6 +537,7 @@ static int ppt_write(hw_state_t *hw, int spl, int sppt, int fppt)
             if (ut_exec_argv(av, NULL, 0) == 0)
                 return 0;
         }
+        ut_priv_denied_mark();
         return -1;
     }
     default: {
@@ -832,6 +843,7 @@ int ctrl_gpu_clock_lock(hw_state_t *hw, int mhz)
     mhz = ut_clamp_i(mhz, 200, cap);
 
     if (!ut_sudo_fallback_allowed()) {
+        ut_priv_denied_mark();
         ut_log("gpu clock: lock %d FAILED (disabled by write_pref=no sudo)",
                mhz);
         return -1;
@@ -843,6 +855,8 @@ int ctrl_gpu_clock_lock(hw_state_t *hw, int mhz)
     const char *av[] = { "sudo", "-n", bin, "-lgc", pair, NULL };
     int rc = ut_exec_argv_both(av, out, sizeof(out));
     if (rc != 0 || !strstr(out, "GPU clocks set to")) {
+        if (rc != 0 && (strstr(out, "sudo:") || strstr(out, "password")))
+            ut_priv_denied_mark();
         ut_log("gpu clock: lock %d FAILED (sudo -n %s) %s",
                mhz, bin, out[0] ? out : "no output");
         return -1;
@@ -865,6 +879,7 @@ int ctrl_gpu_clock_reset(hw_state_t *hw)
         return -1;
     }
     if (!ut_sudo_fallback_allowed()) {
+        ut_priv_denied_mark();
         ut_log("gpu clock: reset FAILED (disabled by write_pref=no sudo)");
         return -1;
     }
@@ -872,6 +887,8 @@ int ctrl_gpu_clock_reset(hw_state_t *hw)
     const char *av[] = { "sudo", "-n", bin, "-rgc", NULL };
     int rc = ut_exec_argv_both(av, out, sizeof(out));
     if (rc != 0) {
+        if (strstr(out, "sudo:") || strstr(out, "password"))
+            ut_priv_denied_mark();
         ut_log("gpu clock: reset FAILED (sudo -n %s) %s",
                bin, out[0] ? out : "no output");
         return -1;

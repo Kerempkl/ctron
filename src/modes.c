@@ -442,3 +442,38 @@ int mode_apply(hw_state_t *hw, const char *steps, char *err, size_t errn)
     }
     return 0;
 }
+
+int mode_dry_run(const hw_state_t *hw, const char *steps, FILE *out,
+                 char *err, size_t errn)
+{
+    char got[32][MODE_STEPS_MAX];
+    int n = mode_split_steps(steps, got, 32);
+    if (n > 32) {
+        if (err && errn)
+            snprintf(err, errn, "too many steps");
+        return -1;
+    }
+    for (int i = 0; i < n; i++) {
+        char *step = got[i];
+        if (!*step)
+            continue;
+        char key[32];
+        const char *val;
+        step_key_val(step, key, sizeof(key), &val);
+        val = ut_trim((char *)val);
+
+        char serr[128];
+        if (cmd_validate(hw, key, val, serr, sizeof(serr)) != 0) {
+            if (err && errn)
+                snprintf(err, errn, "%s", serr[0] ? serr : "invalid step");
+            return -1;
+        }
+        if (out) {
+            if (val[0])
+                fprintf(out, "dry-run: %s = %s\n", key, val);
+            else
+                fprintf(out, "dry-run: %s\n", key);
+        }
+    }
+    return 0;
+}

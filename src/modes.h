@@ -2,6 +2,7 @@
 #define CTRON_MODES_H
 
 #include <stddef.h>
+#include <stdio.h>
 
 #include "hw.h"
 
@@ -100,5 +101,10 @@ int mode_split_steps(const char *steps, char (*out)[MODE_STEPS_MAX], int max);
 /* Execute a comma separated step list ("profile performance, fan cool").
  * Stops at the first failing step. Returns 0 when all steps applied. */
 int mode_apply(hw_state_t *hw, const char *steps, char *err, size_t errn);
+
+/* Validate and list every step in `steps` to `out` (optional) without
+ * touching hardware. Returns 0 when all steps are valid. */
+int mode_dry_run(const hw_state_t *hw, const char *steps, FILE *out,
+                 char *err, size_t errn);
 
 #endif /* CTRON_MODES_H */
