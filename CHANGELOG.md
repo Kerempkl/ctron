@@ -11,14 +11,64 @@ see [docs/history/changelog-2026-09-11.md](docs/history/changelog-2026-09-11.md)
 
 ## [Unreleased]
 
+---
+
+## [0.10.0] — 2026-11-23
+
 ### Added
 - **Full-tree audit checklist (`AUDIT.md`)** covering categories A–L (~50 items)
   with live measurements (8-minute TUI RSS drift = 0 KB, extreme terminal resize
   `20×6`/`30×40`/`300×80`, hostile config battery, CLI bad-input table).
 - **Professionalization critique & roadmap (`REVIEW.md`)** documenting 11
-  code-verified P0 bugs/honesty cracks and a `v0.10.0` → `v1.0.0` plan.
+  code-verified P0 bugs/honesty cracks (all closed in this release) and the
+  `v0.11.0` → `v1.0.0` roadmap.
+- **Shared monotonic clock helper `ut_mono_ms()`** (`src/util.c`) and cached
+  draw-path helpers (`profile_meta_summary()`, `db_up_cached()`).
 
 ### Fixed
+- **Honest-reads pass (`REVIEW.md` 1.2, 1.3, 1.4, 1.10):**
+  - Wi-Fi `wifi_level_dbm` unknown sentinel changed from `-1` to `0` (valid dBm
+    is always negative) and inverted `detail_net` condition fixed.
+  - Multi-line sysfs/procfs reads (`pp_dpm_sclk`, `/proc/pressure/*`) switched
+    from first-line `ut_read_file()` to `ut_read_file_all()`, with case-insensitive
+    `MHz`/`Mhz` matching in `hw_parse_pp_dpm()` (live-verified `sclk DPM`).
+  - Stopped fans (`0 RPM`) now report `0` honestly (`>= 0`) instead of `--`.
+  - Unreadable `nv_boost`/`nv_temp` and missing `hw_init()` telemetry fields now
+    use `-1` sentinels; raw `-1`/`0` outputs eliminated across `--status`,
+    `--watch`, `panel_telem_full.c`, and `panel_telemetry.c`.
+- **Snapshot, CLI & privilege accuracy (`REVIEW.md` 1.1, 1.6, 1.10, 1.11, 2.2):**
+  - Per-core `.ctr` export now writes `freq = core <id> <mhz>` (import stays
+    backward-compatible with legacy `freq core ...`), `freq_replay` raised to
+    `HW_CPU_MAX + 1`, and `profile_meta_parse()` ignores `core`/`ccd` lines so
+    the aggregate `freq` is never overwritten with `0`.
+  - `PREF_NO_SUDO` (`ut_sudo_fallback_allowed()`) is now enforced across all
+    privileged paths (`cpufreq_write_all`, `ppt_write`, `ctrl_gpu_clock_lock`/
+    `reset`, `db_start`/`db_install`) with honest error logs; `cpufreq_write_all`
+    now tries direct `ut_write_file()` before batched `sudo -n tee`.
+  - `ctron --tui` / `-t` now shares the `ut_singleton_enter("ctron")` lock, and
+    the fallback pidfile without `XDG_RUNTIME_DIR` is UID-scoped
+    (`ctron-tui-<uid>.pid`).
+  - Failed CLI runs no longer call `settings_save()`; snapshot save/rename
+    matches against sanitized names; per-core freq verification uses `±2 MHz`
+    tolerance matching all-cores.
+- **Monotonic timers & draw-path I/O (`REVIEW.md` 1.7, 1.9):**
+  - Replaced all 3 wall-clock `time(NULL)` cache timers and 7+ duplicate
+    `CLOCK_MONOTONIC` ms helpers with `ut_mono_ms()`.
+  - Removed per-frame disk/heap/blocking-socket I/O: snapshot summary uses
+    cached `profile_meta_summary()`; fan presets modal caches its preview per
+    selection (zero per-frame `fan_ron_parse` `malloc`/`free`); `db_up_cached()`
+    caps ping timeout at 100 ms with a 2 s monotonic TTL; `is_nixos()` is cached.
+- **TUI SETTINGS, `editor_daeboard.c` & smoke harness (`REVIEW.md` 1.5, 1.8):**
+  - SETTINGS `CLI SHORTCUTS (modes.ini)` is now fully keyboard-navigable
+    (`Tab` or unified `j`/`k` walk, `Enter` applies); MODE EDITOR arrow keys no
+    longer close the editor; dead code removed.
+  - Added `editor_daeboard_close()` closing evdev `cap_fd` on `keypick` finish,
+    ESC, outside-click (`ui.c`), and TUI shutdown; replaced hardcoded keyboard
+    name with `EV_KEY` + capability discovery; added `ut_mkdir_p()` in
+    `save_file()`, `ut_fgets_full()` in `load_file()`, and fixed dead arrow/`x`
+    branches and `Tab` cycling into `focus == 2` (`ctron` command row).
+  - Fixed `CTRON_CONFIG` / `tmpcfg` cleanup leak in `tui_smoke.py`
+    `flow_telem_full`.
 - **Power honesty & CORE LIMITS unification** (`1611f5e`): single `PW_W_*`
   write-gate mask shared by `●`, Apply button, quit guard, diff preview and
   apply writes; unreadable `asusd.ron` (`-2`) guard on writes; CORE LIMITS
@@ -46,15 +96,11 @@ see [docs/history/changelog-2026-09-11.md](docs/history/changelog-2026-09-11.md)
 ### Changed / Docs
 - **README & HARDWARE refresh** (`8e3d4b2`): re-verified on kernel `7.3.1-cachyos`
   (kernels `7.2–7.3` & `6.18-lts`), re-shot TUI screenshots (`docs/tui-*.png`).
-- **2026-11-23 documentation audit & streamlining**: verified `REVIEW.md`
-  claim-by-claim against source and live `--status` (added `PREF_NO_SUDO`
-  4-path bypass, `profile_meta_parse` trap, `udev`+`tmpfiles.d` split,
-  `editor_daeboard.c` dead keys, `tui_smoke.py` env leak); fixed broken GitHub
-  anchors in `README.md`, stale `gpu_metrics`/`sparkline` notes in `AGENTS.md`,
-  stale `ctron-ppt`/`ctrl_ppt_*_cmd`/pidfile paths in `SECURITY.md` &
-  `HARDWARE.md`, and duplicate `F4` + reopened `[~]` items in `AUDIT.md`;
-  archived `PLAN.md`, `PLANS.md`, old `HANDOFF.md` and detailed `CHANGELOG.md`
-  under `docs/history/`.
+- **Documentation audit & streamlining** (`9072975`): verified `REVIEW.md`
+  claim-by-claim against source and live `--status`; fixed broken GitHub
+  anchors in `README.md` and stale paths across `AGENTS.md`, `SECURITY.md`,
+  `HARDWARE.md`, and `AUDIT.md` (all categories A–L except `I2` field closed
+  `[x]`); archived historical logs under `docs/history/`.
 
 ---
 

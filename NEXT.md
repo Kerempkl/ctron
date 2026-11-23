@@ -13,19 +13,13 @@
 - `src/main.c` `VERSION`, `README.md` sürüm rozeti ve `flake.nix` `version`
   aynı release commit'inde birlikte güncellenir (`vX.Y.Z` annotated tag o
   commit'i gösterir; push kullanıcı tarafındadır).
-- Güncel sürüm: **`v0.9.0`** (geçmiş kesimler: `CHANGELOG.md`).
+- Güncel sürüm: **`v0.10.0`** (geçmiş kesimler: `CHANGELOG.md`).
 
 ## Planlanan sürümler (`REVIEW.md` yol haritası)
 
-Ayrıntılı satır-satır kanıtlar ve kapsam için bkz. [REVIEW.md](REVIEW.md):
+Ayrıntılı satır-satır kanıtlar ve kapsam için bkz. [REVIEW.md](REVIEW.md)
+(`v0.10.0` P0 doğruluk & hata kapanışı tamamlandı):
 
-- **`v0.10.0` (P0 Doğruluk & Hata Kapanışı):** `REVIEW.md` Bölüm 1 (1.1–1.11) —
-  per-core `.ctr` import + `profile_meta_parse` fix, `wifi_level_dbm` fix,
-  `pp_dpm_sclk` + PSI `ut_read_file_all`, `0 RPM` + `--watch`/telem/`nv_*`
-  dürüstlüğü, SETTINGS klavye navigasyonu, `--tui` singleton +
-  `/tmp/ctron-tui-<uid>.pid`, `ut_mono_ms()` birleştirmesi, `editor_daeboard.c`
-  (`cap_fd`/ok/Tab/`mkdir_p`/`fgets`), çizim-yolu disk/heap/soket temizliği,
-  `PREF_NO_SUDO` 4-yol düzeltmesi, `tui_smoke.py` `flow_telem_full` cleanup.
 - **`v0.11.0` (P1 UX, CLI & Sıfır-Shell):** `--status --json` / `--doctor --json`,
   `snapshot diff`, `--dry-run`, çıkış kodu sözleşmesi, TUI log viewer (24 satır),
   imleçli `tinput_t`, çift-`d` silme onayı, `.ctr` kapsam tamamlama, kalan tüm
@@ -33,9 +27,9 @@ Ayrıntılı satır-satır kanıtlar ve kapsam için bkz. [REVIEW.md](REVIEW.md)
 - **`v0.12.0` (P1 Paketleme, CI/CD & Mimari):** `Makefile` `PREFIX`/`DESTDIR` +
   tek `VERSION`, `man/ctron.1`, shell completions, `contrib/` (`99-ctron.rules`
   + `ctron.tmpfiles.conf`, `ctron-ppt`, `sudoers`, `.desktop`, `PKGBUILD`),
-  `cpufreq_write_all` direct-first, `.github/workflows/ci.yml`, `CONTRIBUTING.md`,
-  `.clang-format`/`.editorconfig`, `hw.c`/`panel_workspace.c` modül bölünmesi,
-  `CTRON_SYSFS_ROOT` mock testleri + `tui_smoke.py --offline`.
+  `.github/workflows/ci.yml`, `CONTRIBUTING.md`, `.clang-format`/`.editorconfig`,
+  `hw.c`/`panel_workspace.c` modül bölünmesi, `CTRON_SYSFS_ROOT` mock testleri
+  + `tui_smoke.py --offline`.
 - **`v1.0.0` (Saha Kapanışı):** Aşağıdaki FA507NVR / Arcioth saha maddelerinin
   kapanışı, tam sanitizer + uzun koşu doğrulaması.
 

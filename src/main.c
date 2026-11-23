@@ -21,7 +21,7 @@
 #include "display/display.h"
 
 #define PROG "ctron"
-#define VERSION "0.9.0"
+#define VERSION "0.10.0"
 
 /* ---- output helpers ----------------------------------------------------- */
 

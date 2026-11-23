@@ -22,9 +22,9 @@ Aşağıdaki her madde doğrudan koddan doğrulanmıştır; `ctron`'un çekirdek
 
 ---
 
-## 1. Kesin Yapılması Gerekenler — Kodda Yakalanan Gerçek Hatalar (P0)
+## 1. Kesin Yapılması Gerekenler — Kodda Yakalanan Gerçek Hatalar (P0) — **[TAMAMLANDI: `v0.10.0`, 2026-11-23]**
 
-Profesyonel kaliteye geçişten önce kapatılması gereken, doğrudan doğruluk ve dürüstlük bozan somut bulgular:
+*1.1–1.11'in tamamı (`8a70b77`, `9d5caf9`, `b349b6c`, `b1eabe3`) + 2.2'nin `cpufreq_write_all` direct-first adımı kapatıldı, `AUDIT.md` A1/C1/D5/E3/H4/K4 tekrar `[x]`'e çekildi. Aşağıdaki kayıtlar teknik referans olarak korunmaktadır:*
 
 ### 1.1. Per-core frekans limitleri `.ctr` snapshot'a yazılıyor ama geri yüklenirken sessizce çöpe gidiyor
 - **Kanıt:** `src/profile.c:197` dışa aktarımda `=` olmadan `fprintf(f, "freq core %d %d\n", id, ...)` yazıyor. Ancak `src/profile.c:245` (`profile_import`) içinde `char *eq = strchr(s, '='); if (!eq) continue;` var — `=` içermeyen her satır koşulsuz atlanıyor.
@@ -218,7 +218,7 @@ Her aşama kendi içinde derlenir, test edilir ve bağımsız sürümlenebilir:
 
 | Hedef | Odak | Kapsam |
 |---|---|---|
-| **`v0.10.0`** | **Doğruluk & Hata Kapanışı (P0)** | Bölüm 1'in tamamı (1.1–1.11): per-core `.ctr` import + `profile_meta_parse` fix, `wifi_level_dbm` fix, `pp_dpm_sclk` + PSI `ut_read_file_all`, `0 RPM` + `--watch`/telem/`nv_*` dürüstlüğü, SETTINGS klavye navigasyonu, `--tui` singleton + `/tmp/ctron-tui-<uid>.pid`, `ut_mono_ms()` birleştirmesi, `editor_daeboard.c` (`cap_fd`/ok/Tab/mkdir_p/fgets), çizim-yolu disk/heap/soket temizliği, `PREF_NO_SUDO` 4-yol düzeltmesi, `tui_smoke.py` `flow_telem_full` cleanup. |
+| **`v0.10.0`** | **Doğruluk & Hata Kapanışı (P0)** — **[TAMAMLANDI]** | Bölüm 1'in tamamı (1.1–1.11) + `cpufreq_write_all` direct-first + `tui_smoke.py` `flow_telem_full` cleanup (`8a70b77`..`b1eabe3`). |
 | **`v0.11.0`** | **UX, CLI & Sıfır-Shell (P1)** | `--status --json` / `--doctor --json`, `snapshot diff`, `--dry-run`, çıkış kodları; TUI log viewer (`24` satır), imleçli `tinput_t`, çift-`d` silme onayı, `.ctr` kapsam tamamlama; kalan tüm `popen`/`ut_exec` noktalarının kaldırılması (`ut_find_in_path` + `ut_exec_argv`). |
 | **`v0.12.0`** | **Paketleme, CI/CD & Mimari Temizlik (P1)** | `Makefile` `PREFIX`/`DESTDIR` + `VERSION`, `man/ctron.1`, shell completions, `contrib/` (`99-ctron.rules` + `ctron.tmpfiles.conf`, `ctron-ppt`, `sudoers`, `.desktop`, `PKGBUILD`), `cpufreq_write_all` direct-first, `.github/workflows/ci.yml`, `CONTRIBUTING.md` + issue şablonu, `.clang-format`/`.editorconfig`, `hw.c`/`panel_workspace.c` modül bölünmesi, `CTRON_SYSFS_ROOT` mock testleri + `tui_smoke.py --offline`. |
 | **`v1.0.0`** | **Saha Kapanışı & Kararlı Sürüm** | FA507NVR (Arcioth / NixOS / Hyprland) açık saha maddeleri (`AUDIT.md I2` / `NEXT.md`: `flake.lock`, çok monitör canlı kanıt, Hyprland mouse, Rembrandt sensör kontrolü), tam sanitizers + uzun koşu doğrulaması, kararlı CLI/config format garantisi. |

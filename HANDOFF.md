@@ -5,7 +5,60 @@
 
 ---
 
-## Latest session — 2026-11-23 (`REVIEW.md` verification + full documentation audit & streamlining)
+## Latest session — 2026-11-23 (`v0.10.0` P0 accuracy & honesty release)
+
+**Antigravity / Kerempkl / FA608PP** — committed the 2026-11-23 documentation
+streamlining (`9072975`), then implemented, verified, and released **`v0.10.0`**
+closing all 11 P0 findings from `REVIEW.md §1` plus `cpufreq_write_all`
+direct-first across 4 focused commits:
+
+- **`8a70b77` (Paket 1A — Honest reads, `AUDIT.md D5` → `[x]`):**
+  `wifi_level_dbm` sentinel `0` + `detail_net` inverted check; `pp_dpm_sclk`
+  and `/proc/pressure/*` `ut_read_file_all()` + case-insensitive `MHz` parser
+  (live-proven `--status`: `iGPU busy : 0 % · sclk DPM 2/3 @ 600 MHz`);
+  stopped fan `0 RPM` (`>= 0`); `nv_boost`/`nv_temp` `-1` sentinel + missing
+  `hw_init()` sentinels; raw `-1`/`0` eliminated across `--status`, `--watch`,
+  `panel_telem_full.c`, `panel_telemetry.c`.
+- **`9d5caf9` (Paket 1B — Snapshots, CLI & privilege, `AUDIT.md E3, H4` → `[x]`):**
+  per-core `.ctr` export (`freq = core <id> <mhz>`) + legacy `freq core ...`
+  import compatibility + `freq_replay[HW_CPU_MAX + 1]` + `profile_meta_parse()`
+  guard (round-trip tested); `PREF_NO_SUDO` enforced on all 4 privileged paths
+  (`cpufreq_write_all` direct-first, `ppt_write`, `ctrl_gpu_clock_lock`/`reset`,
+  `db_start`/`db_install`, tested via `check_no_sudo`); `--tui` singleton gate
+  via shared `run_tui()` + UID-scoped `/tmp/ctron-tui-<uid>.pid` (tested +
+  `SECURITY.md §2.3` synced); failed CLI skips `settings_save()`; snapshot
+  save/rename matches sanitized name; per-core freq verify `±2 MHz`.
+- **`b349b6c` (Paket 1C — Monotonic timers & draw-path I/O, `AUDIT.md A1, K4` → `[x]`):**
+  unified `ut_mono_ms()` replacing 3 `time(NULL)` caches and 7+ duplicate
+  `CLOCK_MONOTONIC` helpers; `profile_meta_summary()` eliminates per-frame
+  disk opens in `panel_profiles.c`; fan presets modal caches preview per
+  selection (zero per-frame `fan_ron_parse` `malloc`/`free`); `db_up_cached()`
+  (100 ms ping cap, 2 s monotonic TTL) + cached `is_nixos()`.
+- **`b1eabe3` (Paket 1D — SETTINGS, `editor_daeboard.c` & smoke, `AUDIT.md C1` → `[x]`):**
+  SETTINGS `CLI SHORTCUTS` keyboard navigation (`Tab` + unified `j`/`k` walk,
+  `Enter` apply) + MODE EDITOR arrow fix & dead-code removal;
+  `editor_daeboard_close()` closing evdev `cap_fd` on all exits (`keypick`,
+  ESC, outside-click `ui.c`, TUI shutdown), `EV_KEY` capability keyboard
+  discovery, `ut_mkdir_p()` in `save_file()`, `ut_fgets_full()` in `load_file()`,
+  fixed arrow/`x` branches and `Tab` → `focus == 2` (`ctron` row);
+  `tui_smoke.py` `flow_telem_full` `CTRON_CONFIG`/`tmpcfg` cleanup.
+- **Verification:** `make` + `make HARDEN=1` 0 warnings, `make test` + UBSan/LSan
+  clean, `clang --analyze` 0 findings on all modified units, `--doctor` &
+  `--status` live-verified, `make tuitest` 12/13 flows pass in sandbox (only
+  `mode_drift` needs host D-Bus/asusctl). All `AUDIT.md` A–L items except `I2`
+  (Arcioth field) are `[x]`.
+- **Release:** bumped `VERSION` (`src/main.c`, `README.md`, `flake.nix`) to
+  `0.10.0`, updated `CHANGELOG.md`/`NEXT.md`/`REVIEW.md`, tagged `v0.10.0`
+  (local commits & tag ready for user to push).
+- **Next:** start **`v0.11.0`** (`--json`, `snapshot diff`, `--dry-run`, exit
+  codes, TUI LOG viewer, cursor `tinput_t`, double-`d` delete confirmation,
+  `.ctr` scope completion, zero-shell `ut_find_in_path` + `ut_exec_argv`).
+
+Signed: **Antigravity** — `v0.10.0` P0 closure & release.
+
+---
+
+## 2026-11-23 — `REVIEW.md` verification + full documentation audit & streamlining
 
 **Antigravity / Kerempkl / FA608PP** — user asked to verify the newly
 created `REVIEW.md` against the real codebase, then update `REVIEW.md`,
