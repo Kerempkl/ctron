@@ -258,9 +258,11 @@ void editor_fan_draw(struct ncplane *n, const rect_t *r)
 
     /* X/Y input row */
     int iy = r->y + r->h - 2;
-    char tb[24], pb[24];
-    snprintf(tb, sizeof(tb), "T[%.6s%s]", g_ui.fe_x.buf, g_ui.fe_input == 1 ? "_" : "");
-    snprintf(pb, sizeof(pb), "P[%.6s%s]", g_ui.fe_y.buf, g_ui.fe_input == 2 ? "_" : "");
+    char xd[10], yd[10], tb[24], pb[24];
+    tin_format(&g_ui.fe_x, xd, sizeof(xd), g_ui.fe_input == 1);
+    tin_format(&g_ui.fe_y, yd, sizeof(yd), g_ui.fe_input == 2);
+    snprintf(tb, sizeof(tb), "T[%s]", xd);
+    snprintf(pb, sizeof(pb), "P[%s]", yd);
     const ui_btndef_t xy[] = {
         { tb,    g_ui.fe_input == 1, TGT(TGT_PANEL_WORKSPACE, ACT_FE_T_FIELD) },
         { pb,    g_ui.fe_input == 2, TGT(TGT_PANEL_WORKSPACE, ACT_FE_P_FIELD) },
@@ -305,11 +307,7 @@ void editor_fan_key(uint32_t key)
             g_ui.fe_input = g_ui.fe_input == 1 ? 2 : 1;
             return;
         }
-        if (key >= '0' && key <= '9') {
-            tin_key(t, key);
-            return;
-        }
-        if (key == NCKEY_BACKSPACE || key == 127 || key == 8) {
+        if ((key >= '0' && key <= '9') || tin_is_edit_key(key)) {
             tin_key(t, key);
             return;
         }

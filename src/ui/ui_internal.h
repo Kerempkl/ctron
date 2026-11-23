@@ -19,6 +19,7 @@
 #include "../modes.h"
 #include "../profile.h"
 #include "../settings.h"
+#include "../tinput.h"
 
 typedef struct { int x, y, w, h; } rect_t;
 
@@ -37,10 +38,6 @@ typedef enum {
     WSV_HELP,
     WSV_COUNT
 } ws_view_t;
-
-/* buf holds the longest editable field (mode steps = MODE_STEPS_MAX);
- * tin_* code keys off sizeof, so instances just cost a bit more. */
-typedef struct { char buf[MODE_STEPS_MAX]; size_t len; } tinput_t;
 
 typedef struct ui_ctx {
     hw_state_t *hw;
@@ -71,6 +68,8 @@ typedef struct ui_ctx {
     focus_t focus;
     ws_view_t ws_view;
     bool settings_overlay; /* ESC: fullscreen settings over everything */
+    bool log_overlay;      /* 'L': floating event log viewer (last 24 entries) */
+    int log_scroll;        /* top visible log index (0 = newest) */
     bool telem_full;       /* 't': fullscreen read-only telemetry */
     int telem_sel;         /* grid cursor in the fullscreen (section idx) */
     int telem_detail;      /* -1 grid, else section shown full-page */
@@ -86,6 +85,7 @@ typedef struct ui_ctx {
     int prof_n, prof_sel;
     int prof_top;          /* first visible list entry (scroll) */
     int prof_input;        /* typing mode: 0 none, 1 save, 2 rename, 3 note */
+    int prof_del_arm;      /* double-d confirm: armed prof_sel, or -1 */
     tinput_t prof_name;    /* save/rename name field */
     tinput_t prof_note;    /* note field */
     profile_meta_t prof_meta;   /* cached parse of the selected snapshot */
@@ -160,6 +160,7 @@ typedef struct ui_ctx {
     bool set_in_modes;     /* true when keyboard focus is in CLI SHORTCUTS */
     int set_mode_sel;
     int set_mode_top;      /* first visible modes.ini entry (scroll) */
+    int set_del_arm;       /* double-d confirm: armed set_mode_sel, or -1 */
     int md_field; /* mode editor field: 0 name, 1 steps */
     tinput_t md_name, md_steps;
 } ui_ctx_t;
@@ -231,6 +232,7 @@ enum {
     TGT_PANEL_COREFREQ,
     TGT_PANEL_FAN_PRESETS,
     TGT_PANEL_TELEM,
+    TGT_PANEL_LOG,
 };
 
 
@@ -238,10 +240,10 @@ void tgt_clear(void);
 void tgt_register(int x, int y, int w, int h, int encoded);
 int  tgt_find(int x, int y); /* encoded target or 0 */
 
-/* ---- text input ---------------------------------------------------------- */
+/* ---- text input (notcurses key bridge over src/tinput.h) ----------------- */
 
-void tin_set(tinput_t *t, const char *s);
-void tin_clear(tinput_t *t);
+/* True for cursor/delete keys (arrows, Home/End, BS/Del, Ctrl+A/E/K/U/W). */
+bool tin_is_edit_key(uint32_t key);
 /* Returns true when the key was consumed by the input field. */
 bool tin_key(tinput_t *t, uint32_t key);
 

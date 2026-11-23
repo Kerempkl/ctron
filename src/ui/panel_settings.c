@@ -51,6 +51,7 @@ void settings_open(void)
     } else if (g_ui.set_mode_sel >= g_ui.mode_n) {
         g_ui.set_mode_sel = g_ui.mode_n - 1;
     }
+    g_ui.set_del_arm = -1;
     g_ui.settings_overlay = true;
 }
 
@@ -63,6 +64,7 @@ void ws_start_mode_edit(const mode_def_t *m)
         tin_clear(&g_ui.md_name);
         tin_clear(&g_ui.md_steps);
     }
+    g_ui.set_del_arm = -1;
     g_ui.md_field = 0;
     g_ui.settings_overlay = true;
 }
@@ -176,8 +178,18 @@ static void draw_settings(struct ncplane *n, const rect_t *r)
     }
     y += 2;
 
-    ui_putln(n, x, y, w, "CLI SHORTCUTS (modes.ini) — Enter apply · n new · e edit · d del",
-             pal->accent, true);
+    if (g_ui.set_del_arm >= g_ui.mode_n || g_ui.set_del_arm != g_ui.set_mode_sel)
+        g_ui.set_del_arm = -1;
+    if (g_ui.set_del_arm >= 0 && g_ui.set_mode_sel < g_ui.mode_n) {
+        char warn[128];
+        snprintf(warn, sizeof(warn),
+                 "CLI SHORTCUTS — press d again to delete '%.24s' · other key cancels",
+                 g_ui.modes[g_ui.set_mode_sel].name);
+        ui_putln(n, x, y, w, warn, 0xFF4D5E, true);
+    } else {
+        ui_putln(n, x, y, w, "CLI SHORTCUTS (modes.ini) — Enter apply · n new · e edit · d del",
+                 pal->accent, true);
+    }
     y += 1;
     int last = r->y + r->h - 1;
     int vis = last - y;   /* rows that fit */
@@ -254,11 +266,11 @@ static void draw_modeedit(struct ncplane *n, const rect_t *r)
     ui_putln(n, x, r->y + 1, w, "Tab switches field · Esc cancels",
              pal->muted, false);
 
-    char name_l[96], steps_l[256];
-    snprintf(name_l, sizeof(name_l), "Name : %.80s%s",
-             g_ui.md_name.buf, g_ui.md_field == 0 ? "_" : "");
-    snprintf(steps_l, sizeof(steps_l), "Steps: %s%s",
-             g_ui.md_steps.buf, g_ui.md_field == 1 ? "_" : "");
+    char nm[88], st[232], name_l[96], steps_l[256];
+    tin_format(&g_ui.md_name, nm, sizeof(nm), g_ui.md_field == 0);
+    tin_format(&g_ui.md_steps, st, sizeof(st), g_ui.md_field == 1);
+    snprintf(name_l, sizeof(name_l), "Name : %s", nm);
+    snprintf(steps_l, sizeof(steps_l), "Steps: %s", st);
     ui_putln(n, x, r->y + 3, w, name_l, g_ui.md_field == 0 ? pal->accent : pal->text, true);
     ui_putln(n, x, r->y + 5, w, steps_l, g_ui.md_field == 1 ? pal->accent : pal->text, true);
 
@@ -306,6 +318,9 @@ void panel_settings_key(uint32_t key)
         tin_key(t, key);
         return;
     }
+
+    if (key != 'd' && key != 'D')
+        g_ui.set_del_arm = -1;
 
     switch (key) {
     case NCKEY_TAB:
@@ -378,15 +393,26 @@ void panel_settings_key(uint32_t key)
         break;
     case 'd':
     case 'D':
-        if (g_ui.set_mode_sel < g_ui.mode_n) {
-            for (int i = g_ui.set_mode_sel; i + 1 < g_ui.mode_n; i++)
-                g_ui.modes[i] = g_ui.modes[i + 1];
-            g_ui.mode_n--;
-            if (g_ui.set_mode_sel >= g_ui.mode_n && g_ui.set_mode_sel > 0)
-                g_ui.set_mode_sel--;
-            if (g_ui.mode_n == 0)
-                g_ui.set_in_modes = false;
-            modes_save(g_ui.modes, g_ui.mode_n);
+        if (g_ui.mode_n > 0 && g_ui.set_mode_sel < g_ui.mode_n) {
+            if (g_ui.set_del_arm == g_ui.set_mode_sel) {
+                char gone[MODE_NAME_MAX];
+                snprintf(gone, sizeof(gone), "%s",
+                         g_ui.modes[g_ui.set_mode_sel].name);
+                g_ui.set_del_arm = -1;
+                for (int i = g_ui.set_mode_sel; i + 1 < g_ui.mode_n; i++)
+                    g_ui.modes[i] = g_ui.modes[i + 1];
+                g_ui.mode_n--;
+                if (g_ui.set_mode_sel >= g_ui.mode_n && g_ui.set_mode_sel > 0)
+                    g_ui.set_mode_sel--;
+                if (g_ui.mode_n == 0)
+                    g_ui.set_in_modes = false;
+                modes_save(g_ui.modes, g_ui.mode_n);
+                ut_log("mode deleted: %s", gone);
+            } else {
+                g_ui.set_del_arm = g_ui.set_mode_sel;
+                ut_log("press d again to delete mode '%s' (any other key cancels)",
+                       g_ui.modes[g_ui.set_mode_sel].name);
+            }
         }
         break;
     default:
@@ -396,6 +422,7 @@ void panel_settings_key(uint32_t key)
 
 void panel_settings_act(int id)
 {
+    g_ui.set_del_arm = -1;
     if (id >= ACT_SET_ROW_BASE && id < ACT_SET_ROW_BASE + SET_ROW_COUNT) {
         int row = id - ACT_SET_ROW_BASE;
         g_ui.set_in_modes = false;

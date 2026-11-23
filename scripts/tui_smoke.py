@@ -765,15 +765,19 @@ def flow_snapshots():
         ok("snapshots", "saved ts1 listed")
         s.key(b"r")                # rename: seeded with ts1
         time.sleep(0.2)
-        for _ in range(3):
-            s.key(b"\x7f")
-        s.key(b"t"); s.key(b"s"); s.key(b"2")
+        # exercise mid-string cursor editing: Left -> insert 'x' -> End -> BS -> '2'
+        # turns "ts1" into "tsx2" without clearing the whole field
+        s.key(b"\x1b[D")           # Left (between 's' and '1')
+        s.key(b"x")                # -> "tsx1"
+        s.key(b"\x05")             # Ctrl+E (End)
+        s.key(b"\x7f")             # Backspace ('1')
+        s.key(b"2")                # -> "tsx2"
         m = s.mark()
         s.key(b"\r")
-        if not s.wait_for(b"ts2", since=m, timeout=8.0):
-            fail("snapshots", "rename did not produce ts2")
+        if not s.wait_for(b"tsx2", since=m, timeout=8.0):
+            fail("snapshots", "mid-string cursor rename did not produce tsx2")
             return
-        ok("snapshots", "renamed to ts2")
+        ok("snapshots", "mid-string cursor rename produced tsx2")
         s.key(b"c")                # note
         time.sleep(0.2)
         s.key(b"n"); s.key(b"1")
@@ -783,12 +787,26 @@ def flow_snapshots():
             fail("snapshots", "note not reflected in the summary")
             return
         ok("snapshots", "note shown in summary")
+        # double-d delete confirmation: first 'd' arms, other key cancels, 'd'+'d' deletes
         m = s.mark()
-        s.key(b"d")                # delete
-        if not s.wait_for(b"(none", since=m, timeout=8.0):
-            fail("snapshots", "delete left the list non-empty")
+        s.key(b"d")
+        if not s.wait_for(b"again", since=m, timeout=6.0):
+            fail("snapshots", "first 'd' did not arm delete confirmation")
             return
-        ok("snapshots", "deleted; list empty again")
+        ok("snapshots", "first 'd' arms delete confirmation")
+        s.key(b"j")                # any non-d key cancels
+        time.sleep(0.2)
+        m2 = s.mark()
+        s.key(b"d")                # must re-arm, not delete yet
+        if not s.wait_for(b"again", since=m2, timeout=6.0):
+            fail("snapshots", "non-d key did not cancel delete arm")
+            return
+        m3 = s.mark()
+        s.key(b"d")                # second 'd' confirms delete
+        if not s.wait_for(b"(none", since=m3, timeout=8.0):
+            fail("snapshots", "second 'd' did not delete snapshot")
+            return
+        ok("snapshots", "double-d delete confirmed; list empty again")
         rc = s.quit_expect0()
         if rc != 0:
             fail("snapshots", f"q exit {rc!r}")
@@ -800,6 +818,42 @@ def flow_snapshots():
         else:
             os.environ["CTRON_CONFIG"] = oldcfg
         shutil.rmtree(tmpcfg, ignore_errors=True)
+
+
+def flow_log_overlay():
+    """EVENT LOG floating overlay ('L'): opens from anywhere, displays
+    recent ut_log entries (including 'TUI ready'), scrolls with j/k,
+    closes on Esc, and re-opens cleanly."""
+    s = Session("log_overlay")
+    try:
+        if not s.wait_render(6.0):
+            fail("log_overlay", "no frame rendered")
+            return
+        m = s.mark()
+        s.key(b"L")
+        if not s.wait_for(b"EVENT LOG", since=m, timeout=6.0):
+            fail("log_overlay", "'L' did not open EVENT LOG overlay")
+            return
+        ok("log_overlay", "'L' opens EVENT LOG overlay")
+        if not s.wait_for(b"TUI ready", since=m, timeout=4.0):
+            fail("log_overlay", "EVENT LOG missing startup 'TUI ready' entry")
+            return
+        ok("log_overlay", "startup log entry visible in EVENT LOG")
+        s.key(b"j"); s.key(b"k"); s.key(b"G"); s.key(b"g")
+        time.sleep(0.2)
+        s.key(b"\x1b")             # Esc closes
+        time.sleep(0.3)
+        m2 = s.mark()
+        s.key(b"L")                # reopen proves close worked
+        if not s.wait_for(b"EVENT LOG", since=m2, timeout=6.0):
+            fail("log_overlay", "'L' did not re-open after Esc close")
+            return
+        ok("log_overlay", "Esc close + 'L' reopen round-trip")
+        rc = s.quit_expect0()
+        if rc != 0:
+            fail("log_overlay", f"q exit {rc!r}")
+    finally:
+        s.close()
 
 
 def flow_fan_presets():
@@ -926,7 +980,7 @@ def main():
     flows = [flow_open_quit, flow_settings_overlay,
              flow_power_stage_apply, flow_corefreq_overlay,
              flow_fan_buttons, flow_fan_staging, flow_fan_presets,
-             flow_telem_full,
+             flow_telem_full, flow_log_overlay,
              flow_view_hotkeys, flow_focus_shift, flow_mode_drift,
              flow_fan_grid,
              flow_snapshots]

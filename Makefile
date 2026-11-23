@@ -26,7 +26,7 @@ CFLAGS += -fstack-protector-strong -D_FORTIFY_SOURCE=2
 endif
 
 SRC = src/main.c src/util.c src/hw.c src/control.c src/daeboard.c src/fan.c src/cmds.c \
-      src/modes.c src/profile.c src/settings.c src/telem.c \
+      src/modes.c src/profile.c src/settings.c src/telem.c src/tinput.c \
       src/ui/ui.c src/ui/panel_profiles.c src/ui/panel_controls.c \
       src/ui/panel_workspace.c src/ui/panel_telemetry.c src/ui/panel_telem_full.c \
       src/ui/panel_settings.c \
@@ -36,7 +36,7 @@ OBJ = $(SRC:src/%.c=build/%.o)
 TARGET = build/ctron
 
 TEST_SRC = tests/test_core.c
-TEST_OBJ = util hw control daeboard fan cmds modes profile settings telem \
+TEST_OBJ = util hw control daeboard fan cmds modes profile settings telem tinput \
            display/display display/display_kde display/display_hypr
 TEST_LIBOBJ = $(addprefix build/,$(addsuffix .o,$(TEST_OBJ)))
 TEST_BIN = build/test_core

@@ -20,6 +20,7 @@
 #include "profile.h"
 #include "settings.h"
 #include "telem.h"
+#include "tinput.h"
 #include "util.h"
 #include "display/display.h"
 
@@ -2214,6 +2215,84 @@ static void check_no_sudo(void)
     g_prefs.write_pref = saved;
 }
 
+static void check_tinput(void)
+{
+    tinput_t t;
+    char fmt[64];
+
+    tin_set(&t, "hello");
+    CHECK(t.len == 5 && t.cur == 5 && strcmp(t.buf, "hello") == 0,
+          "tin_set places cursor at end");
+    tin_format(&t, fmt, sizeof(fmt), true);
+    CHECK(strcmp(fmt, "hello_") == 0, "tin_format end cursor");
+    tin_format(&t, fmt, sizeof(fmt), false);
+    CHECK(strcmp(fmt, "hello") == 0, "tin_format inactive");
+
+    /* Left + mid-string insert + format */
+    CHECK(tin_op(&t, TIN_KEY_LEFT) && tin_op(&t, TIN_KEY_LEFT), "move left x2");
+    CHECK(t.cur == 3, "cur at 3");
+    tin_format(&t, fmt, sizeof(fmt), true);
+    CHECK(strcmp(fmt, "hel|lo") == 0, "tin_format mid cursor");
+    CHECK(tin_op(&t, 'X'), "mid insert");
+    CHECK(strcmp(t.buf, "helXlo") == 0 && t.cur == 4 && t.len == 6,
+          "mid insert shifts tail");
+
+    /* Backspace at mid, Delete at mid */
+    CHECK(tin_op(&t, TIN_KEY_BACKSPACE), "mid backspace");
+    CHECK(strcmp(t.buf, "hello") == 0 && t.cur == 3 && t.len == 5,
+          "mid backspace removes X");
+    CHECK(tin_op(&t, TIN_KEY_DEL), "mid delete");
+    CHECK(strcmp(t.buf, "helo") == 0 && t.cur == 3 && t.len == 4,
+          "mid delete removes char under cursor");
+
+    /* Home / End / Ctrl+A / Ctrl+E + boundary clamping */
+    CHECK(tin_op(&t, TIN_KEY_HOME) && t.cur == 0, "Home -> 0");
+    CHECK(tin_op(&t, TIN_KEY_LEFT) && t.cur == 0, "Left clamps at 0");
+    CHECK(tin_op(&t, TIN_KEY_BACKSPACE) && strcmp(t.buf, "helo") == 0,
+          "BS at 0 is no-op");
+    CHECK(tin_op(&t, '>') && strcmp(t.buf, ">helo") == 0 && t.cur == 1,
+          "insert at 0");
+    CHECK(tin_op(&t, 0x05) && t.cur == 5, "Ctrl+E -> end");
+    CHECK(tin_op(&t, TIN_KEY_RIGHT) && t.cur == 5, "Right clamps at len");
+    CHECK(tin_op(&t, TIN_KEY_DEL) && strcmp(t.buf, ">helo") == 0,
+          "DEL at end is no-op");
+    CHECK(tin_op(&t, 0x01) && t.cur == 0, "Ctrl+A -> 0");
+    CHECK(tin_op(&t, TIN_KEY_DEL) && strcmp(t.buf, "helo") == 0,
+          "DEL at 0 removes '>'");
+
+    /* Ctrl+W (delete previous word) and Ctrl+U (kill to start) and Ctrl+K */
+    tin_set(&t, "profile balanced,  hz 165");
+    CHECK(tin_op(&t, 0x17) && strcmp(t.buf, "profile balanced,  hz ") == 0,
+          "Ctrl+W deletes last word");
+    CHECK(tin_op(&t, 0x17) && strcmp(t.buf, "profile balanced,  ") == 0,
+          "Ctrl+W skips trailing space then deletes word");
+    CHECK(tin_op(&t, 0x17) && strcmp(t.buf, "profile ") == 0,
+          "Ctrl+W deletes previous word");
+    tin_set(&t, "abc def ghi");
+    CHECK(tin_op(&t, TIN_KEY_HOME) && tin_op(&t, TIN_KEY_RIGHT) &&
+              tin_op(&t, TIN_KEY_RIGHT) && tin_op(&t, TIN_KEY_RIGHT) &&
+              tin_op(&t, TIN_KEY_RIGHT),
+          "move to 'def'");
+    CHECK(tin_op(&t, 0x15) && strcmp(t.buf, "def ghi") == 0 && t.cur == 0,
+          "Ctrl+U kills to start");
+    CHECK(tin_op(&t, TIN_KEY_RIGHT) && tin_op(&t, TIN_KEY_RIGHT) &&
+              tin_op(&t, TIN_KEY_RIGHT) && tin_op(&t, 0x0b),
+          "Ctrl+K kills to end");
+    CHECK(strcmp(t.buf, "def") == 0 && t.cur == 3 && t.len == 3,
+          "Ctrl+K result");
+
+    /* Buffer-full guard: never overflows MODE_STEPS_MAX */
+    tin_clear(&t);
+    for (int i = 0; i < MODE_STEPS_MAX + 20; i++)
+        CHECK(tin_op(&t, 'a'), "fill char consumed");
+    CHECK(t.len == sizeof(t.buf) - 1 && t.cur == t.len &&
+              t.buf[sizeof(t.buf) - 1] == '\0',
+          "buffer full stays null-terminated and bounded");
+    CHECK(tin_is_edit_op(TIN_KEY_LEFT) && tin_is_edit_op(0x15) &&
+              !tin_is_edit_op('a'),
+          "tin_is_edit_op classifies edit keys");
+}
+
 int main(void)
 {
     check_fan_csv();
@@ -2253,6 +2332,7 @@ int main(void)
     check_snapshots();
     check_progress_and_log();
     check_no_sudo();
+    check_tinput();
 
     if (failures) {
         fprintf(stderr, "%d failure(s)\n", failures);

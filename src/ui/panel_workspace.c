@@ -324,6 +324,11 @@ static void pw_nudge_row(int row, int dir)
         break;
     case PW_AC_AUTO:
     case PW_BAT_AUTO: {
+        int live = row == PW_AC_AUTO ? hw->asusd_ac : hw->asusd_bat;
+        if (live == -2) {
+            ut_log("asusd auto-profile unavailable (asusd absent or unreadable)");
+            return;
+        }
         /* cycle off → Quiet → Balanced → Performance → off */
         static const int cyc[4] = { -1, HW_QUIET, HW_BALANCED, HW_PERFORMANCE };
         int *v = row == PW_AC_AUTO ? &g_ui.pwv_asusd_ac : &g_ui.pwv_asusd_bat;
@@ -873,12 +878,12 @@ static void draw_power(struct ncplane *n, const rect_t *r)
     }
     char acv[48], bav[48];
     if (hw->asusd_ac == -2)
-        snprintf(acv, sizeof(acv), "%s", "--");
+        snprintf(acv, sizeof(acv), "%s", "-- (asusd absent)");
     else
         pw_val_e(acv, sizeof(acv), pw_asusd_name(hw->asusd_ac),
                  pw_asusd_name(g_ui.pwv_asusd_ac));
     if (hw->asusd_bat == -2)
-        snprintf(bav, sizeof(bav), "%s", "--");
+        snprintf(bav, sizeof(bav), "%s", "-- (asusd absent)");
     else
         pw_val_e(bav, sizeof(bav), pw_asusd_name(hw->asusd_bat),
                  pw_asusd_name(g_ui.pwv_asusd_bat));
@@ -918,16 +923,17 @@ static void draw_power(struct ncplane *n, const rect_t *r)
     int top_line = pw_slot(g_ui.pw_top) - (pw_group_name(g_ui.pw_top) ? 1 : 0);
 
     if (g_ui.pw_typing) {
-        char line[144], rng[32];
+        char disp[64], line[144], rng[32];
+        tin_format(&g_ui.pw_input, disp, sizeof(disp), true);
         pw_row_range(g_ui.pw_sel, rng, sizeof rng, "");
         if (rng[0])
             snprintf(line, sizeof line,
-                     "set %s (%s): %.60s_ · Enter stages · Esc cancels",
-                     labels[g_ui.pw_sel], rng, g_ui.pw_input.buf);
+                     "set %s (%s): %s · Enter stages · Esc cancels",
+                     labels[g_ui.pw_sel], rng, disp);
         else
             snprintf(line, sizeof line,
-                     "set %s: %.60s_ · Enter stages · Esc cancels",
-                     labels[g_ui.pw_sel], g_ui.pw_input.buf);
+                     "set %s: %s · Enter stages · Esc cancels",
+                     labels[g_ui.pw_sel], disp);
         ui_putln(n, x, r->y + 1, w, line, pal->accent, true);
     } else {
         /* ▲▼ pinned to the right edge so narrow panels still show them */
@@ -1087,12 +1093,13 @@ static void draw_light(struct ncplane *n, const rect_t *r)
     int x = r->x + 2, w = r->w - 4;
 
     static const char *const KBDS[] = { "off", "low", "med", "high" };
-    char hexline[128];
+    char disp[96], hexline[144];
+    tin_format(&g_ui.lt_hex, disp, sizeof(disp), g_ui.lt_hex_active != 0);
     if (g_ui.lt_hex_active)
-        snprintf(hexline, sizeof(hexline), "#%.90s_", g_ui.lt_hex.buf);
+        snprintf(hexline, sizeof(hexline), "#%s", disp);
     else
-        snprintf(hexline, sizeof(hexline), "#%.90s (type 0-9a-f, Enter applies)",
-                 g_ui.lt_hex.buf);
+        snprintf(hexline, sizeof(hexline), "#%s (type 0-9a-f, Enter applies)",
+                 disp);
 
     int up = db_up_cached(0);
     char note[160];
@@ -1159,6 +1166,7 @@ static void draw_help(struct ncplane *n, const rect_t *r)
         "  t / T        fullscreen telemetry (T works everywhere)",
         "               hjkl/arrows walk the grid (2D) · enter detail",
         "               1-8 jump · esc back · h/l flips detail sections",
+        "  L            event log overlay (last 24 entries; click LIVE log)",
         "  esc / s      settings overlay · ? this help",
         "  applies run in the background — keys pause, q waits for them",
         "",
@@ -1193,7 +1201,7 @@ static void draw_help(struct ncplane *n, const rect_t *r)
         "",
 
         "SNAPSHOTS",
-        "  Enter apply · s save current · d delete · n new name",
+        "  Enter apply · s save current · d d delete (twice) · n new name",
         "  r rename · c note (shown with the saved date)",
         "  save shows a preview; Δ lists fields differing from live",
         "",
@@ -1285,8 +1293,7 @@ void panel_workspace_key(uint32_t key)
         case 'F': ws_set_view(WSV_FAN); return;
         case 'p':
         case 'P': ws_set_view(WSV_POWER); return;
-        case 'l':
-        case 'L': ws_set_view(WSV_LIGHT); return;
+        case 'l': ws_set_view(WSV_LIGHT); return; /* 'L' is global event log */
         case 'e':
         case 'E': settings_open(); return;
         default:

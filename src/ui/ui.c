@@ -291,35 +291,79 @@ int tgt_find(int x, int y)
     return 0;
 }
 
-/* ---- text input --------------------------------------------------------- */
+/* ---- text input (notcurses key bridge over src/tinput.c) ---------------- */
 
-void tin_set(tinput_t *t, const char *s)
+static uint32_t nc_to_tin_op(uint32_t key)
 {
-    snprintf(t->buf, sizeof(t->buf), "%s", s ? s : "");
-    t->len = strlen(t->buf);
+    switch (key) {
+    case NCKEY_LEFT:      return TIN_KEY_LEFT;
+    case NCKEY_RIGHT:     return TIN_KEY_RIGHT;
+    case NCKEY_HOME:      return TIN_KEY_HOME;
+    case NCKEY_END:       return TIN_KEY_END;
+    case NCKEY_BACKSPACE: return TIN_KEY_BACKSPACE;
+    case NCKEY_DEL:       return TIN_KEY_DEL;
+    default:              return key;
+    }
 }
 
-void tin_clear(tinput_t *t)
+bool tin_is_edit_key(uint32_t key)
 {
-    t->buf[0] = '\0';
-    t->len = 0;
+    return tin_is_edit_op(nc_to_tin_op(key));
 }
 
 bool tin_key(tinput_t *t, uint32_t key)
 {
-    if (key >= 32 && key < 127) {
-        if (t->len + 1 < sizeof(t->buf)) {
-            t->buf[t->len++] = (char)key;
-            t->buf[t->len] = '\0';
-        }
-        return true;
+    return tin_op(t, nc_to_tin_op(key));
+}
+
+/* ---- event log overlay ('L') -------------------------------------------- */
+
+static bool log_is_err(const char *s)
+{
+    return strstr(s, "FAILED") || strstr(s, "failed") ||
+           strstr(s, "error") || strstr(s, "denied");
+}
+
+static void draw_log_overlay(struct ncplane *n, const rect_t *r)
+{
+    const palette_t *pal = ui_palette(g_prefs.theme);
+    int x = r->x + 2, w = r->w - 4;
+    if (w < 12 || r->h < 6)
+        return;
+
+    ui_window(n, r, "EVENT LOG");
+
+    int count = ut_log_count();
+    int y0 = r->y + 3;
+    int vis = (r->y + r->h - 1) - y0;
+    if (vis < 1)
+        vis = 1;
+    int max_scr = count > vis ? count - vis : 0;
+    if (g_ui.log_scroll > max_scr)
+        g_ui.log_scroll = max_scr;
+    if (g_ui.log_scroll < 0)
+        g_ui.log_scroll = 0;
+
+    char hdr[128];
+    snprintf(hdr, sizeof(hdr),
+             "j/k scroll · g/G top/end · Esc/L close · newest first (%d/%d)%s%s",
+             count, UT_LOG_ENTRIES,
+             g_ui.log_scroll > 0 ? " ▲" : "",
+             g_ui.log_scroll < max_scr ? " ▼" : "");
+    ui_putln(n, x, r->y + 1, w, hdr, pal->muted, false);
+
+    if (count == 0) {
+        ui_putln(n, x, y0, w, "(no events logged yet)", pal->muted, false);
+        return;
     }
-    if (key == NCKEY_BACKSPACE || key == 127 || key == 8) {
-        if (t->len > 0)
-            t->buf[--t->len] = '\0';
-        return true;
+
+    for (int i = 0; i < vis && g_ui.log_scroll + i < count; i++) {
+        int idx = g_ui.log_scroll + i;
+        const char *msg = ut_log_get(idx);
+        bool err = log_is_err(msg);
+        uint32_t fg = err ? 0xFF4D5E : (idx == 0 ? pal->accent : pal->text);
+        ui_putln(n, x, y0 + i, w, msg, fg, err || idx == 0);
     }
-    return false; /* navigation keys fall through */
 }
 
 /* ---- layout -------------------------------------------------------------- */
@@ -500,6 +544,13 @@ static void handle_mouse(struct ncplane *stdn, const struct ncinput *ni, uint32_
         return;
     }
 
+    if (g_ui.log_overlay) {
+        const rect_t *w = &g_ui.rc_overlay;
+        if (mx < w->x || mx >= w->x + w->w || my < w->y || my >= w->y + w->h)
+            g_ui.log_overlay = false;
+        return;
+    }
+
     /* while the settings window is open, it is the only clickable layer:
      * a click outside closes it (btop habit), inside only its rows act */
     if (g_ui.db_overlay) {
@@ -541,6 +592,7 @@ static void handle_mouse(struct ncplane *stdn, const struct ncinput *ni, uint32_
         const rect_t *w = &g_ui.rc_overlay;
         if (mx < w->x || mx >= w->x + w->w || my < w->y || my >= w->y + w->h) {
             g_ui.settings_overlay = false;
+            g_ui.set_del_arm = -1;
             return;
         }
         int t = tgt_find(mx, my);
@@ -554,6 +606,7 @@ static void handle_mouse(struct ncplane *stdn, const struct ncinput *ni, uint32_
     if (g_ui.ws_view == WSV_FAN && g_ui.focus == FOC_WORKSPACE) {
         const rect_t *g = editor_fan_graph();
         if (g->w > 0 && mx >= g->x && mx < g->x + g->w && my >= g->y && my < g->y + g->h) {
+            g_ui.prof_del_arm = -1;
             editor_fan_act(0, mx - g->x, my - g->y);
             return;
         }
@@ -564,6 +617,8 @@ static void handle_mouse(struct ncplane *stdn, const struct ncinput *ni, uint32_
         return;
     int panel = (t >> 24) & 0x7f;
     int id = t & TGT_ID_MASK;
+    if (panel != TGT_PANEL_PROFILES)
+        g_ui.prof_del_arm = -1;
 
     switch (panel) {
     case TGT_PANEL_TOPBAR:
@@ -583,6 +638,10 @@ static void handle_mouse(struct ncplane *stdn, const struct ncinput *ni, uint32_
         break;
     case TGT_PANEL_SETTINGS:
         panel_settings_act(id);
+        break;
+    case TGT_PANEL_LOG:
+        g_ui.log_overlay = true;
+        g_ui.log_scroll = 0;
         break;
     default:
         break;
@@ -851,6 +910,20 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
         return;
     }
 
+    /* Notcurses delivers Ctrl+letter as letter + NCKEY_MOD_CTRL rather
+     * than raw control codes. Normalize readline editing chords once here
+     * so every tinput_t consumer sees 0x01/0x05/0x0b/0x15/0x17 cleanly. */
+    if (ncinput_ctrl_p(ni) && !ncinput_alt_p(ni)) {
+        switch (key) {
+        case 'a': case 'A': key = 0x01; break;
+        case 'e': case 'E': key = 0x05; break;
+        case 'k': case 'K': key = 0x0b; break;
+        case 'u': case 'U': key = 0x15; break;
+        case 'w': case 'W': key = 0x17; break;
+        default: break;
+        }
+    }
+
     /* fullscreen telemetry is read-only: t/T closes from either mode,
      * q quits the app (rule 5), everything else belongs to the
      * section navigation / detail handler */
@@ -862,6 +935,42 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
             try_quit();
         } else {
             panel_telem_full_key(key);
+        }
+        return;
+    }
+
+    if (g_ui.log_overlay) {
+        int n = ut_log_count();
+        switch (key) {
+        case NCKEY_ESC:
+        case 'l':
+        case 'L':
+            g_ui.log_overlay = false;
+            break;
+        case 'q':
+        case 'Q':
+            try_quit();
+            break;
+        case 'j':
+        case NCKEY_DOWN:
+            if (g_ui.log_scroll + 1 < n)
+                g_ui.log_scroll++;
+            break;
+        case 'k':
+        case NCKEY_UP:
+            if (g_ui.log_scroll > 0)
+                g_ui.log_scroll--;
+            break;
+        case 'g':
+        case NCKEY_HOME:
+            g_ui.log_scroll = 0;
+            break;
+        case 'G':
+        case NCKEY_END:
+            g_ui.log_scroll = n > 0 ? n - 1 : 0;
+            break;
+        default:
+            break;
         }
         return;
     }
@@ -904,6 +1013,7 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
 
         if (key == NCKEY_ESC || key == 's' || key == 'S') {
             g_ui.settings_overlay = false;
+            g_ui.set_del_arm = -1;
             return;
         }
         if (key == 'q' || key == 'Q') {
@@ -930,45 +1040,62 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
         (key == 't' &&
          !(g_ui.focus == FOC_WORKSPACE &&
            (g_ui.ws_view == WSV_FAN || g_ui.ws_view == WSV_POWER)))) {
+        g_ui.prof_del_arm = -1;
         g_ui.telem_full = true;
+        return;
+    }
+
+    /* 'L' opens the floating event log viewer everywhere (typing modes
+     * and overlays already returned above). */
+    if (key == 'L') {
+        g_ui.prof_del_arm = -1;
+        g_ui.log_overlay = true;
+        g_ui.log_scroll = 0;
         return;
     }
 
     switch (key) {
     case 'q':
     case 'Q':
+        g_ui.prof_del_arm = -1;
         try_quit();
         return;
     case NCKEY_ESC:
     case 's':
     case 'S':
+        g_ui.prof_del_arm = -1;
         settings_open();
         return;
     case NCKEY_TAB:
+        g_ui.prof_del_arm = -1;
         g_ui.focus = (focus_t)((g_ui.focus + (ni->shift ? FOC_COUNT - 1 : 1)) % FOC_COUNT);
         return;
-    case '1': g_ui.focus = FOC_PROFILES; return;
-    case '2': g_ui.focus = FOC_CONTROLS; return;
-    case '3': g_ui.focus = FOC_WORKSPACE; return;
-    case '4': g_ui.focus = FOC_TELEM; return;
+    case '1': g_ui.prof_del_arm = -1; g_ui.focus = FOC_PROFILES; return;
+    case '2': g_ui.prof_del_arm = -1; g_ui.focus = FOC_CONTROLS; return;
+    case '3': g_ui.prof_del_arm = -1; g_ui.focus = FOC_WORKSPACE; return;
+    case '4': g_ui.prof_del_arm = -1; g_ui.focus = FOC_TELEM; return;
     /* 5..8: workspace views, globally — f/p/l are taken by the fan
      * editor and the power/light rows, so the letters never worked as
      * reliable view keys; digits continue the 1..4 panel story and no
      * view binds them */
     case '5':
+        g_ui.prof_del_arm = -1;
         g_ui.focus = FOC_WORKSPACE;
         ws_set_view(WSV_FAN);
         return;
     case '6':
+        g_ui.prof_del_arm = -1;
         g_ui.focus = FOC_WORKSPACE;
         ws_set_view(WSV_POWER);
         return;
     case '7':
+        g_ui.prof_del_arm = -1;
         g_ui.focus = FOC_WORKSPACE;
         ws_set_view(WSV_LIGHT);
         return;
     case '8':
     case '?':
+        g_ui.prof_del_arm = -1;
         g_ui.focus = FOC_WORKSPACE;
         ws_set_view(WSV_HELP);
         return;
@@ -981,18 +1108,22 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
      * the non-deprecated route — ncinput's bool shift is 4.0 fodder) */
     if (ncinput_shift_p(ni) && !ncinput_alt_p(ni) && !ncinput_ctrl_p(ni)) {
         if (key == NCKEY_LEFT) {
+            g_ui.prof_del_arm = -1;
             focus_move(-1, 0);
             return;
         }
         if (key == NCKEY_RIGHT) {
+            g_ui.prof_del_arm = -1;
             focus_move(1, 0);
             return;
         }
         if (key == NCKEY_UP) {
+            g_ui.prof_del_arm = -1;
             focus_move(0, -1);
             return;
         }
         if (key == NCKEY_DOWN) {
+            g_ui.prof_del_arm = -1;
             focus_move(0, 1);
             return;
         }
@@ -1005,9 +1136,13 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
     case FOC_TELEM:
         /* the strip has no rows to walk; Enter/Space opens the
          * fullscreen view — same as 't', completing the 4-then-act
-         * story the other focused panels have */
+         * story the other focused panels have; 'l' opens the event log */
         if (key == NCKEY_ENTER || key == '\r' || key == '\n' || key == ' ')
             g_ui.telem_full = true;
+        else if (key == 'l' || key == 'L') {
+            g_ui.log_overlay = true;
+            g_ui.log_scroll = 0;
+        }
         break;
     default: break;
     }
@@ -1057,6 +1192,8 @@ int ui_run(hw_state_t *hw)
     g_ui.ws_view = WSV_FAN;
     g_ui.md_field = -1;
     g_ui.telem_detail = -1;
+    g_ui.prof_del_arm = -1;
+    g_ui.set_del_arm = -1;
     g_ui.prof_n = profile_list(g_ui.profs, MAX_PROFILES);
     g_ui.mode_n = modes_load(g_ui.modes, MODES_MAX);
     tin_set(&g_ui.prof_name, "my-snapshot");
@@ -1121,6 +1258,8 @@ int ui_run(hw_state_t *hw)
         panel_telemetry_draw(stdn, &g_ui.rc_telem);
         if (g_ui.telem_full)
             panel_telem_full_draw(stdn, &g_ui.rc_overlay);
+        else if (g_ui.log_overlay)
+            draw_log_overlay(stdn, &g_ui.rc_overlay);
         else if (g_ui.db_overlay)
             editor_daeboard_draw(stdn, &g_ui.rc_overlay);
         else if (g_ui.cf_overlay)

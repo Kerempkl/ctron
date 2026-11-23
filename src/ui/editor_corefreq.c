@@ -359,7 +359,8 @@ void editor_corefreq_draw(struct ncplane *n, const rect_t *r)
     ui_window(n, r, "CORE LIMITS");
 
     if (g_ui.cf_input_active) {
-        char line[144];
+        char disp[68], line[144];
+        tin_format(&g_ui.cf_input, disp, sizeof(disp), true);
         if (cf_core_mode()) {
             int g = 0;
             int k = cf_entry_at(g_ui.cf_sel, &g);
@@ -368,13 +369,13 @@ void editor_corefreq_draw(struct ncplane *n, const rect_t *r)
                 snprintf(lab, sizeof lab, "%s", cf_group_label(g));
             else
                 cf_core_label(k, lab, sizeof lab);
-            snprintf(line, sizeof(line), "%s MHz: %.63s_ · Enter stages · Esc cancels",
-                     lab, g_ui.cf_input.buf);
+            snprintf(line, sizeof(line), "%s MHz: %s · Enter stages · Esc cancels",
+                     lab, disp);
         } else {
             int id = (g_ui.cf_sel >= 0 && g_ui.cf_sel < hw->cpu_n)
                          ? hw->cpu_ids[g_ui.cf_sel] : 0;
-            snprintf(line, sizeof(line), "cpu %d MHz: %.63s_ · Enter stages · Esc cancels",
-                     id, g_ui.cf_input.buf);
+            snprintf(line, sizeof(line), "cpu %d MHz: %s · Enter stages · Esc cancels",
+                     id, disp);
         }
         ui_putln(n, x, r->y + 1, w, line, pal->accent, true);
     } else if (cf_core_mode()) {
@@ -506,8 +507,7 @@ void editor_corefreq_key(uint32_t key)
             g_ui.cf_input_active = 0;
             return;
         }
-        if ((key >= '0' && key <= '9') || key == NCKEY_BACKSPACE ||
-            key == 127 || key == 8)
+        if ((key >= '0' && key <= '9') || tin_is_edit_key(key))
             tin_key(&g_ui.cf_input, key);
         return;
     }

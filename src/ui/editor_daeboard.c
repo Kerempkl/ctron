@@ -938,7 +938,9 @@ void editor_daeboard_draw(struct ncplane *pl, const rect_t *r)
 		const char *lbl = typing_ctron == 3 ? "hex"
 				: typing_ctron == 1 ? "ctron"
 				: typing_ctron == 2 ? "key" : "step";
-		snprintf(line, sizeof line, "%s %.140s_", lbl, typed.buf);
+		char disp[144];
+		tin_format(&typed, disp, sizeof(disp), true);
+		snprintf(line, sizeof line, "%s %s", lbl, disp);
 		ui_putln(pl, x, y, w, line, pal->accent, true);
 	} else {
 		snprintf(line, sizeof line, "ctron  %s", k->ctron[0] ? k->ctron : "—");
@@ -1033,8 +1035,7 @@ void editor_daeboard_key(uint32_t key)
 				return;
 			}
 			if ((key >= '0' && key <= '9') || (key >= 'a' && key <= 'f') ||
-			    (key >= 'A' && key <= 'F') || key == NCKEY_BACKSPACE ||
-			    key == 127 || key == 8)
+			    (key >= 'A' && key <= 'F') || tin_is_edit_key(key))
 				tin_key(&typed, key);
 			return;
 		}

@@ -67,15 +67,19 @@ void panel_profiles_draw(struct ncplane *n, const rect_t *r)
             g_ui.prof_top = 0;
     }
 
+    if (g_ui.prof_del_arm >= g_ui.prof_n || g_ui.prof_del_arm != g_ui.prof_sel)
+        g_ui.prof_del_arm = -1;
+
     if (g_ui.prof_input != PL_INPUT_NONE) {
         const char *act = g_ui.prof_input == PL_INPUT_SAVE ? "save"
                         : g_ui.prof_input == PL_INPUT_RENAME ? "rename"
                                                              : "note";
         const tinput_t *fld = g_ui.prof_input == PL_INPUT_NOTE
                                   ? &g_ui.prof_note : &g_ui.prof_name;
-        char line[160];
-        snprintf(line, sizeof(line), "%s: %.90s_ · Enter ok · Esc cancel",
-                 act, fld->buf);
+        char disp[96], line[160];
+        tin_format(fld, disp, sizeof(disp), true);
+        snprintf(line, sizeof(line), "%s: %s · Enter ok · Esc cancel",
+                 act, disp);
         ui_putln(n, x, r->y + 1, w, line, pal->accent, true);
         if (g_ui.prof_input == PL_INPUT_SAVE) {
             char prev[160];
@@ -84,6 +88,12 @@ void panel_profiles_draw(struct ncplane *n, const rect_t *r)
             snprintf(line2, sizeof(line2), "will save: %.140s", prev);
             ui_putln(n, x, r->y + 2, w, line2, pal->muted, false);
         }
+    } else if (g_ui.prof_del_arm >= 0 && g_ui.prof_del_arm == g_ui.prof_sel) {
+        char warn[128];
+        snprintf(warn, sizeof(warn),
+                 "press d again to delete '%.48s' · other key cancels",
+                 g_ui.profs[g_ui.prof_sel]);
+        ui_putln(n, x, r->y + 1, w, warn, pal->accent, true);
     } else {
         char hint[80] = "j/k · Enter apply · s save · r ren · c note · d del";
         if (g_ui.prof_n > rows) {
@@ -123,7 +133,8 @@ void panel_profiles_draw(struct ncplane *n, const rect_t *r)
     const ui_btndef_t row[] = {
         { " Apply ", false, TGT(TGT_PANEL_PROFILES, ACT_PL_APPLY) },
         { " Save ",  false, TGT(TGT_PANEL_PROFILES, ACT_PL_SAVE) },
-        { " Del ",   false, TGT(TGT_PANEL_PROFILES, ACT_PL_DEL) },
+        { " Del ",   g_ui.prof_del_arm >= 0 && g_ui.prof_del_arm == g_ui.prof_sel,
+          TGT(TGT_PANEL_PROFILES, ACT_PL_DEL) },
         { " New ",   g_ui.prof_input == PL_INPUT_SAVE,
           TGT(TGT_PANEL_PROFILES, ACT_PL_NEW) },
     };
@@ -207,6 +218,9 @@ void panel_profiles_key(uint32_t key)
         return;
     }
 
+    if (key != 'd' && key != 'D')
+        g_ui.prof_del_arm = -1;
+
     switch (key) {
     case 'j':
     case NCKEY_DOWN:
@@ -248,8 +262,15 @@ void panel_profiles_key(uint32_t key)
     case 'd':
     case 'D':
         if (g_ui.prof_n > 0 && g_ui.prof_sel < g_ui.prof_n) {
-            profile_delete(g_ui.profs[g_ui.prof_sel]);
-            refresh_list();
+            if (g_ui.prof_del_arm == g_ui.prof_sel) {
+                g_ui.prof_del_arm = -1;
+                profile_delete(g_ui.profs[g_ui.prof_sel]);
+                refresh_list();
+            } else {
+                g_ui.prof_del_arm = g_ui.prof_sel;
+                ut_log("press d again to delete '%s' (any other key cancels)",
+                       g_ui.profs[g_ui.prof_sel]);
+            }
         }
         break;
     case 'n':
@@ -267,6 +288,8 @@ void panel_profiles_key(uint32_t key)
 
 void panel_profiles_act(int id)
 {
+    if (id != ACT_PL_DEL)
+        g_ui.prof_del_arm = -1;
     if (id >= ACT_PL_ITEM && id < ACT_PL_ITEM + MAX_PROFILES) {
         int i = id - ACT_PL_ITEM;
         if (i < g_ui.prof_n) {
