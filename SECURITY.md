@@ -19,8 +19,8 @@ User Action (TUI / CLI / mode / snapshot)
 ```
 
 Other privileged operations:
-- **CPU Watt Limits (PPT):** Direct execution of `ryzenadj` via `sudo -n`
-  (`ctrl_ppt_ryzen_cmd`).
+- **CPU Watt Limits (PPT):** Direct execution of `ctron-ppt` or `ryzenadj` via
+  `sudo -n` (`ctrl_ppt_wrapper_argv` / `ctrl_ppt_ryzen_argv`).
 - **GPU Core-Clock Lock:** Direct execution of `nvidia-smi -lgc` via `sudo -n`.
 - **Keyboard Backlight / Aura:** Communicated via `asusctl` CLI or `daeboard`
   UNIX domain socket (`AF_UNIX`).
@@ -55,7 +55,9 @@ Other privileged operations:
 
 ### 2.3. IPC & File Race Conditions
 - **Current State:**
-  - Singleton lock: `$XDG_RUNTIME_DIR/ctron.pid` (falls back to `/tmp/ctron-<uid>.pid`).
+  - Singleton lock: `$XDG_RUNTIME_DIR/ctron-tui.pid` (falls back to
+    `$TMPDIR/ctron-tui.pid` or `/tmp/ctron-tui.pid`; adding `<uid>` on the
+    `/tmp` fallback and gating `--tui` are tracked in `REVIEW.md` 1.6).
   - Toggle claim: `$XDG_RUNTIME_DIR/ctron-toggle.launching`.
   - `daeboard` socket: `/run/daeboard/daeboard.sock` (mode `0660`, group `wheel`).
 - **Residual Risk:** If `$XDG_RUNTIME_DIR` is not set and `/tmp` is shared,
@@ -102,11 +104,10 @@ Other privileged operations:
      arguments anymore.
 
 2. **Deploy Least-Privilege Sudoers Wrapper for `ryzenadj`:**
-   - **Status: documented 2026-10-26** — superseded by section 4:
-     §4.2 is the minimal code-verified ruleset, §4.3 the stricter
-     wrapper. The wrapper needs one small code follow-up (tracked in
-     NEXT.md FAZ 3) before ctron itself can use it; until then it only
-     tightens what other tools on the machine can do.
+   - **Status: DONE 2026-10-26** — see §4.2 (minimal code-verified
+     ruleset) and §4.3 (the three-integer `/usr/local/bin/ctron-ppt`
+     wrapper). ctron probes `/usr/local/bin/ctron-ppt` first when
+     installed and executable, falling back to `ryzenadj` otherwise.
 
 3. **Secure Atomic File Creation:**
    - Ensure all pidfile and timestamp claim operations use `open()` with
@@ -168,18 +169,20 @@ Other privileged operations:
 
 ---
 
-## 4. Recommended `/etc/sudoers.d/ctron` (code-verified, v0.3.0)
+## 4. Recommended `/etc/sudoers.d/ctron` (code-verified, since v0.3.0)
 
 Everything here is derived from what the binary actually execs with
 `sudo -n` — nothing else needs root. Apply with
 `visudo -f /etc/sudoers.d/ctron` (mode 0440) and verify per §4.5.
+*(Note: Settings `"no sudo"` currently gates `ut_priv_write` only; gating
+the remaining `sudo -n` paths is tracked in `REVIEW.md` 1.11.)*
 
 ### 4.1 What ctron runs with sudo
 
 | Purpose | Exact invocation | Where |
 |---|---|---|
-| sysfs writes: fan curve points + `pwmN_enable` (asus-nb-wmi hwmon), PPT/panel-OD via asus-armoury attributes, `platform_profile`, per-core cpufreq `scaling_*` + global `boost`, charge threshold, kbd brightness | `sudo -n tee <path>` | `ut_priv_write` (util.c) |
-| PPT fallback | if `/usr/local/bin/ctron-ppt` is installed and executable it is tried FIRST: `sudo -n /usr/local/bin/ctron-ppt <mW> <mW> <mW>`; otherwise `sudo -n <path> -a <mW> -c <mW> -b <mW>` — candidates in order `/usr/bin/ryzenadj`, `/usr/sbin/ryzenadj`, bare `ryzenadj`; values are integers validated in code | `ctrl_ppt_wrapper_cmd` / `ctrl_ppt_ryzen_cmd` (control.c) |
+| sysfs writes: fan curve points + `pwmN_enable` (asus-nb-wmi hwmon), PPT/panel-OD via asus-armoury attributes, `platform_profile`, per-core cpufreq `scaling_*` + global `boost`, charge threshold, kbd brightness | `sudo -n tee <path>` | `ut_priv_write` (util.c) / `cpufreq_write_all` (control.c) |
+| PPT fallback | if `/usr/local/bin/ctron-ppt` is installed and executable it is tried FIRST: `sudo -n /usr/local/bin/ctron-ppt <mW> <mW> <mW>`; otherwise `sudo -n <path> -a <mW> -c <mW> -b <mW>` — candidates in order `/usr/bin/ryzenadj`, `/usr/sbin/ryzenadj`, bare `ryzenadj`; values are integers validated in code | `ctrl_ppt_wrapper_argv` / `ctrl_ppt_ryzen_argv` (control.c) |
 | GPU clock lock / reset | `sudo -n /usr/sbin/nvidia-smi -lgc <m>,<m>` / `-rgc` — the absolute path comes from `command -v` at runtime | `ctrl_gpu_clock_*` (control.c) |
 | daeboard control (optional) | `sudo -n systemd-run --unit=daeboard --collect <bin>` and `sudo -n <install-script>` | daeboard.c |
 | capability probes | `sudo -n true` | `--doctor`, daeboard |

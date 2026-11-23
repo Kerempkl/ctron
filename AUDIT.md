@@ -22,12 +22,14 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
 
 ## A — Bellek güvenliği (buffer/taşma/tanımsız)
 
-- [x] **A1. Heap sızıntısı** — tüm malloc/fopen/popen noktalarında her yolda
-  free/fclose/pclose; realloc yok; poll döngüsünde heap tahsisi yok; UI
-  heap'e hiç dokunmuyor. *Kanıt 11-05: statik 24/24 nokta + yalnız-LSan
-  derlemesi altında unit/--doctor/--status/tam TUI smoke sıfır rapor
-  (yöntem hafızada: ASan glibc-2.41 artifact'ine dikkat — yalnız
-  -fsanitize=leak kullan).*
+- [~] **A1. Heap sızıntısı** — tüm malloc/fopen/popen noktalarında her yolda
+  free/fclose/pclose; realloc yok; poll döngüsünde heap tahsisi yok.
+  *Kanıt 11-05: statik 24/24 nokta + yalnız-LSan derlemesi altında
+  unit/--doctor/--status/tam TUI smoke sıfır rapor (ASan glibc-2.41
+  artifact'ine dikkat — yalnız -fsanitize=leak kullan).*
+  *2026-11-23 REVIEW.md 1.9 notu: sızıntı yok ama `editor_fan_presets_draw`
+  modal açıkken her karede `fan_ron_parse` (`malloc`/`free`) çağırıyor —
+  v0.10.0'da önbelleklenince tekrar [x].*
 - [x] **A2. Stack overflow, `off += snprintf` kalıbı** — dönüş değeri
   out[] ötesine taşır, size_t sarar. `profile_set_note`'ta kanıtlanmıştı;
   `note_append` clamp + test ile kapandı (v0.8.1). *Ağaç-geneli yoklama
@@ -179,8 +181,10 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
 
 ## C — Süreç/IO disiplini
 
-- [x] **C1. fd sızıntısı** — A1 ile aynı kanıt (pipe çiftleri fork hata
-  yolunda dahi kapanıyor).
+- [~] **C1. fd sızıntısı** — pipe çiftleri fork hata yolunda dahi
+  kapanıyor (A1 kanıtı). *2026-11-23 REVIEW.md 1.8 açığı:
+  `editor_daeboard.c:39,101` `cap_fd` (evdev) hiç `close()` edilmiyor —
+  v0.10.0'da kapatılınca tekrar [x].*
 - [x] **C2. SIGPIPE yarışı** — ut_write_via_argv ignore-penceresi +
   exec_run/argv_run drain (141 sahte-FAILED dersi). *Yeni exec yardımcısı
   eklenince drain kuralı tekrarlanmalı.*
@@ -259,8 +263,11 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
   geldi (power1_input=APU watt kanıtlı, wifi dBm, df-exact yüzde,
   load, PSI), kural bu maddenin başında duruyor. Yeni seri kapısı =
   birim kanıtı CHANGELOG girdisinde.*
-- [x] **D5. Dürüst okuma** — bayat önbellek `--` (kural 3); BAT1 temp yok,
-  cycle_count 0 gizli. *Yeni sensör eklenince kural tekrarlanır.*
+- [~] **D5. Dürüst okuma** — bayat önbellek `--` (kural 3); BAT1 temp yok,
+  cycle_count 0 gizli. *2026-11-23 REVIEW.md 1.2/1.3/1.4/1.10 açıkları:
+  `0 RPM`→`-1`, `--watch` ve `panel_telem_full.c`'de ham `-1`, `wifi_level_dbm`
+  ters koşul + `-1` çakışması, `pp_dpm_sclk` tek-satır okuma, `nv_*` 0 sentinel
+  — v0.10.0'da kapatılınca tekrar [x].*
 - [x] **D6. Yaz-sonrası geri-okuma** — kscreen-doctor/Hyprland exit-0
   durmadan-yapmaz; integer refresh `@60` (kural 4). *Yeni display
   backend'inde (Arcioth) kural tekrarlanır.*
@@ -281,13 +288,15 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
 - [x] **E2. asusd ezişi** — güç olayında profil zorlaması; management
   satırları + snapshot/restore + explicit-staging-önceliği (10-01).
   "AC/battery ters" false alarm'ı da kapandı.
-- [x] **E3. Yazma zinciri önceliği** — *Denetim 11-17: yapısal kanıt —
+- [~] **E3. Yazma zinciri önceliği** — *Denetim 11-17: yapısal kanıt —
   ut_write_file/ut_priv_write/ut_write_via_argv çağrılarının TÜMÜ
   (16 nokta) control.c içinde; UI/main/cmds yalnız ctrl_* çağırır;
   zincir dışı kapı yok. Sıra temsilcide doğrulandı (ctrl_set_profile:
   asusctl → ut_priv_write sysfs [kendisi direkt→sudo -n]). Sudo'suz
   makine davranışı önceden kanıtlı (fan_sysfs_dead + üçlü verdict,
-  7011b56).*
+  7011b56).* *2026-11-23 REVIEW.md 1.11 & 2.2 açıkları: `cpufreq_write_all`
+  önce `sudo -n tee` deniyor ve `PREF_NO_SUDO` 4 ayrıcalıklı yolda
+  atlanıyor — v0.10.0/v0.12.0'da kapanınca tekrar [x].*
 - [x] **E4. Stale-PPT etkileşimi** — *Kod doğrulaması 11-17, NEXT-19
   kapanış kaydıyla birebir: tek doğrulama kümesi pw_write_mask —
   her alanın yazım koşulu tek yerde (PPT: touched BAYRAĞI veya
@@ -295,7 +304,7 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
   cpufreq: titreşen tavan → yalnız touched); pw_dirty = mask != 0
   (satır 268), Apply ışığı + ● + quit-guard + Enter kapıları +
   "will write:" önizlemesi hepsi aynı maskeyi okur — asimetri
-  kapanmış, önizleme ağırıyor.*
+  kapanmış, önizleme örtüşüyor.*
 - [x] **E5. FAN 'w' senkron EC yazması** — *Denetim 11-17: senkronluk
   bilinçli + belgeli (editor_fan.c:55 yorum). Çakışma penceresi
   KAPALI: 'w' dahil TÜM tuşlar dispatch_key'in busy kapısından geçer
@@ -323,12 +332,6 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
   W-20] taban/tavan → W/2; split clamp; h ≤ 0 dikdörtgenlerde çizim
   döngüsü hiç dönmez; ui_putln genişlik-1 dersi. Overlay'ler aynı
   ui_layout tek noktadan.*
-- [x] **F4. UTF-8 genişlik/yerel metin** — *Denetim 11-17: ağaçta
-  toupper çağrısı YOK — yalnızca panel_telem_full.c:325'te NEDEN
-  kullanılmadığını açıklayan yorum (tr_TR i→İ dersi koda gömülü,
-  çözüm = büyük-harf etiketler ASCII-özel, aab6c4d). Çizim tarafı
-  utf_cells-farkındalıklı (dt_sep doldurma utf_cells < w-1 koşuluyla);
-  dar terminal packed fallback (11. tur).*
 - [x] **F4. UTF-8 genişlik/yerel metin** — toupper tr_TR 'i'→'WRiTE' dersi;
   çok baytlı karakter hücre sınırlarını bölüyor mu; tablo hizası.
   *Denetim 11-17: ağaçta toupper çağrısı YOK — tek eşleşme
@@ -336,9 +339,7 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
   i→İ); çözüm = büyük-harf etiketler ASCII-özel (aab6c4d), Türkçe
   yalnız değer/değişken tarafında; çok bayt genişlik utf_cells-
   farkındalıklı (dt_sep doldurması utf_cells < w-1 koşuluyla); dar
-  terminal packed fallback (11. tur). Kanıt metni F turunda yanlışlıkla
-  F3'ün bloğuna yazılmıştı — işaret bu turda düzeltildi. Türkçe
-  oturumda tam smoke geçiyor.*
+  terminal packed fallback (11. tur). Türkçe oturumda tam smoke geçiyor.*
 - [x] **F5. Girdi uçları** — *Denetim 11-17: tuş tekrarı →
   KEY_REFRESH_MIN_MS 120 ms hız-limiti (601-623, perf-audit ölçümlü:
   tuş-başına tam refresh yalnız limit dışında; apply/resize/timeout
@@ -400,23 +401,25 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
   *Yeni komut eklenince kural.*
 - [x] **H3. Borulanmış çıktıda TUI açılmama** — (no-args=kural) piped
   tespiti. *Yeni giriş yollarında tekrar doğrulanır.*
-- [x] **H4. Çoklu örnek çatışması** — *Denetim 11-17: iki TUI → singleton
+- [~] **H4. Çoklu örnek çatışması** — *Denetim 11-17: iki TUI → singleton
   pidfile (ut_singleton: O_EXCL|O_NOFOLLOW 0600, bayat-pid ezme,
   comm doğrulaması; ikinci örnek "TUI already running (pid %d)" ile
   reddedilir — smoke CTRON_TEST=1 ile bilinçli muaf). TUI+CLI → CLI
   slot almaz, headless; yazılar kernel sysfs'ünde son-yazan-kazanır
   (atomik), dürüst okumalar dış değişimi izler (asusd drift kanıtı).
   İki csv logger aynı dosyaya → O_APPEND satır-atomik girişleşme,
-  kabul edilen sözleşme. Davranışların hepsi belgeli/kodlu.*
+  kabul edilen sözleşme.* *2026-11-23 REVIEW.md 1.6 açıkları: `--tui`
+  singleton'ı atlıyor ve `/tmp/ctron-tui.pid`'de `<uid>` yok —
+  v0.10.0'da kapatılınca tekrar [x].*
 
 ## I — Taşınabilirlik/ortam
 
 - [x] **I1. PATH/secure_path** — nvidia-smi mutlak yol çözümü (sudo reset),
   ryzenadj bare-name fallback, merged-usr /usr/sbin→bin tek-dosya dersi;
   NixOS read-only denetimi kırıcı yok (10-31).
-- [ ] **I2. Kalan NixOS/Arcioth safa** — flake `nix build` ilk doğrulama,
+- [ ] **I2. Kalan NixOS/Arcioth saha** — flake `nix build` ilk doğrulama,
   sudoers extraRules, ryzenadj secure_path testi, FA507NVR canlı dörtlüsü,
-  Hyprland mouse. (Saha maddeleri; NEXT.md FAZ 2 ile senkron.)
+  Hyprland mouse. (Saha maddeleri; NEXT.md ile senkron.)
 - [x] **I3. Kernel sürüm kayması** — *Denetim 11-17: ctron perf PMU
   kullanmıyor (per-core proxy = /proc/stat util%+MHz — kernel-sürüm
   bağımsız); gpu_metrics ayrıştırıcısı emekli (u32@28 dersi, kod notu).
@@ -470,14 +473,14 @@ listesi. Kategoriler A–L; kalemler tek tek denetlenecek.
   `count == 0 → -1`; since `s_lt_n == 0 → -1`; ilk poll core_util -1
   tohumlu; -1 sentinel'leri val_or_dash/dash_if ile "--" olarak
   çizilir. Boş-mengeç semantiği her tabloya aynı kuraldan akıyor.*
-- [x] **K4. Zaman hesapları** — *Denetim 11-17: TÜM geçen-süre
+- [~] **K4. Zaman hesapları** — *Denetim 11-17: ana geçen-süre
   matematiği CLOCK_MONOTONIC (mono_ms, tmono_ms, apply_start_ms,
-  telem_ack_ms, s_last_refresh_ms) → sistem saati geriye alınsa etki
-  yok; duvar saati yalnız görüntü damgalarında — ut_log'un localtime_r
-  dönüşü yok sayılıyordu, GUARD EKLENDİ (init "--:--:--" + dönüş
-  kontrolü; pratikte başarısız olamaz ama artık okuma da değil).
-  since-reset akümülatörleri DEĞER biriktirir (min/max/sum/n), süre
-  değil → saat kaymasından bağımsız.*
+  telem_ack_ms, s_last_refresh_ms); ut_log'un localtime_r dönüşü
+  korunuyor; since-reset akümülatörleri DEĞER biriktirir (saat
+  kaymasından bağımsız).* *2026-11-23 REVIEW.md 1.7 açığı: üç önbellek
+  zamanlayıcısı (`hw.c:418`, `panel_workspace.c:1106`,
+  `editor_daeboard.c:767`) hâlâ `time(NULL)` kullanıyor — `ut_mono_ms()`
+  birleştirmesiyle v0.10.0'da tekrar [x].*
 
 ## L — Hata raporlama dürüstlüğü (ctron'un imzası)
 

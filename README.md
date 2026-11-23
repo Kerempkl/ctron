@@ -215,12 +215,13 @@ and goes through one chain:
 3. else `sudo -n` — passwordless sudo only; without it you get a clean
    error in the log, never a password prompt or a hang.
 
-PPT limits come from the `asus-armoury` firmware-attribute `min`/`max`
+PPT limits come from the `asus-armoury` firmware-attribute `min_value`/`max_value`
 files when the firmware exposes them; otherwise a generous physical
 ceiling is used and kernel rejections are surfaced. Values reported as
 `0`/`5` by the stale kernel cache are printed as `--` (unknown), never
 faked.
 
+<a id="display-backends-compositor-refresh-rate-control"></a>
 <details>
 <summary><b>Display backends</b> (compositor refresh-rate control)</summary>
 
@@ -254,6 +255,7 @@ Hyprland handoff state:
 
 </details>
 
+<a id="kde-armoury-crate-m4-key"></a>
 <details>
 <summary><b>KDE: Armoury Crate (M4) key</b></summary>
 
@@ -310,22 +312,25 @@ tests/          unit tests (make test)
 
 ## Roadmap (parked)
 
-Open work is tracked in [NEXT.md](NEXT.md) (single source). Intentionally
-parked: Waybar color sync · MUX / dGPU switch (needs a reboot flow) ·
-`throttle_thermal_policy` (overlaps platform profiles) · wlr-randr /
-xrandr backends · UI language table (EN/TR) · polkit helper (SECURITY.md
-Phase 3) · per-key keyboard color (single-zone keyboard).
+Open work is tracked in [NEXT.md](NEXT.md) and [REVIEW.md](REVIEW.md).
+Intentionally parked: Waybar color sync · MUX / dGPU switch (needs a
+reboot flow) · `throttle_thermal_policy` (overlaps platform profiles) ·
+wlr-randr / xrandr backends · UI language table (EN/TR) · polkit helper
+(SECURITY.md Phase 3) · per-key keyboard color (single-zone keyboard) ·
+daeboard daemon-side work (lives in the daeboard repo).
 
 ## Documentation
 
 | Doc | What's in it |
 | --- | --- |
-| [HARDWARE.md](HARDWARE.md) | row-by-row support matrix (English + Türkçe) |
-| [SECURITY.md](SECURITY.md) | privilege model, hardening roadmap |
-| [CHANGELOG.md](CHANGELOG.md) | what changed, when |
-| [NEXT.md](NEXT.md) | roadmap — the single source of open work |
-| [PLAN.md](PLAN.md) / [PLANS.md](PLANS.md) | the approved v2 plan & shipped plans |
-| [HANDOFF.md](HANDOFF.md) / [AGENTS.md](AGENTS.md) | session records & agent guidelines |
+| [HARDWARE.md](HARDWARE.md) | row-by-row support matrix & sensor map (English + Türkçe) |
+| [SECURITY.md](SECURITY.md) | privilege model, sudoers rules, hardening roadmap |
+| [CHANGELOG.md](CHANGELOG.md) | release-level changelog (detailed log in `docs/history/`) |
+| [NEXT.md](NEXT.md) | open field work, version policy, parked list |
+| [REVIEW.md](REVIEW.md) | code-verified critique & `v0.10.0` → `v1.0.0` roadmap |
+| [AUDIT.md](AUDIT.md) | A–L error-class audit checklist |
+| [HANDOFF.md](HANDOFF.md) / [AGENTS.md](AGENTS.md) | recent session handoffs & agent guidelines |
+| `docs/history/` | archived plans (`PLAN.md`, `PLANS.md`) & older session/change logs |
 
 Config lives in `~/.config/ctron/` (`settings.ini`, `modes.ini`,
 `profiles/*.ctr` snapshots); the TUI footer keeps a ring buffer of the

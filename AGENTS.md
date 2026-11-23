@@ -2,38 +2,43 @@
 
 Lightweight ASUS laptop control center for Linux. One C binary, one
 dependency (notcurses). Verified machines: ASUS TUF Gaming **A16 FA608PP**
-(Ryzen 9 8940HX + RTX 5070 Max-Q, CachyOS, KDE Wayland, kernel 7.2,
-Kerempkl) and **A15 FA507NVR** (Ryzen 7 7435HS + RTX 4060, NixOS,
-Hyprland 0.55, Arcioth).
+(Ryzen 9 8940HX + RTX 5070 Max-Q, CachyOS, KDE Wayland, kernels 7.2–7.3
+& 6.18-lts, Kerempkl) and **A15 FA507NVR** (Ryzen 7 7435HS + RTX 4060,
+NixOS, Hyprland 0.55, Arcioth).
 
 **Before doing anything, read `HANDOFF.md`** (latest session state) and
-`CHANGELOG.md` (what changed when). Append to both when you finish a
-session: a signed HANDOFF section + one CHANGELOG entry per change.
+`CHANGELOG.md` (release-level changes; full engineering archive lives in
+`docs/history/`). Open work is tracked in `NEXT.md` and `REVIEW.md`;
+audit state lives in `AUDIT.md`. Append to `HANDOFF.md` (signed) and
+`CHANGELOG.md` when you finish a session.
 
 ## What ctron is (v2)
 
 - No-args `ctron` → fullscreen notcurses TUI in the current terminal.
 - Any argument → headless CLI (`--status`, `--hz 60`, `--mode turbo`, ...);
   piped output never opens the TUI.
-- Layout: left column profiles + quick controls, right-top workspace
-  (fan curve editor / power / light / settings / mode editor), right-bottom
-  live telemetry. Panels are independent widgets; `ui_layout()` in
-  `src/ui/ui.c` is the only place that places them.
+- Layout: left column snapshots + quick controls, right-top workspace
+  (fan curve editor / power / light / help), right-bottom live telemetry.
+  Settings + mode editor, fullscreen telemetry (`t`), core limits (`c`),
+  fan presets (`m`) and daeboard editor (`b`) run as floating overlays.
+  Panels are independent widgets; `ui_layout()` in `src/ui/ui.c` is the
+  only place that places them.
 
 ## Architecture map
 
 ```
 src/main.c     CLI parsing + VERSION; any arg = headless, none = TUI
-src/util.c     sysfs/exec/log helpers; ut_priv_write/ut_write_via_argv
-               = the write doors (fork+execve argv, no shell)
+src/util.c     sysfs/exec/log/atomic-write helpers; ut_priv_write /
+               ut_write_via_argv = the write doors (fork+execve argv)
 src/hw.c       read layer: hw_refresh_fast (poll) / hw_refresh_live
-               (snapshot); telemetry sources incl. gpu_metrics gfx slice
+               (snapshot); telemetry sources (gpu_metrics retired)
 src/control.c  write layer (asusctl -> direct sysfs -> sudo -n)
 src/cmds.c     key/value command table shared by CLI, modes and .ctr profiles
-src/fan.c      8-point fan curve model (pure, unit-tested)
+src/fan.c      8-point fan curve model + asusd RON preset parser (unit-tested)
 src/modes.c    user shortcut bundles (~/.config/ctron/modes.ini)
-src/profile.c  .ctr profiles (free-form names)
-src/telem.c    pure sample rings + sparkline (no nc, no hw; unit-tested)
+src/profile.c  .ctr snapshots (free-form names, metadata, live diff)
+src/settings.c prefs + hardware persistence (~/.config/ctron/settings.ini)
+src/telem.c    pure sample rings + window/since-reset stats (unit-tested)
 src/daeboard.c optional LED daemon client (AF_UNIX seqpacket socket)
 src/display/   compositor backends behind display_ops_t (kde done,
                hyprland handed to Arcioth); add one = one file + registry line
@@ -76,4 +81,5 @@ inside `notcurses_init` — that is the test harness's fault, not ctron's.
 - TUF + Ryzen + NVIDIA only; no device-plugin framework.
 - Out of scope (parked): Waybar sync, MUX/dGPU switch,
   `throttle_thermal_policy` (overlaps platform profiles).
-- Hyprland backend open items live in README "Hyprland handoff notes".
+- Hyprland backend open items live in `README.md` ("Display backends" →
+  Hyprland handoff state) and `NEXT.md`.

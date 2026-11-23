@@ -12,7 +12,7 @@ ctron depends on four separate layers, so hardware support is
    ASUS-only.
 2. **AMD CPU side** (`k10temp`, `amd-pstate` EPP, cpufreq) — changes
    root-level on Intel.
-3. **NVIDIA driver** (`nvidia-smi`) — dGPU temperature.
+3. **NVIDIA driver** (`nvidia-smi`) — dGPU telemetry and clock lock.
 4. **Desktop stack** — KDE Wayland / Hyprland for refresh rate,
    passwordless `sudo -n` for privileged writes.
 
@@ -82,8 +82,8 @@ Notes:
   three integers:
   `/usr/local/bin/ctron-ppt`:
   `#!/bin/sh\n[ $# -eq 3 ] || exit 2\ncase "$1$2$3" in *[!0-9]*) exit 2;; esac\nexec /usr/bin/ryzenadj -a "$1" -c "$2" -b "$3"\n`
-  + sudoers `NOPASSWD: /usr/local/bin/ctron-ppt` (ctron keeps using
-  the direct path until a future opt-in).
+  + sudoers `NOPASSWD: /usr/local/bin/ctron-ppt` (probed first by ctron
+  when installed and executable — see `SECURITY.md §4.3`).
 - **GPU clock lock (FA608PP, verified 2026-10-04)**: laptop GPU power
   limits are locked (`power.limit` reads `[N/A]`) and the nb-wmi
   `nv_dynamic_boost` / `nv_temp_target` rows apply without any
@@ -110,7 +110,7 @@ Notes:
   scripting runtime offlining is NOT a substitute — a BIOS change +
   reboot is required.
 
-- **Telemetry sensor map (the 't' screen, v0.7.0)** — every source is
+- **Telemetry sensor map (the 't' screen)** — every source is
   read-only sysfs/procfs except nvidia-smi (one query, 2 s cache);
   absent sensors print `--`, never a guess:
   - **CPU**: k10temp `temp1` (Tctl) + `temp3`/`temp4` (Tccd1/2 —
@@ -204,7 +204,7 @@ değil, satır satır** belirlenir:
    ctron'un kalbi, yalnızca ASUS'ta var.
 2. **AMD CPU tarafı** (`k10temp`, `amd-pstate` EPP, cpufreq) —
    Intel'de kökten değişir.
-3. **NVIDIA sürücüsü** (`nvidia-smi`) — dGPU sıcaklığı.
+3. **NVIDIA sürücüsü** (`nvidia-smi`) — dGPU telemetrisi ve saat kilidi.
 4. **Masaüstü yığını** — yenileme hızı için KDE Wayland / Hyprland,
    yetkili yazımlar için şifresiz `sudo -n`.
 
@@ -273,8 +273,8 @@ Notlar:
   sarmalayıcı:
   `/usr/local/bin/ctron-ppt`:
   `#!/bin/sh\n[ $# -eq 3 ] || exit 2\ncase "$1$2$3" in *[!0-9]*) exit 2;; esac\nexec /usr/bin/ryzenadj -a "$1" -c "$2" -b "$3"\n`
-  + sudoers `NOPASSWD: /usr/local/bin/ctron-ppt` (ctron, ileride bir
-  tercih açılana dek doğrudan yolu kullanır).
+  + sudoers `NOPASSWD: /usr/local/bin/ctron-ppt` (kurulu ve
+  çalıştırılabilirse ctron önce bunu dener — bkz. `SECURITY.md §4.3`).
 - **GPU saat kilidi (FA608PP, 2026-10-04'te doğrulandı)**: laptop GPU
   watt limitleri kilitlidir (`power.limit` = `[N/A]`) ve nb-wmi
   `nv_dynamic_boost` / `nv_temp_target` satırları bu makinede
@@ -301,7 +301,7 @@ Notlar:
   (CCD'ler arası gecikme yok) oyun için makul bir yapı; runtime
   offline betiklemek yerine geçmez — BIOS değişikliği + reboot
   gerekir.
-- **Telemetri sensör haritası ('t' ekranı, v0.7.0)** — nvidia-smi
+- **Telemetri sensör haritası ('t' ekranı)** — nvidia-smi
   dışında (tek sorgu, 2 sn önbellek) her kaynak salt-okunur
   sysfs/procfs; olmayan sensör `--` basar, asla tahmin etmez:
   - **CPU**: k10temp `temp1` (Tctl) + `temp3`/`temp4` (Tccd1/2 —
@@ -319,7 +319,7 @@ Notlar:
     `busiest` maksimumu — her biri tek sayı, çekirdek tablosu anlık
     kalır.
   - **Fanlar**: asus hwmon `fan1/2_input` RPM (0 dürüst değerdir —
-    birçok makinede EC, GPU fanını boştayla tamamen durdurur).
+    birçok makinede EC, GPU fanını boşta tamamen durdurur).
   - **dGPU** (nvidia-smi, tek sorgu): sıcaklık, güç, grafik saati,
     kullanım, VRAM, pstate ve on adlandırılmış
     `clocks_event_reasons.*` bayrağı. Tuzaklar: `--help`'in
