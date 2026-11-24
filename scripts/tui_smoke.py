@@ -688,7 +688,20 @@ def flow_snapshots():
             s.key(b"ccd 0 3000")   # exact rule replaces that CCD's staged value
             s.key(b"\r")
             time.sleep(0.2)
-            for _ in range(9):     # keyboard colour row (field 12, 9 rows down)
+            # PPT row: type exact watts, then a manual 5 W step (no preset snap)
+            s.key(b"j")            # PPT (SPL/SPPT/FPPT) row
+            m_p = s.mark()
+            s.key(b"e")
+            time.sleep(0.2)
+            s.key(b"\x15")         # drop the seed (live or 60,75,75)
+            s.key(b"62,77,77")     # manual triple
+            s.key(b"\r")
+            s.key(b"l")            # +5 W on all three -> 67,82,82
+            if not s.wait_for(b"67", since=m_p, timeout=6.0):
+                fail("snapshots", "manual watts + step did not land on the PPT row")
+                return
+            ok("snapshots", "PPT row takes typed watts and steps 5 W (no preset snap)")
+            for _ in range(8):     # keyboard colour row (field 12, 8 rows down)
                 s.key(b"j")
             s.key(b"l")            # Ice -> Red
             time.sleep(0.2)
@@ -701,10 +714,11 @@ def flow_snapshots():
             if (len(core_lines) != 16 or
                     any(not ln.endswith(" 3000") for ln in core_lines) or
                     "\nfreq = 5386\n" not in cbody3 or
+                    "\nppt = 67,82,82\n" not in cbody3 or
                     "\naura = static ff0000\n" not in cbody3):
-                fail("snapshots", f"core rule / colour not saved: {cbody3!r}")
+                fail("snapshots", f"core rule / watts / colour not saved: {cbody3!r}")
                 return
-            ok("snapshots", "ccd rule lands as 16 per-core lines; colour row steps; saved to .ctr")
+            ok("snapshots", "ccd rule + manual watts + colour saved to .ctr")
             s.key(b"\x1b")         # Esc returns focus to Snapshot list
             time.sleep(0.2)
             # double-u overwrite from live hardware (preserves note 'n1')

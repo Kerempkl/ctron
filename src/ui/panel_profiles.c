@@ -492,22 +492,24 @@ static void step_field(profile_meta_t *m, const hw_state_t *hw, int f, int dir)
         break;
     }
     case SF_PPT: {
-        /* 0: Q45 (45/55/55), 1: B60 (60/75/75), 2: P80 (80/80/80), 3: off */
-        int cur = 1;
-        if (m->ppt_off == 1) cur = 3;
-        else if (m->ppt_spl <= 45) cur = 0;
-        else if (m->ppt_spl <= 65) cur = 1;
-        else cur = 2;
-        cur = (cur + dir + 4) % 4;
-        if (cur == 0) {
-            m->ppt_off = -1; m->ppt_spl = 45; m->ppt_sppt = 55; m->ppt_fppt = 55;
-        } else if (cur == 1) {
-            m->ppt_off = -1; m->ppt_spl = 60; m->ppt_sppt = 75; m->ppt_fppt = 75;
-        } else if (cur == 2) {
-            m->ppt_off = -1; m->ppt_spl = 80; m->ppt_sppt = 80; m->ppt_fppt = 80;
-        } else {
-            m->ppt_off = 1; m->ppt_spl = m->ppt_sppt = m->ppt_fppt = 0;
+        /* watt stepping with 1 Power's own 5 W increments, windows and
+         * fppt >= sppt >= spl ordering — presets are typing shortcuts
+         * (Q45/B60/P80 still parse), never a snap target */
+        int smin, smax, pmin, pmax, fmin, fmax;
+        ctrl_ppt_limits(hw, &smin, &smax, &pmin, &pmax, &fmin, &fmax);
+        if (m->ppt_off == 1 || m->ppt_spl <= 0) {
+            /* leaving off / omitted (live values were tried by the seed):
+             * a predictable starting point, then the step shows through */
+            m->ppt_off = -1;
+            m->ppt_spl = 60;
+            m->ppt_sppt = 75;
+            m->ppt_fppt = 75;
         }
+        m->ppt_spl  += 5 * dir;
+        m->ppt_sppt += 5 * dir;
+        m->ppt_fppt += 5 * dir;
+        ctrl_ppt_order(&m->ppt_spl, &m->ppt_sppt, &m->ppt_fppt,
+                       smin, smax, pmin, pmax, fmin, fmax);
         break;
     }
     case SF_GPU_CLOCK:
@@ -776,7 +778,7 @@ static void commit_exact_edit(profile_meta_t *m, const hw_state_t *hw, int f)
             m->ppt_spl = m->ppt_sppt = m->ppt_fppt = a;
             g_ui.prof_edit_dirty = true;
         } else {
-            ut_log("ppt expects SPL,SPPT,FPPT (e.g. 60,75,75) or Q45/B60/P80/off");
+            ut_log("ppt expects watts SPL,SPPT,FPPT (e.g. 60,75,75; one value = all three) or off");
         }
         break;
     }
@@ -1190,7 +1192,7 @@ static void draw_editor_pane(struct ncplane *n, const rect_t *r)
         if (g_ui.prof_in_edit && g_ui.prof_val_typing) {
             const char *fmt_hint =
                 g_ui.prof_edit_sel == SF_PPT
-                    ? "Enter ok · Esc cancel · SPL,SPPT,FPPT (e.g. 60,75,75) or Q45/B60/P80/off"
+                    ? "Enter ok · Esc cancel · watts SPL,SPPT,FPPT (e.g. 60,75,75 · one value = all three) or off"
                 : g_ui.prof_edit_sel == SF_GPU_CLOCK
                     ? "Enter ok · Esc cancel · MHz (180..3000) or 'reset' to unlock"
                 : g_ui.prof_edit_sel == SF_FREQ
