@@ -35,6 +35,12 @@ see [docs/history/changelog-2026-09-11.md](docs/history/changelog-2026-09-11.md)
   against a pre-seeded config.
 
 ### Fixed
+- **Duplicated board name in the device model string (`hw.c`):** some ASUS
+  firmware repeats the board name in DMI `product_name`
+  (`ASUS TUF Gaming A16 FA608PP_FA608PP`), which leaked into the TUI header,
+  `--status`/`--doctor`/`--json` model field, and `.ctr` `# device:` headers.
+  New pure `hw_sanitize_model()` collapses the repeated trailing token
+  (word-bounded only), unit-tested in `check_model_sanitize()`.
 - **Snapshot backend & apply bugs (`profile.c`, `ui.c`, `main.c`, `panel_profiles.c`):**
   - **Fresh live reads before TUI save/inspect:** entering `4 Snapshots`,
     opening Save (`s`/`n`), saving, and `uu` overwriting now call

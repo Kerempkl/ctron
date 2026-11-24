@@ -789,6 +789,35 @@ static void check_topology_group(void){
     }
 }
 
+static void check_model_sanitize(void)
+{
+    char m[64];
+
+    hw_sanitize_model("ASUS TUF Gaming A16 FA608PP_FA608PP", m, sizeof(m));
+    CHECK(!strcmp(m, "ASUS TUF Gaming A16 FA608PP"), "model dedupe space-bound");
+
+    hw_sanitize_model("GA402X_GA402X", m, sizeof(m));
+    CHECK(!strcmp(m, "GA402X"), "model dedupe whole-string");
+
+    hw_sanitize_model("TUF_A16_A16", m, sizeof(m));
+    CHECK(!strcmp(m, "TUF_A16"), "model dedupe underscore-bound");
+
+    hw_sanitize_model("FA507NVR", m, sizeof(m));
+    CHECK(!strcmp(m, "FA507NVR"), "model no underscore unchanged");
+
+    hw_sanitize_model("Zenbook_Duo", m, sizeof(m));
+    CHECK(!strcmp(m, "Zenbook_Duo"), "model distinct tokens unchanged");
+
+    hw_sanitize_model("14X_14XV", m, sizeof(m));
+    CHECK(!strcmp(m, "14X_14XV"), "model longer suffix unchanged");
+
+    hw_sanitize_model("AB14X_14X", m, sizeof(m));
+    CHECK(!strcmp(m, "AB14X_14X"), "model mid-word repeat unchanged");
+
+    hw_sanitize_model("", m, sizeof(m));
+    CHECK(!m[0], "model empty stays empty");
+}
+
 static void check_ppt_order(void)
 {
     /* staging SPL above the others pulls the chain up, like the write */
@@ -2384,6 +2413,7 @@ int main(void)
     check_power_fmt();
     check_cpu_list_parse();
     check_topology_group();
+    check_model_sanitize();
     check_asusd_enforced();
     check_asusd_ron_parse();
     check_read_file_all();

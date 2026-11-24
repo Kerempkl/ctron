@@ -1407,6 +1407,28 @@ static void read_kbd(hw_state_t *hw)
 
 static void cpu_limits_sweep(hw_state_t *hw, bool full);
 
+/* Some ASUS firmware repeats the board name in DMI product_name
+ * ("ASUS TUF Gaming A16 FA608PP_FA608PP"); collapse the duplicated
+ * trailing token. Pure, unit-tested. */
+void hw_sanitize_model(const char *in, char *out, size_t n)
+{
+    snprintf(out, n, "%s", in);
+    char *last = strrchr(out, '_');
+    if (!last || !last[1])
+        return;
+    size_t rem = (size_t)(last - out);
+    size_t tl = strlen(last + 1);
+    if (rem < tl)
+        return;
+    const char *prev = out + rem - tl;
+    if (memcmp(prev, last + 1, tl) != 0)
+        return;
+    /* the earlier copy must be a whole word, not mid-token */
+    if (prev > out && prev[-1] != ' ' && prev[-1] != '_')
+        return;
+    *last = '\0';
+}
+
 void hw_init(hw_state_t *hw)
 {
     memset(hw, 0, sizeof(*hw));
@@ -1445,7 +1467,10 @@ void hw_init(hw_state_t *hw)
     ut_read_file("/sys/devices/virtual/dmi/id/sys_vendor", vendor, sizeof(vendor));
     ut_read_file("/sys/devices/virtual/dmi/id/product_name", prod, sizeof(prod));
     hw->is_asus = (strstr(vendor, "ASUS") != NULL);
-    snprintf(hw->model, sizeof(hw->model), "%s", prod[0] ? prod : "Unknown laptop");
+    if (prod[0])
+        hw_sanitize_model(prod, hw->model, sizeof(hw->model));
+    else
+        snprintf(hw->model, sizeof(hw->model), "Unknown laptop");
 
     FILE *f = fopen("/proc/cpuinfo", "r");
     if (f) {

@@ -12,6 +12,10 @@
 /* parse "0-31" / "0-15,32-47" style cpu lists; pure, unit-tested */
 int hw_cpu_list_parse(const char *s, int *ids, int max);
 
+/* collapse the board name some ASUS firmware repeats in DMI
+ * product_name ("… FA608PP_FA608PP"); pure, unit-tested */
+void hw_sanitize_model(const char *in, char *out, size_t n);
+
 /* telemetry source parsers — pure, unit-tested. */
 int hw_parse_meminfo_kb(const char *text, const char *key, long *out_kb);
 int hw_parse_gpu_csv(const char *line, int *temp, int *mw, int *mhz,

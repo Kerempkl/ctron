@@ -23,10 +23,26 @@ Konsept C TUI:
   prepared config dir instead of an empty throwaway.
 - **README:** embedded the snapshot image in the view-`4` paragraph and fixed
   `u u` → `uu` (matches code/CHANGELOG wording).
+- **Follow-up (same session): duplicated device name fixed.** The FA608PP
+  firmware repeats the board name in DMI `product_name`
+  (`ASUS TUF Gaming A16 FA608PP_FA608PP`), which ctron copied verbatim into
+  the TUI header, `--status`/`--doctor`/`--json`, and `.ctr` `# device:`
+  headers. New pure `hw_sanitize_model()` (`hw.c`/`hw.h`, declared next to
+  `hw_cpu_list_parse`) collapses the repeated word-bounded trailing token;
+  unit-tested in `check_model_sanitize()` (8 cases: space/underscore/whole-
+  string dedupe + 5 unchanged negative cases). Also re-seeded the screenshot
+  config so the `gaming` example snapshot is technically sane (user caught
+  the old one: 80 W CPU PPT **and** a GPU clock clamp is contradictory) —
+  now `ppt = 45,55,65`, no `gpu-clock` lock, note "GPU left at stock clocks".
+  All 4 PNGs re-shot again and re-verified visually (single `FA608PP`
+  everywhere, `1 Power` inline CORE LIMITS, 8-section Telemetry, Snapshots
+  PPT 45/55/65 with no GPU lock row).
 - **Verified:** real `--help` byte-identical to the README flag block,
   `--version` 0.12.0 = README badge, all 4 image refs resolve, each PNG
   visually inspected (Konsept C rail + workspace confirmed), script
-  `py_compile` OK, `make test` green (no C changes).
+  `py_compile` OK, `make test` green (including the new model-sanitize
+  cases), `make` 0 warnings, live `--status`/`--doctor` show the single
+  `FA608PP`.
 - **Field note:** tags `v0.10.0`, `v0.11.0`, `v0.12.0` are still local-only —
   GitHub releases lag until they are pushed (user's call).
 
