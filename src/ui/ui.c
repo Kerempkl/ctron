@@ -404,8 +404,7 @@ void ui_set_view(ui_view_t v)
     if (g_ui.view == v)
         return;
     g_ui.pw_typing = false;
-    g_ui.pw_in_cores = false;
-    g_ui.cf_input_active = 0;
+    editor_corefreq_close();
     g_ui.sys_bat_typing = false;
     g_ui.lt_hex_active = 0;
     g_ui.fe_input = 0;
@@ -516,6 +515,7 @@ static void draw_help_overlay(struct ncplane *n, const rect_t *r)
         "  Enter        apply snapshot · e / l edit fields · u u overwrite from live",
         "  s / n        save live state · auto-name · r rename · c note · d d delete",
         "  In editor:   h/l step · e exact · x skip (—) · f live curve · w/Enter save",
+        "  c (ceiling)  per-core grid for the snapshot — edits the file, never writes",
         "",
         "TELEMETRY (5)",
         "  h j k l      walk 8-section grid · Enter detail (1-8 jump inside detail)",
@@ -899,6 +899,15 @@ static void draw_footer(struct ncplane *n, unsigned dimy, unsigned dimx)
             { ",", "prefs", false },      { "q", "quit", false },
         };
         ui_keybar(n, 1, ky, W - 2, h, (int)(sizeof(h) / sizeof(h[0])));
+    } else if (g_ui.view == VIEW_SNAPSHOTS && g_ui.prof_in_edit && g_ui.prof_in_cores) {
+        const ui_hint_t h[] = {
+            { "Esc/c", "fields", false }, { "j/k", "core", false },
+            { "h/l", "±100", false },     { "e", "exact", false },
+            { "x", "clear", false },      { "a/A", "CCD·all", false },
+            { "r", "undo", false },       { "Enter", "keep", false },
+            { "L", "log", false },        { "q", "quit", false },
+        };
+        ui_keybar(n, 1, ky, W - 2, h, (int)(sizeof(h) / sizeof(h[0])));
     } else if (g_ui.view == VIEW_SNAPSHOTS && g_ui.prof_in_edit) {
         const ui_hint_t h[] = {
             { "Esc", "list", false },
@@ -906,7 +915,8 @@ static void draw_footer(struct ncplane *n, unsigned dimy, unsigned dimx)
             { "h/l", "change", false },
             { "e", "exact", false },
             { "x", "skip", false },
-            { "f", "curve", false },
+            { "f", "live", false },
+            { "c", "cores", false },
             { "w/Enter", "save", g_ui.prof_edit_dirty },
             { "L", "log", false },
             { "q", "quit", false },
@@ -1025,6 +1035,8 @@ static void handle_mouse(struct ncplane *stdn, const struct ncinput *ni, uint32_
     case TGT_PANEL_COREFREQ:
         if (g_ui.view == VIEW_POWER) {
             g_ui.pw_in_cores = true;
+            editor_corefreq_act(id);
+        } else if (g_ui.view == VIEW_SNAPSHOTS && g_ui.prof_in_cores) {
             editor_corefreq_act(id);
         }
         break;
@@ -1344,7 +1356,9 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
         editor_fan_key(key);
         return;
     }
-    if (g_ui.view == VIEW_POWER && g_ui.cf_input_active) {
+    if ((g_ui.view == VIEW_POWER ||
+         (g_ui.view == VIEW_SNAPSHOTS && g_ui.prof_in_cores)) &&
+        g_ui.cf_input_active) {
         editor_corefreq_key(key);
         return;
     }

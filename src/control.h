@@ -78,8 +78,16 @@ int ctrl_set_hz(hw_state_t *hw, int hz);   /* nearest supported mode */
 /* ---- keyboard / aura --------------------------------------------------- */
 
 int ctrl_set_kbd(hw_state_t *hw, hw_kbd_t lvl);
+/* Apply `effect_idx` (AURA_EFFECTS) with a 6-digit RGB hex and verify it
+ * by reading the LEDs back through asusd — asusctl exits 0 even when the
+ * daemon rejects an effect as unsupported, so its status alone proves
+ * nothing. -1 on failure or when the keyboard did not change. */
+int ctrl_set_aura_ex(hw_state_t *hw, int effect_idx, const char *hex);
 int ctrl_set_aura(hw_state_t *hw, int effect_idx, int color_idx);
 int ctrl_set_aura_hex(hw_state_t *hw, const char *hex);
+/* 0 when the keyboard is KNOWN not to offer `effect_idx` (asusd publishes
+ * the effect list), 1 when it does or ctron cannot tell. Pure. */
+int ctrl_aura_supported(const hw_state_t *hw, int effect_idx);
 
 extern const char *const AURA_EFFECTS[];
 extern const int AURA_EFFECT_COUNT;

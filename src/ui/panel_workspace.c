@@ -1040,6 +1040,16 @@ void sys_sync_from_hw(void)
     g_ui.sys_panel_od = hw->panel_od;
     g_ui.sys_bat = hw->bat_limit > 0 ? hw->bat_limit : 80;
     g_ui.sys_kbd_idx = (int)hw->kbd;
+    /* the colour rows start from what the keyboard actually shows */
+    g_ui.lt_col = 0;
+    if (hw->has_aura && hw->aura_mode == HW_AURA_MODE_STATIC && hw->aura_rgb >= 0) {
+        char hex[12];
+        snprintf(hex, sizeof(hex), "%06x", (unsigned)hw->aura_rgb);
+        tin_set(&g_ui.lt_hex, hex);
+        for (int i = 0; i < AURA_COLOR_COUNT; i++)
+            if (!strcmp(AURA_COLOR_HEX[i], hex))
+                g_ui.lt_col = i;
+    }
     g_ui.sys_touched = 0;
     sys_recompute_dirty();
 }
@@ -1132,6 +1142,10 @@ static void sys_nudge_row(int row, int dir)
         g_ui.sys_touched |= SYS_T_KBD;
         break;
     case SYS_EFFECT:
+        if (hw_aura_static_only(hw)) {
+            ut_log("aura: this keyboard only has the static effect");
+            return;
+        }
         g_ui.lt_eff = (g_ui.lt_eff + (dir > 0 ? 1 : AURA_EFFECT_COUNT - 1)) % AURA_EFFECT_COUNT;
         g_ui.sys_touched |= SYS_T_AURA;
         break;
@@ -1221,12 +1235,27 @@ static void draw_system(struct ncplane *n, const rect_t *r)
     fmt_val_enum(kbdv, sizeof(kbdv),
                  KBDS[ut_clamp_i((int)hw->kbd, 0, 3)],
                  KBDS[ut_clamp_i(g_ui.sys_kbd_idx, 0, 3)]);
-    snprintf(effv, sizeof(effv), "%s%s",
-             AURA_EFFECTS[ut_clamp_i(g_ui.lt_eff, 0, AURA_EFFECT_COUNT - 1)],
-             (g_ui.sys_touched & SYS_T_AURA) ? " ●" : "");
-    snprintf(colv, sizeof(colv), "%s%s",
-             AURA_COLOR_NAMES[ut_clamp_i(g_ui.lt_col, 0, AURA_COLOR_COUNT - 1)],
-             (g_ui.sys_touched & SYS_T_AURA) ? " ●" : "");
+    if (hw_aura_static_only(hw))
+        snprintf(effv, sizeof(effv), "%s", "static (the only effect here)");
+    else
+        snprintf(effv, sizeof(effv), "%s%s",
+                 AURA_EFFECTS[ut_clamp_i(g_ui.lt_eff, 0, AURA_EFFECT_COUNT - 1)],
+                 (g_ui.sys_touched & SYS_T_AURA) ? " ●" : "");
+    {
+        /* an untouched row shows the live colour even when it is not one
+         * of the presets; stepping from there enters the preset ring */
+        int preset = -1;
+        for (int i = 0; i < AURA_COLOR_COUNT; i++)
+            if (!strcmp(AURA_COLOR_HEX[i], g_ui.lt_hex.buf))
+                preset = i;
+        if (!(g_ui.sys_touched & SYS_T_AURA) && preset < 0 &&
+            strlen(g_ui.lt_hex.buf) == 6)
+            snprintf(colv, sizeof(colv), "#%.6s (live)", g_ui.lt_hex.buf);
+        else
+            snprintf(colv, sizeof(colv), "%s%s",
+                     AURA_COLOR_NAMES[ut_clamp_i(g_ui.lt_col, 0, AURA_COLOR_COUNT - 1)],
+                     (g_ui.sys_touched & SYS_T_AURA) ? " ●" : "");
+    }
     {
         char disp[96];
         tin_format(&g_ui.lt_hex, disp, sizeof(disp), g_ui.lt_hex_active != 0);

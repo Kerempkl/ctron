@@ -654,10 +654,57 @@ def flow_snapshots():
             ctr_path = os.path.join(cfg, "profiles", "tsx2.ctr")
             with open(ctr_path, "r") as cf:
                 cbody = cf.read()
-            if "profile =" in cbody or "# note: n1" not in cbody:
+            # line-based: "ac-profile =" must not be mistaken for the skipped row
+            if "\nprofile = " in cbody or "# note: n1" not in cbody:
                 fail("snapshots", f"selective save content mismatch: {cbody!r}")
                 return
             ok("snapshots", "'w' saves selective snapshot (skipped field omitted on disk)")
+
+            # snapshot scope: per-core grid, ccd rule, keyboard colour.
+            # 'w' keeps the editor open with the cursor on the EPP row.
+            s.key(b"j"); s.key(b"j")                 # CPU ceiling row
+            m_c = s.mark()
+            s.key(b"c")
+            if not s.wait_for(b"SNAPSHOT CORE LIMITS", since=m_c, timeout=6.0):
+                fail("snapshots", "'c' on the CPU ceiling row did not open the core grid")
+                return
+            ok("snapshots", "'c' on the CPU ceiling row opens the per-core grid")
+            m_k = s.mark()
+            s.key(b"h")            # selected CCD header: every thread of it -100
+            # the terminal only repaints changed cells, so look for a new value
+            if not s.wait_for(b"5286", since=m_k, timeout=6.0):
+                fail("snapshots", "'h' in the snapshot grid did not stage the CCD")
+                return
+            ok("snapshots", "grid stages a whole CCD for the snapshot (no hardware write)")
+            m_b = s.mark()
+            s.key(b"\x1b")         # keep + back to the fields
+            if not s.wait_for(b"Platform profile", since=m_b, timeout=6.0):
+                fail("snapshots", "Esc did not leave the core grid")
+                return
+            ok("snapshots", "Esc leaves the grid and keeps the staged cores")
+            s.key(b"e")
+            time.sleep(0.2)
+            s.key(b"\x15")         # Ctrl+U: drop the seeded aggregate
+            s.key(b"ccd 0 3000")   # exact rule replaces that CCD's staged value
+            s.key(b"\r")
+            time.sleep(0.2)
+            for _ in range(9):     # keyboard colour row (field 12, 9 rows down)
+                s.key(b"j")
+            s.key(b"l")            # Ice -> Red
+            time.sleep(0.2)
+            s.key(b"w")            # the toast may still be on screen: judge the file
+            time.sleep(1.5)
+            with open(ctr_path, "r") as cf:
+                cbody3 = cf.read()
+            # one CCD = 8 cores / 16 threads, all rewritten to the rule's value
+            core_lines = [ln for ln in cbody3.splitlines() if ln.startswith("freq = core ")]
+            if (len(core_lines) != 16 or
+                    any(not ln.endswith(" 3000") for ln in core_lines) or
+                    "\nfreq = 5386\n" not in cbody3 or
+                    "\naura = static ff0000\n" not in cbody3):
+                fail("snapshots", f"core rule / colour not saved: {cbody3!r}")
+                return
+            ok("snapshots", "ccd rule lands as 16 per-core lines; colour row steps; saved to .ctr")
             s.key(b"\x1b")         # Esc returns focus to Snapshot list
             time.sleep(0.2)
             # double-u overwrite from live hardware (preserves note 'n1')

@@ -284,6 +284,13 @@ static int cmd_status(hw_state_t *hw)
     printf("  Panel OD       : %s   CPU boost: %s\n",
            hw->panel_od ? "on" : "off", hw->cpu_boost ? "on" : "off");
     printf("  Keyboard       : %s\n", hw_kbd_name(hw->kbd));
+    if (hw->has_aura) {
+        char lab[24], effs[32];
+        printf("  Aura           : %s", hw_aura_mode_label(hw->aura_mode, lab, sizeof(lab)));
+        if (hw->aura_rgb >= 0)
+            printf(" #%06x", hw->aura_rgb);
+        printf(" · effects: %s\n", hw_aura_effects_label(hw, effs, sizeof(effs)));
+    }
     {
         char ct[128], cp[128], gt[128], gp[128];
         fan_to_csv(&hw->fan_cpu, ct, sizeof(ct), cp, sizeof(cp));
@@ -437,7 +444,24 @@ static int cmd_status_json(const hw_state_t *hw)
     printf("], \"panel_od\": %s}", hw->panel_od ? "true" : "false");
 
     printf(",\n  \"keyboard\": {\"brightness\": "); json_str(hw_kbd_name(hw->kbd));
-    printf("}\n}\n");
+    printf(", \"aura\": {\"supported\": %s, \"mode\": ", hw->has_aura ? "true" : "false");
+    if (hw->has_aura) {
+        char lab[24];
+        json_str(hw_aura_mode_label(hw->aura_mode, lab, sizeof(lab)));
+    } else {
+        fputs("null", stdout);
+    }
+    printf(", \"rgb\": ");
+    if (hw->has_aura && hw->aura_rgb >= 0) printf("\"%06x\"", hw->aura_rgb);
+    else fputs("null", stdout);
+    printf(", \"effects\": ");
+    if (hw->has_aura) {
+        char effs[32];
+        json_str(hw_aura_effects_label(hw, effs, sizeof(effs)));
+    } else {
+        fputs("null", stdout);
+    }
+    printf("}}\n}\n");
     return 0;
 }
 
@@ -665,6 +689,7 @@ static int cmd_doctor(hw_state_t *hw, bool as_json)
         printf(", \"gpu_clock_lock\": "); json_int_min(hw->gpu_clock_lock, 1);
         printf(", \"gpu_mhz_max\": "); json_int_min(hw->gpu_mhz_max, 1);
         printf(", \"kbd_led\": %s", hw->has_kbd_led ? "true" : "false");
+        printf(", \"aura\": %s", hw->has_aura ? "true" : "false");
         printf(", \"ppt_sysfs\": %s", ppt_sysfs ? "true" : "false");
         printf(", \"ppt_iface\": "); json_str(ppt_iface);
         printf(", \"display_backend\": "); json_str(d ? d->name : NULL);
@@ -695,6 +720,16 @@ static int cmd_doctor(hw_state_t *hw, bool as_json)
                    hw->gpu_mhz_max);
     }
     printf("  kbd led       : %s\n", hw->has_kbd_led ? "asus::kbd_backlight" : "missing");
+    if (hw->has_aura) {
+        char lab[24], effs[32];
+        printf("  aura          : single-zone TUF keyboard · %s",
+               hw_aura_mode_label(hw->aura_mode, lab, sizeof(lab)));
+        if (hw->aura_rgb >= 0)
+            printf(" #%06x", hw->aura_rgb);
+        printf("\n  aura effects  : %s\n", hw_aura_effects_label(hw, effs, sizeof(effs)));
+    } else {
+        printf("  aura          : no asusd TUF keyboard interface\n");
+    }
     printf("  ppt sysfs     : %s\n", ppt_sysfs ? "yes" : "no");
     printf("  ppt iface     : %s\n",
            hw->ppt_mode == HW_PPT_ARMOURY ? "armoury firmware-attributes"

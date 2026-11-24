@@ -94,12 +94,17 @@ typedef struct ui_ctx {
     int prof_meta_sel;
     bool prof_meta_ok;
     bool prof_in_edit;          /* true when focus is in right-hand Snapshot Editor */
-    int prof_edit_sel;          /* 0..11 field row inside Snapshot Editor */
+    int prof_edit_sel;          /* 0..SF_COUNT-1 field row inside Snapshot Editor */
     int prof_edit_top;          /* scroll offset for Snapshot Editor */
     bool prof_edit_dirty;       /* unsaved edits in prof_edit */
     profile_meta_t prof_edit;   /* editable working copy of selected snapshot */
     tinput_t prof_val_in;       /* exact value input inside Snapshot Editor */
     bool prof_val_typing;       /* true while typing exact field value */
+    bool prof_in_cores;         /* Snapshot Editor shows the per-core grid */
+    int prof_cf_staged[HW_CPU_MAX]; /* the grid's snapshot pool: kept apart
+                                     * from cf_staged so a snapshot edit is
+                                     * never a pending POWER write */
+    profile_meta_t prof_core_undo; /* prof_edit as it was when the grid opened */
 
     /* user shortcut modes (POWER Quick mode row + Settings CLI SHORTCUTS) */
     mode_def_t modes[MODES_MAX];
@@ -273,6 +278,11 @@ void panel_profiles_reload(void);
 void panel_profiles_draw(struct ncplane *n, const rect_t *r);
 void panel_profiles_key(uint32_t key);
 void panel_profiles_act(int id);
+/* Snapshot-mode core grid (editor_corefreq calls these): reload puts the
+ * undo copy back, close folds the staged threads into prof_edit when
+ * `keep` and always clears the grid state. No-ops when the grid is shut. */
+void panel_profiles_cores_reload(void);
+void panel_profiles_cores_close(int keep);
 
 void ctl_capture_mode(const char *name, const char *steps);
 
@@ -304,6 +314,9 @@ void settings_open(void);
 void ws_start_mode_edit(const mode_def_t *m);
 
 void editor_corefreq_open(void);
+/* Leaving the active view: drops POWER focus or a snapshot grid (with
+ * its unsaved staging — the edit it belongs to is discarded too). */
+void editor_corefreq_close(void);
 void editor_corefreq_draw(struct ncplane *n, const rect_t *r);
 void editor_corefreq_key(uint32_t key);
 void editor_corefreq_act(int id);

@@ -91,7 +91,7 @@ static int cmd_fan_curve(hw_state_t *hw, const char *val, bool dry,
     return 0;
 }
 
-/* "static", "static red", "static ffaabb" */
+/* "static", "static red", "static ffaabb", "breathe ff0000" */
 static int cmd_aura(hw_state_t *hw, const char *val, bool dry,
                     char *err, size_t errn)
 {
@@ -105,13 +105,18 @@ static int cmd_aura(hw_state_t *hw, const char *val, bool dry,
         errf(err, errn, "aura: unknown effect '%s'", eff);
         return -1;
     }
+    /* same verdict for --dry-run and the real write */
+    if (!ctrl_aura_supported(hw, e)) {
+        errf(err, errn, "aura: '%s' is not supported by this keyboard", eff);
+        return -1;
+    }
     if (!col[0])
         return dry ? 0 : ctrl_set_aura(hw, e, 0);
     /* hex? */
     if (strspn(col, "0123456789abcdefABCDEF") == strlen(col) && strlen(col) == 6)
-        return dry ? 0 : ctrl_set_aura_hex(hw, col);
+        return dry ? 0 : ctrl_set_aura_ex(hw, e, col);
     for (int i = 0; i < AURA_COLOR_COUNT; i++) {
-        if (!strcasecmp(col, AURA_COLOR_NAMES[i]))
+        if (ut_ascii_ieq(col, AURA_COLOR_NAMES[i]))
             return dry ? 0 : ctrl_set_aura(hw, e, i);
     }
     errf(err, errn, "aura: unknown color '%s'", col);

@@ -17,9 +17,12 @@
  *                (≡ live / Δ N). Enter applies, e/l opens field editor,
  *                s/n saves fresh live state, uu overwrites selected from live,
  *                r renames, c edits note, dd deletes with confirmation.
- *   Right pane : Live Inspector + Interactive Field Editor (12 fields).
+ *   Right pane : Live Inspector + Interactive Field Editor (15 fields).
  *                Any field can be stepped (h/l), typed (e), or toggled to
- *                "— (skip)" (x/Del) for selective/partial snapshots. */
+ *                "— (skip)" (x/Del) for selective/partial snapshots.
+ *                On the CPU-ceiling row, `c` opens the per-core grid in
+ *                snapshot mode: it edits what the .ctr will replay and
+ *                never writes hardware (the POWER view owns that). */
 
 enum {
     ACT_PL_ITEM     = 1,   /* + snapshot index (0..MAX_PROFILES-1) */
@@ -40,10 +43,13 @@ enum {
     SF_FREQ,
     SF_PPT,
     SF_GPU_CLOCK,
+    SF_ASUSD_AC,
+    SF_ASUSD_BAT,
     SF_HZ,
     SF_PANEL_OD,
     SF_BAT,
     SF_KBD,
+    SF_AURA,
     SF_FAN_CPU,
     SF_FAN_GPU,
     SF_COUNT
@@ -56,10 +62,13 @@ static const char *const SF_LABELS[SF_COUNT] = {
     "CPU ceiling",
     "PPT (SPL/SPPT/FPPT)",
     "GPU clock lock",
+    "Asusd AC profile",
+    "Asusd battery profile",
     "Refresh rate",
     "Panel overdrive",
     "Battery limit",
     "Keyboard light",
+    "Keyboard colour",
     "CPU fan curve",
     "GPU fan curve",
 };
@@ -156,10 +165,30 @@ static bool field_is_omitted(const profile_meta_t *m, int f)
     case SF_PANEL_OD:  return m->panel_od < 0;
     case SF_BAT:       return m->bat <= 0;
     case SF_KBD:       return m->kbd[0] == '\0';
+    case SF_AURA:      return m->aura[0] == '\0';
+    case SF_ASUSD_AC:  return m->asusd_ac < -1;
+    case SF_ASUSD_BAT: return m->asusd_bat < -1;
     case SF_FAN_CPU:   return m->fan_cpu_on < 0 && m->fan_cpu_t[0] == '\0';
     case SF_FAN_GPU:   return m->fan_gpu_on < 0 && m->fan_gpu_t[0] == '\0';
     default:           return true;
     }
+}
+
+/* "off" | "Quiet" | "Balanced" | "Performance" */
+static const char *asusd_opt(int v)
+{
+    return v == -1 ? "off" : hw_profile_name((hw_profile_t)ut_clamp_i(v, 0, HW_PROF_COUNT - 1));
+}
+
+/* the keyboard colour as one line: "static #00ffff" */
+static void aura_val(const char *aura, char *out, size_t n)
+{
+    char eff[32], hex[8];
+    if (profile_aura_split(aura, eff, sizeof(eff), hex, sizeof(hex)) != 0) {
+        snprintf(out, n, "%s", aura);
+        return;
+    }
+    snprintf(out, n, "%s #%s", eff, hex);
 }
 
 static void format_fan_val(int on, const char *t, const char *p,
@@ -270,6 +299,29 @@ static void field_format(const profile_meta_t *m, const hw_state_t *hw, int f,
         snprintf(lv, sizeof(lv), "%s", hw_kbd_name(hw->kbd));
         *differs = strcasecmp(sv, lv) != 0;
         break;
+    case SF_AURA:
+        aura_val(m->aura, sv, sizeof(sv));
+        if (hw->has_aura && hw->aura_rgb >= 0) {
+            char lab[24];
+            snprintf(lv, sizeof(lv), "%s #%06x",
+                     hw_aura_mode_label(hw->aura_mode, lab, sizeof(lab)),
+                     hw->aura_rgb);
+        } else if (hw->has_aura) {
+            char lab[24];
+            snprintf(lv, sizeof(lv), "%s", hw_aura_mode_label(hw->aura_mode, lab, sizeof(lab)));
+        }
+        *differs = profile_aura_differs(hw, m->aura);
+        break;
+    case SF_ASUSD_AC:
+    case SF_ASUSD_BAT: {
+        int v = f == SF_ASUSD_AC ? m->asusd_ac : m->asusd_bat;
+        int lvv = f == SF_ASUSD_AC ? hw->asusd_ac : hw->asusd_bat;
+        snprintf(sv, sizeof(sv), "%s", asusd_opt(v));
+        if (lvv >= -1)
+            snprintf(lv, sizeof(lv), "%s", asusd_opt(lvv));
+        *differs = lvv >= -1 && v != lvv;
+        break;
+    }
     case SF_FAN_CPU:
         format_fan_val(m->fan_cpu_on, m->fan_cpu_t, m->fan_cpu_p,
                        hw->fan_cpu_on, &hw->fan_cpu,
@@ -340,6 +392,16 @@ static void seed_field_from_live(profile_meta_t *m, const hw_state_t *hw, int f)
     case SF_KBD:
         snprintf(m->kbd, sizeof(m->kbd), "%s", live.kbd);
         break;
+    case SF_AURA:
+        snprintf(m->aura, sizeof(m->aura), "%s",
+                 live.aura[0] ? live.aura : "static 00ffff");
+        break;
+    case SF_ASUSD_AC:
+        m->asusd_ac = live.asusd_ac >= -1 ? live.asusd_ac : -1;
+        break;
+    case SF_ASUSD_BAT:
+        m->asusd_bat = live.asusd_bat >= -1 ? live.asusd_bat : -1;
+        break;
     case SF_FAN_CPU:
         m->fan_cpu_on = live.fan_cpu_on;
         snprintf(m->fan_cpu_t, sizeof(m->fan_cpu_t), "%s", live.fan_cpu_t);
@@ -367,10 +429,13 @@ static void toggle_skip_field(profile_meta_t *m, const hw_state_t *hw, int f)
         case SF_FREQ:      m->freq = 0; m->core_n = 0; break;
         case SF_PPT:       m->ppt_off = -1; m->ppt_spl = m->ppt_sppt = m->ppt_fppt = 0; break;
         case SF_GPU_CLOCK: m->gpu_clock = -1; break;
+        case SF_ASUSD_AC:  m->asusd_ac = -2; break;
+        case SF_ASUSD_BAT: m->asusd_bat = -2; break;
         case SF_HZ:        m->hz = 0; break;
         case SF_PANEL_OD:  m->panel_od = -1; break;
         case SF_BAT:       m->bat = 0; break;
         case SF_KBD:       m->kbd[0] = '\0'; break;
+        case SF_AURA:      m->aura[0] = '\0'; break;
         case SF_FAN_CPU:   m->fan_cpu_on = -1; m->fan_cpu_t[0] = m->fan_cpu_p[0] = '\0'; break;
         case SF_FAN_GPU:   m->fan_gpu_on = -1; m->fan_gpu_t[0] = m->fan_gpu_p[0] = '\0'; break;
         default: break;
@@ -488,6 +553,30 @@ static void step_field(profile_meta_t *m, const hw_state_t *hw, int f, int dir)
         snprintf(m->kbd, sizeof(m->kbd), "%s", K[nx]);
         break;
     }
+    case SF_ASUSD_AC: {
+        int v = (m->asusd_ac < -1 ? -1 : m->asusd_ac) + 1;
+        m->asusd_ac = (v + dir + 4) % 4 - 1;
+        break;
+    }
+    case SF_ASUSD_BAT: {
+        int v = (m->asusd_bat < -1 ? -1 : m->asusd_bat) + 1;
+        m->asusd_bat = (v + dir + 4) % 4 - 1;
+        break;
+    }
+    case SF_AURA: {
+        char eff[32], hex[8];
+        profile_aura_split(m->aura, eff, sizeof(eff), hex, sizeof(hex));
+        int idx = AURA_COLOR_COUNT;          /* not one of the presets */
+        for (int i = 0; i < AURA_COLOR_COUNT; i++)
+            if (!strcasecmp(AURA_COLOR_HEX[i], hex))
+                idx = i;
+        /* stepping from a custom colour enters either end of the ring */
+        idx = idx == AURA_COLOR_COUNT ? (dir > 0 ? 0 : AURA_COLOR_COUNT - 1)
+                                      : (idx + dir + AURA_COLOR_COUNT) % AURA_COLOR_COUNT;
+        snprintf(m->aura, sizeof(m->aura), "%.16s %.6s",
+                 eff[0] ? eff : "static", AURA_COLOR_HEX[idx]);
+        break;
+    }
     case SF_FAN_CPU:
         m->fan_cpu_on = (m->fan_cpu_on == 1) ? 0 : 1;
         if (m->fan_cpu_on == 1 && !m->fan_cpu_t[0])
@@ -508,6 +597,12 @@ static void step_field(profile_meta_t *m, const hw_state_t *hw, int f, int dir)
 
 static void capture_live_curve(profile_meta_t *m, const hw_state_t *hw, int f)
 {
+    if (f == SF_AURA || f == SF_ASUSD_AC || f == SF_ASUSD_BAT) {
+        seed_field_from_live(m, hw, f);
+        g_ui.prof_edit_dirty = true;
+        ut_log("snapshot editor: captured live %s", SF_LABELS[f]);
+        return;
+    }
     if (f == SF_FREQ) {
         m->core_n = 0;
         for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
@@ -548,6 +643,7 @@ static void start_exact_edit(profile_meta_t *m, const hw_state_t *hw, int f)
     char seed[48] = "";
     switch (f) {
     case SF_FREQ:
+        /* rules can be joined, so the seed is only the aggregate part */
         snprintf(seed, sizeof(seed), "%d",
                  m->freq > 0 ? m->freq
                : (hw->cpu_mhz_limit > 0 ? hw->cpu_mhz_limit : 4500));
@@ -582,6 +678,15 @@ static void start_exact_edit(profile_meta_t *m, const hw_state_t *hw, int f)
         snprintf(seed, sizeof(seed), "%d",
                  m->bat > 0 ? m->bat : (hw->bat_limit > 0 ? hw->bat_limit : 80));
         break;
+    case SF_ASUSD_AC:
+    case SF_ASUSD_BAT: {
+        int v = f == SF_ASUSD_AC ? m->asusd_ac : m->asusd_bat;
+        snprintf(seed, sizeof(seed), "%s", asusd_opt(v < -1 ? -1 : v));
+        break;
+    }
+    case SF_AURA:
+        snprintf(seed, sizeof(seed), "%s", m->aura[0] ? m->aura : "static 00ffff");
+        break;
     default:
         /* enum / boolean rows: 'e' simply steps forward */
         step_field(m, hw, f, +1);
@@ -604,13 +709,44 @@ static void commit_exact_edit(profile_meta_t *m, const hw_state_t *hw, int f)
 
     switch (f) {
     case SF_FREQ: {
-        int hi = hw->cpu_mhz_max > 400 ? hw->cpu_mhz_max : 6000;
-        int lo = hw->cpu_mhz_min > 0 ? hw->cpu_mhz_min : 400;
-        int v = atoi(s);
-        if (v > 0) {
-            m->freq = ut_clamp_i(v, lo, hi);
+        /* "<mhz>" | "core <cpu-id> <mhz>" | "ccd <n> <mhz>" | max | clear,
+         * joined by ',' — validated as a whole before anything is stored */
+        char rerr[128];
+        if (profile_core_rule(m, hw, s, rerr, sizeof(rerr)) != 0) {
+            ut_log("%s", rerr);
+        } else {
             g_ui.prof_edit_dirty = true;
         }
+        break;
+    }
+    case SF_ASUSD_AC:
+    case SF_ASUSD_BAT: {
+        int v = -1;
+        if (!ut_ascii_ieq(s, "off")) {
+            v = hw_profile_from_name(s);
+            if (v < 0) {
+                ut_log("asusd profile expects off|quiet|balanced|performance");
+                break;
+            }
+        }
+        if (f == SF_ASUSD_AC)
+            m->asusd_ac = v;
+        else
+            m->asusd_bat = v;
+        g_ui.prof_edit_dirty = true;
+        break;
+    }
+    case SF_AURA: {
+        char norm[24], eff[32], hex[8];
+        if (profile_aura_normalize(s, norm, sizeof(norm)) != 0) {
+            ut_log("keyboard colour expects '<effect> <colour|hex>', e.g. static 1a2b3c");
+            break;
+        }
+        snprintf(m->aura, sizeof(m->aura), "%s", norm);
+        g_ui.prof_edit_dirty = true;
+        if (profile_aura_split(norm, eff, sizeof(eff), hex, sizeof(hex)) == 0 &&
+            !ctrl_aura_supported(hw, ctrl_aura_effect_idx(eff)))
+            ut_log("note: '%s' is not supported by this keyboard", eff);
         break;
     }
     case SF_PPT: {
@@ -701,6 +837,79 @@ static void save_edited_snapshot(bool exit_to_list)
         g_ui.pw_msg_ms = ut_mono_ms();
         ut_log("snapshot '%s': FAILED to save changes", name);
     }
+}
+
+/* ---- per-core grid (snapshot mode) ---------------------------------------
+ * The CPU-ceiling row's `c` opens editor_corefreq's grid over this
+ * snapshot's core list. prof_cf_staged[] carries the threads the .ctr
+ * names; the grid never writes hardware, and leaving folds the staging
+ * back into prof_edit. */
+
+static void prof_cores_load(void)
+{
+    memset(g_ui.prof_cf_staged, 0, sizeof(g_ui.prof_cf_staged));
+    for (int i = 0; i < g_ui.prof_edit.core_n && i < HW_CPU_MAX; i++) {
+        int id = g_ui.prof_edit.core_ids[i];
+        if (id >= 0 && id < HW_CPU_MAX && g_ui.prof_edit.core_mhz[i] > 0)
+            g_ui.prof_cf_staged[id] = g_ui.prof_edit.core_mhz[i];
+    }
+}
+
+static void prof_cores_open(void)
+{
+    g_ui.prof_core_undo = g_ui.prof_edit;
+    prof_cores_load();
+    g_ui.cf_sel = 0;
+    g_ui.cf_input_active = 0;
+    g_ui.prof_in_cores = true;
+}
+
+void panel_profiles_cores_reload(void)
+{
+    if (!g_ui.prof_in_cores)
+        return;
+    g_ui.prof_edit = g_ui.prof_core_undo;
+    prof_cores_load();
+    g_ui.cf_input_active = 0;
+    ut_log("core grid: back to the saved per-core list");
+}
+
+void panel_profiles_cores_close(int keep)
+{
+    if (!g_ui.prof_in_cores)
+        return;
+    profile_meta_t res = g_ui.prof_core_undo;
+    bool changed = false;
+    if (keep) {
+        const hw_state_t *hw = g_ui.hw;
+        /* with an aggregate the file only names the threads that differ
+         * from it; without one every staged thread is named */
+        bool has_agg = res.freq > 0;
+        int n = 0;
+        for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
+            int id = hw->cpu_ids[c];
+            int v = g_ui.prof_cf_staged[id];
+            if (v > 0 && (!has_agg || v != res.freq) && n < HW_CPU_MAX) {
+                res.core_ids[n] = id;
+                res.core_mhz[n] = v;
+                n++;
+            }
+        }
+        changed = n != res.core_n ||
+                  memcmp(res.core_ids, g_ui.prof_core_undo.core_ids,
+                         (size_t)n * sizeof(int)) != 0 ||
+                  memcmp(res.core_mhz, g_ui.prof_core_undo.core_mhz,
+                         (size_t)n * sizeof(int)) != 0;
+        res.core_n = n;
+    }
+    g_ui.prof_edit = res;
+    if (changed) {
+        g_ui.prof_edit_dirty = true;
+        ut_log("core grid: %d thread(s) stored in the snapshot", res.core_n);
+    }
+    memset(g_ui.prof_cf_staged, 0, sizeof(g_ui.prof_cf_staged));
+    g_ui.cf_input_active = 0;
+    g_ui.prof_in_cores = false;
 }
 
 /* ---- drawing ------------------------------------------------------------ */
@@ -882,15 +1091,26 @@ static void draw_editor_pane(struct ncplane *n, const rect_t *r)
                  name, g_ui.prof_edit_dirty ? " ●" : "");
         ui_putln(n, x, y, w, hdr,
                  g_ui.prof_edit_dirty ? pal->warn : pal->accent, true);
-        const ui_btndef_t btns[] = {
-            { "Save (w)", g_ui.prof_edit_dirty, TGT(TGT_PANEL_PROFILES, ACT_PL_BTN_SAVE) },
-            { "Skip (x)", false,                TGT(TGT_PANEL_PROFILES, ACT_PL_BTN_SKIP) },
-            { "Curve (f)", false,               TGT(TGT_PANEL_PROFILES, ACT_PL_BTN_CURV) },
-            { "Back", false,                    TGT(TGT_PANEL_PROFILES, ACT_PL_BTN_BACK) },
-        };
-        int bw = 38;
-        if (w > bw + 24)
-            ui_btn_row(n, y, x + w - bw, bw, btns, 4);
+        /* field-level buttons make no sense while the grid owns the rows */
+        if (g_ui.prof_in_cores) {
+            const ui_btndef_t btns[] = {
+                { "Save (w)", g_ui.prof_edit_dirty, TGT(TGT_PANEL_PROFILES, ACT_PL_BTN_SAVE) },
+                { "Back", false,                    TGT(TGT_PANEL_PROFILES, ACT_PL_BTN_BACK) },
+            };
+            int bw = 17;
+            if (w > bw + 24)
+                ui_btn_row(n, y, x + w - bw, bw, btns, 2);
+        } else {
+            const ui_btndef_t btns[] = {
+                { "Save (w)", g_ui.prof_edit_dirty, TGT(TGT_PANEL_PROFILES, ACT_PL_BTN_SAVE) },
+                { "Skip (x)", false,                TGT(TGT_PANEL_PROFILES, ACT_PL_BTN_SKIP) },
+                { "Live (f)", false,                TGT(TGT_PANEL_PROFILES, ACT_PL_BTN_CURV) },
+                { "Back", false,                    TGT(TGT_PANEL_PROFILES, ACT_PL_BTN_BACK) },
+            };
+            int bw = 37;
+            if (w > bw + 24)
+                ui_btn_row(n, y, x + w - bw, bw, btns, 4);
+        }
     } else {
         snprintf(hdr, sizeof(hdr), "INSPECTOR · %.48s", name);
         ui_putln(n, x, y, w, hdr, pal->muted, true);
@@ -903,6 +1123,13 @@ static void draw_editor_pane(struct ncplane *n, const rect_t *r)
     }
     y++;
     ui_hline(n, x, y++, w, pal->border);
+
+    /* the per-core grid replaces the field rows while it is open */
+    if (g_ui.prof_in_cores) {
+        rect_t cr = { x, y, w, (r->y + r->h) - y };
+        editor_corefreq_draw(n, &cr);
+        return;
+    }
 
     /* Metadata + live diff banner */
     char meta_ln[160];
@@ -966,11 +1193,17 @@ static void draw_editor_pane(struct ncplane *n, const rect_t *r)
                     ? "Enter ok · Esc cancel · SPL,SPPT,FPPT (e.g. 60,75,75) or Q45/B60/P80/off"
                 : g_ui.prof_edit_sel == SF_GPU_CLOCK
                     ? "Enter ok · Esc cancel · MHz (180..3000) or 'reset' to unlock"
+                : g_ui.prof_edit_sel == SF_FREQ
+                    ? "Enter ok · Esc cancel · <mhz> | core <cpu-id> <mhz> | ccd <n> <mhz> | max | clear"
+                : g_ui.prof_edit_sel == SF_AURA
+                    ? "Enter ok · Esc cancel · <effect> <colour|hex>, e.g. static 1a2b3c"
+                : g_ui.prof_edit_sel == SF_ASUSD_AC || g_ui.prof_edit_sel == SF_ASUSD_BAT
+                    ? "Enter ok · Esc cancel · off|quiet|balanced|performance"
                     : "Enter confirm · Esc cancel · '-' to skip field";
             ui_putln(n, x, hy, w, fmt_hint, pal->accent, false);
         } else if (g_ui.prof_in_edit) {
             ui_putln(n, x, hy, w,
-                     "h/l change · x toggle skip (—) · e exact · f live curve/cores · w/Enter save",
+                     "h/l change · x skip (—) · e exact · f live · c cores · w/Enter save",
                      pal->muted, false);
         } else {
             ui_putln(n, x, hy, w,
@@ -1095,6 +1328,11 @@ static void note_selected(void)
 
 static void handle_editor_key(uint32_t key)
 {
+    if (g_ui.prof_in_cores) {
+        editor_corefreq_key(key);
+        return;
+    }
+
     if (g_ui.prof_val_typing) {
         if (key == NCKEY_ESC) {
             g_ui.prof_val_typing = false;
@@ -1150,6 +1388,14 @@ static void handle_editor_key(uint32_t key)
     case 'f':
     case 'F':
         capture_live_curve(&g_ui.prof_edit, g_ui.hw, g_ui.prof_edit_sel);
+        break;
+    case 'c':
+    case 'C':
+        /* the list uses c for notes; inside the editor it is the grid */
+        if (g_ui.prof_edit_sel == SF_FREQ)
+            prof_cores_open();
+        else
+            ut_log("per-core ceilings: move to the CPU ceiling row, then c");
         break;
     case 'r':
     case 'R':
@@ -1307,6 +1553,9 @@ void panel_profiles_act(int id)
     g_ui.prof_del_arm = -1;
     g_ui.prof_upd_arm = -1;
     g_ui.prof_val_typing = false;
+    /* a click outside the grid's cells leaves it, keeping what was staged */
+    if (g_ui.prof_in_cores)
+        panel_profiles_cores_close(true);
 
     if (id >= ACT_PL_ITEM && id < ACT_PL_ITEM + MAX_PROFILES) {
         int i = id - ACT_PL_ITEM;

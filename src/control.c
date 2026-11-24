@@ -955,26 +955,45 @@ int ctrl_set_kbd(hw_state_t *hw, hw_kbd_t lvl)
     return rc;
 }
 
-int ctrl_set_aura(hw_state_t *hw, int effect_idx, int color_idx)
+int ctrl_aura_supported(const hw_state_t *hw, int effect_idx)
 {
-    if (effect_idx < 0 || effect_idx >= AURA_EFFECT_COUNT)
+    /* Only "static" has a proven mode number (see hw.h), so only a
+     * static-only keyboard can be judged; anything else is left to the
+     * write + read-back */
+    if (hw_aura_static_only(hw) && effect_idx != ctrl_aura_effect_idx("static"))
+        return 0;
+    return 1;
+}
+
+static bool aura_hex_ok(const char *hex)
+{
+    return hex && strlen(hex) == 6 &&
+           strspn(hex, "0123456789abcdefABCDEF") == 6;
+}
+
+int ctrl_set_aura_ex(hw_state_t *hw, int effect_idx, const char *hex)
+{
+    if (effect_idx < 0 || effect_idx >= AURA_EFFECT_COUNT || !aura_hex_ok(hex))
         return -1;
-    if (color_idx < 0 || color_idx >= AURA_COLOR_COUNT)
-        color_idx = 0;
 
     const char *effect = AURA_EFFECTS[effect_idx];
-    const char *hex = AURA_COLOR_HEX[color_idx];
+    bool is_static = (effect_idx == ctrl_aura_effect_idx("static"));
+
+    if (!ctrl_aura_supported(hw, effect_idx)) {
+        ut_log("aura: FAILED — this keyboard only has the static effect");
+        return -1;
+    }
 
     if (db_up()) {
-        if (!strcmp(effect, "static")) {
-            if (db_set_color(hex) == 0) {
-                ut_log("aura: static via daeboard");
-                return 0;
-            }
-            ut_log("aura: daeboard color failed");
+        if (!is_static) {
+            ut_log("aura: %s stays with daeboard macros, not asusctl", effect);
             return -1;
         }
-        ut_log("aura: %s stays with daeboard macros, not asusctl", effect);
+        if (db_set_color(hex) == 0) {
+            ut_log("aura: static #%s via daeboard (unverified)", hex);
+            return 0;
+        }
+        ut_log("aura: daeboard color failed");
         return -1;
     }
 
@@ -1026,32 +1045,61 @@ int ctrl_set_aura(hw_state_t *hw, int effect_idx, int color_idx)
     av[n] = NULL;
 
     int rc = ut_exec_argv(av, NULL, 0);
-    ut_log("aura: %s (%s) %s", effect, AURA_COLOR_NAMES[color_idx],
-           rc == 0 ? "ok" : "FAILED");
-    return rc == 0 ? 0 : -1;
+    if (rc != 0) {
+        ut_log("aura: %s #%s FAILED", effect, hex);
+        return -1;
+    }
+    if (!hw->has_aura) {
+        ut_log("aura: %s #%s sent (asusd unreadable — unverified)", effect, hex);
+        return 0;
+    }
+
+    int want = (int)strtol(hex, NULL, 16);
+    /* rainbow-cycle / rain / rainbow-wave take no colour argument at all
+     * (see the argv above), so the read-back cannot expect ours */
+    bool uses_colour = strcmp(effect, "rainbow-cycle") != 0 &&
+                       strcmp(effect, "rain") != 0 &&
+                       strcmp(effect, "rainbow-wave") != 0;
+    int mode = -1, rgb = -1;
+    bool read_ok = false, applied = false;
+    for (int try = 0; try < 3 && !applied; try++) {
+        if (try)
+            usleep(60 * 1000);
+        read_ok = hw_aura_read_live(&mode, &rgb) == 0;
+        applied = read_ok && (is_static ? mode == HW_AURA_MODE_STATIC : mode > 0) &&
+                   (!uses_colour || rgb == want);
+    }
+    if (read_ok) {
+        hw->aura_mode = mode;
+        hw->aura_rgb = rgb;
+    }
+    if (applied) {
+        ut_log("aura: %s #%s verified", effect, hex);
+        return 0;
+    }
+    if (read_ok) {
+        char lab[24];
+        ut_log("aura: %s #%s FAILED — LEDs did not change (live: %s #%06x)",
+               effect, hex, hw_aura_mode_label(mode, lab, sizeof(lab)), rgb);
+    } else {
+        ut_log("aura: %s #%s FAILED — asusd did not answer the read-back",
+               effect, hex);
+    }
+    return -1;
+}
+
+int ctrl_set_aura(hw_state_t *hw, int effect_idx, int color_idx)
+{
+    if (color_idx < 0 || color_idx >= AURA_COLOR_COUNT)
+        color_idx = 0;
+    return ctrl_set_aura_ex(hw, effect_idx, AURA_COLOR_HEX[color_idx]);
 }
 
 int ctrl_set_aura_hex(hw_state_t *hw, const char *hex)
 {
-    if (!hex || strlen(hex) < 6 || strspn(hex, "0123456789abcdefABCDEF") != strlen(hex))
-        return -1;
-    if (db_up()) {
-        if (db_set_color(hex) == 0) {
-            ut_log("aura: static #%s via daeboard", hex);
-            return 0;
-        }
-        ut_log("aura: daeboard color failed");
-        return -1;
-    }
-    if (!hw->has_asusctl) {
-        ut_log("aura: asusctl not available");
-        return -1;
-    }
-    const char *av[] = { "asusctl", "aura", "effect", "static", "-c", hex, NULL };
-    int rc = ut_exec_argv(av, NULL, 0);
-    ut_log("aura: static #%s %s", hex, rc == 0 ? "ok" : "FAILED");
-    return rc == 0 ? 0 : -1;
+    return ctrl_set_aura_ex(hw, ctrl_aura_effect_idx("static"), hex);
 }
+
 
 /* ---- fans ------------------------------------------------------------- */
 

@@ -1954,6 +1954,360 @@ static void check_snapshots(void)
     rmdir(tmp);
 }
 
+/* Snapshot scope: keyboard colour (asusd's TUF aura interface), asusd
+ * AC/battery profiles and CPU-ceiling rules. The parser inputs are the
+ * exact shapes asusctl 6.5.0 produced on the FA608PP. Nothing here
+ * writes hardware: ctrl_set_aura_ex() is never called (it would reach a
+ * running daeboard), only its pure verdict ctrl_aura_supported(). */
+static void check_snapshot_scope(void)
+{
+    /* --- busctl LedModeData --- */
+    int mode = 9, zone = 9, rgb = 9;
+    CHECK(hw_aura_dbus_parse(
+              "(uu(yyy)(yyy)ss) 0 0 0 255 255 0 0 0 \"Med\" \"Right\"",
+              &mode, &zone, &rgb) == 0 &&
+              mode == 0 && zone == 0 && rgb == 0x00ffff,
+          "aura dbus parse: static cyan");
+    CHECK(hw_aura_dbus_parse("(uu(yyy)(yyy)ss) 3 0 255 0 128 0 0 0 \"Low\" \"Left\"",
+              &mode, &zone, &rgb) == 0 && mode == 3 && rgb == 0xff0080,
+          "aura dbus parse: other mode + colour");
+    mode = 5;
+    CHECK(hw_aura_dbus_parse("u 0", &mode, NULL, &rgb) != 0 && mode == -1,
+          "aura dbus parse rejects short output");
+    CHECK(hw_aura_dbus_parse("(uu(yyy)(yyy)ss) 0 0 0 256 0 0 0 0 \"Med\" \"Right\"",
+              NULL, NULL, &rgb) != 0 && rgb == -1,
+          "aura dbus parse rejects out-of-range colour");
+    CHECK(hw_aura_dbus_parse(NULL, &mode, NULL, NULL) != 0, "aura dbus parse NULL");
+
+    /* --- busctl SupportedBasicModes --- */
+    int ids[AURA_MODES_MAX];
+    CHECK(hw_aura_modes_parse("au 1 0", ids, AURA_MODES_MAX) == 1 && ids[0] == 0,
+          "aura modes: static-only keyboard");
+    CHECK(hw_aura_modes_parse("au 5 0 1 2 3 4", ids, AURA_MODES_MAX) == 5 &&
+              ids[4] == 4,
+          "aura modes: five-effect keyboard");
+    CHECK(hw_aura_modes_parse("au 3 0 1", ids, AURA_MODES_MAX) == -1,
+          "aura modes: missing element rejected");
+    CHECK(hw_aura_modes_parse("au 13 0 1 2 3 4 5 6 7 8 9 10 11 12",
+                              ids, AURA_MODES_MAX) == -1,
+          "aura modes: over capacity rejected");
+    CHECK(hw_aura_modes_parse("au 2 0 x", ids, AURA_MODES_MAX) == -1,
+          "aura modes: garbage element rejected");
+    CHECK(hw_aura_modes_parse("au 0", ids, AURA_MODES_MAX) == 0,
+          "aura modes: empty list parses");
+    CHECK(hw_aura_modes_parse(NULL, ids, AURA_MODES_MAX) == -1 &&
+              hw_aura_modes_parse("au 1 0", NULL, AURA_MODES_MAX) == -1,
+          "aura modes: NULL arguments");
+
+    /* --- /etc/asusd/aura_tuf.ron --- */
+    static const char RON[] =
+        "(\n    config_name: \"aura_tuf.ron\",\n    brightness: High,\n"
+        "    current_mode: Static,\n    builtins: {\n        Static: (\n"
+        "            mode: Static,\n            zone: r#None,\n"
+        "            colour1: (\n                r: 0,\n                g: 255,\n"
+        "                b: 255,\n            ),\n"
+        "            colour2: (\n                r: 10,\n                g: 20,\n"
+        "                b: 30,\n            ),\n"
+        "            speed: Med,\n            direction: Right,\n        ),\n"
+        "    },\n    multizone_on: false,\n)\n";
+    mode = rgb = 9;
+    CHECK(hw_aura_ron_parse(RON, &mode, &rgb) == 0 && mode == 0 &&
+              rgb == 0x00ffff,
+          "aura ron: static colour1 (not colour2)");
+    static const char RON2[] =
+        "(\n    current_mode: Breathe,\n    builtins: {\n"
+        "        Static: ( mode: Static, colour1: ( r: 1, g: 2, b: 3, ), ),\n"
+        "        Breathe: ( mode: Breathe, colour1: ( r: 250, g: 100, b: 5, ), ),\n"
+        "    },\n)\n";
+    CHECK(hw_aura_ron_parse(RON2, &mode, &rgb) == 0 && mode == 1 &&
+              rgb == 0xfa6405,
+          "aura ron: colour comes from the live mode's block");
+    CHECK(hw_aura_ron_parse("( current_mode: Disco, builtins: { }, )\n",
+                            &mode, &rgb) == -1 && mode == -1 && rgb == -1,
+          "aura ron: unknown mode name rejected");
+    CHECK(hw_aura_ron_parse(
+              "( current_mode: \"Static\", builtins: { \"Static\": ( colour1: "
+              "( r: 9, g: 8, b: 7, ) ), }, )\n", &mode, &rgb) == 0 &&
+              mode == 0 && rgb == 0x090807,
+          "aura ron: quoted keys parse");
+    CHECK(hw_aura_ron_parse("( current_mode: Static, )\n", &mode, &rgb) == 0 &&
+              mode == 0 && rgb == -1,
+          "aura ron: no builtins block leaves the colour unknown");
+    CHECK(hw_aura_ron_parse("( brightness: High, )\n", &mode, &rgb) == -1,
+          "aura ron: missing current_mode rejected");
+    CHECK(hw_aura_ron_parse(NULL, &mode, &rgb) == -1, "aura ron: NULL rejected");
+
+    char lab[24];
+    CHECK(!strcmp(hw_aura_mode_label(HW_AURA_MODE_STATIC, lab, sizeof(lab)),
+                  "static") &&
+              !strcmp(hw_aura_mode_label(HW_AURA_MODE_NONSTATIC, lab, sizeof(lab)),
+                      "non-static") &&
+              !strcmp(hw_aura_mode_label(3, lab, sizeof(lab)), "mode 3") &&
+              !strcmp(hw_aura_mode_label(-1, lab, sizeof(lab)), "--"),
+          "aura mode labels");
+
+    /* --- which effects a keyboard offers --- */
+    hw_state_t ahw;
+    memset(&ahw, 0, sizeof(ahw));
+    int breathe = ctrl_aura_effect_idx("breathe");
+    int stat = ctrl_aura_effect_idx("static");
+    CHECK(breathe > 0 && stat == 0, "aura effect table order");
+    CHECK(ctrl_aura_supported(&ahw, breathe) == 1,
+          "aura support: unknown keyboard is not judged");
+    ahw.has_aura = true;
+    ahw.aura_mode_n = 1;
+    ahw.aura_modes[0] = 0;
+    CHECK(ctrl_aura_supported(&ahw, stat) == 1 &&
+              ctrl_aura_supported(&ahw, breathe) == 0,
+          "aura support: static-only keyboard");
+    ahw.aura_mode_n = 5;
+    for (int i = 0; i < 5; i++)
+        ahw.aura_modes[i] = i;
+    CHECK(ctrl_aura_supported(&ahw, breathe) == 1,
+          "aura support: multi-effect keyboard left to the read-back");
+
+    char err[128] = "";
+    ahw.aura_mode_n = 1;
+    ahw.aura_modes[0] = 0;
+    CHECK(cmd_validate(&ahw, "aura", "breathe red", err, sizeof(err)) != 0 &&
+              strstr(err, "not supported") != NULL,
+          "aura dry-run rejects an unsupported effect");
+    CHECK(cmd_validate(&ahw, "aura", "static red", err, sizeof(err)) == 0,
+          "aura dry-run accepts static");
+    CHECK(cmd_validate(&ahw, "aura", "breathe ff0000", err, sizeof(err)) != 0,
+          "aura dry-run: effect+hex takes the same verdict");
+    CHECK(cmd_validate(&ahw, "aura", "static 1234567", err, sizeof(err)) != 0,
+          "aura dry-run: 7 digits is not a colour");
+    CHECK(cmd_validate(&ahw, "aura", "static nope", err, sizeof(err)) != 0,
+          "aura dry-run: unknown colour name");
+
+    /* --- snapshot form of an aura value --- */
+    char a[24];
+    CHECK(profile_aura_normalize("static red", a, sizeof(a)) == 0 &&
+              !strcmp(a, "static ff0000"),
+          "aura normalise: preset name -> hex");
+    CHECK(profile_aura_normalize("STATIC FF00FF", a, sizeof(a)) == 0 &&
+              !strcmp(a, "static FF00FF"),
+          "aura normalise: effect lowercased, hex kept");
+    CHECK(ut_ascii_ieq("ice", "Ice") && ut_ascii_ieq("ICE", "Ice") &&
+              !ut_ascii_ieq("ice", "Icy") && !ut_ascii_ieq("ice", "icee") &&
+              !ut_ascii_ieq(NULL, "x") && ut_ascii_ieq(NULL, NULL),
+          "ASCII case-insensitive equality");
+    CHECK(profile_aura_normalize("static ice", a, sizeof(a)) == 0 &&
+              !strcmp(a, "static 00ffff"),
+          "aura normalise: 'ice' matches regardless of the tr_TR I/i fold");
+    CHECK(profile_aura_normalize("breathe", a, sizeof(a)) == 0 &&
+              !strcmp(a, "breathe 00ffff"),
+          "aura normalise: colour-less keeps the command default");
+    CHECK(profile_aura_normalize("breathe ff0000", a, sizeof(a)) == 0 &&
+              !strcmp(a, "breathe ff0000"),
+          "aura normalise: effect + hex");
+    CHECK(profile_aura_normalize("static red extra", a, sizeof(a)) != 0,
+          "aura normalise: trailing junk rejected");
+    CHECK(profile_aura_normalize("disco red", a, sizeof(a)) != 0 && a[0] == '\0',
+          "aura normalise: unknown effect clears the output");
+    CHECK(profile_aura_normalize("static nope", a, sizeof(a)) != 0,
+          "aura normalise: unknown colour");
+    char e[32] = "x", h[8] = "x";
+    CHECK(profile_aura_split("static 00ffff", e, sizeof(e), h, sizeof(h)) == 0 &&
+              !strcmp(e, "static") && !strcmp(h, "00ffff"),
+          "aura split");
+    CHECK(profile_aura_split("static", e, sizeof(e), h, sizeof(h)) != 0 &&
+              e[0] == '\0' && h[0] == '\0',
+          "aura split needs a colour");
+    CHECK(profile_aura_split("disco 00ffff", e, sizeof(e), h, sizeof(h)) != 0,
+          "aura split rejects an unknown effect");
+
+    /* --- round-trip through a .ctr --- */
+    char tmp[] = "/tmp/ctron2-test-XXXXXX";
+    CHECK(mkdtemp(tmp) != NULL, "scope mkdtemp");
+    setenv("CTRON_CONFIG", tmp, 1);
+    char pth[460], body[2048] = {0};
+    snprintf(pth, sizeof(pth), "%s/profiles/scope.ctr", tmp);
+
+    profile_meta_t m, p;
+    profile_meta_init(&m);
+    snprintf(m.aura, sizeof(m.aura), "static 1a2b3c");
+    m.asusd_ac = HW_PERFORMANCE;
+    m.asusd_bat = -1;
+    CHECK(profile_save_meta("scope", &m) == 0, "save_meta aura + asusd");
+    /* ut_read_file_all trims the trailing newline: aura is the last line */
+    CHECK(ut_read_file_all(pth, body, sizeof(body)) == 0 &&
+              strstr(body, "\nac-profile = Performance\n") != NULL &&
+              strstr(body, "\nbattery-profile = off\n") != NULL &&
+              strstr(body, "\n[light]\naura = static 1a2b3c") != NULL,
+          ".ctr carries the three new lines");
+    CHECK(profile_meta_parse("scope", &p) == 0 &&
+              !strcmp(p.aura, "static 1a2b3c") &&
+              p.asusd_ac == HW_PERFORMANCE && p.asusd_bat == -1,
+          "parse round-trips aura + asusd");
+    {
+        char sum[160];
+        CHECK(profile_summary("scope", sum, sizeof(sum)) == 0 &&
+                  strstr(sum, "#1a2b3c") != NULL,
+              "list summary shows the keyboard colour");
+    }
+
+    m.asusd_ac = -2;
+    m.asusd_bat = -2;
+    m.aura[0] = '\0';
+    CHECK(profile_save_meta("scope", &m) == 0, "save_meta omitted fields");
+    CHECK(ut_read_file_all(pth, body, sizeof(body)) == 0 &&
+              strstr(body, "ac-profile") == NULL &&
+              strstr(body, "battery-profile") == NULL &&
+              strstr(body, "aura =") == NULL,
+          "omitted fields write no line at all");
+    CHECK(profile_meta_parse("scope", &p) == 0 && p.aura[0] == '\0' &&
+              p.asusd_ac == -2 && p.asusd_bat == -2,
+          "parse keeps the omitted sentinels");
+
+    CHECK(ut_write_file(pth,
+                        "[light]\naura = Breathe Ice\n"
+                        "[perf]\nac-profile = quiet\nbattery-profile = bogus\n") == 0,
+          "write hand-edited ctr");
+    CHECK(profile_meta_parse("scope", &p) == 0 &&
+              !strcmp(p.aura, "breathe 00ffff") && p.asusd_ac == HW_QUIET &&
+              p.asusd_bat == -2,
+          "hand-written values normalise; a bad one is skipped");
+    CHECK(ut_write_file(pth, "[light]\naura = disco ff0000\n") == 0,
+          "write malformed ctr");
+    CHECK(profile_meta_parse("scope", &p) == 0 && p.aura[0] == '\0',
+          "malformed aura line is dropped, not applied");
+
+    /* --- live capture: only the static effect has a writable number --- */
+    hw_state_t lhw;
+    memset(&lhw, 0, sizeof(lhw));
+    lhw.has_aura = true;
+    lhw.aura_mode = HW_AURA_MODE_STATIC;
+    lhw.aura_rgb = 0x00ffff;
+    lhw.asusd_ac = -1;
+    lhw.asusd_bat = HW_QUIET;
+    profile_meta_t lm;
+    profile_meta_from_hw(&lhw, &lm);
+    CHECK(!strcmp(lm.aura, "static 00ffff") && lm.asusd_ac == -1 &&
+              lm.asusd_bat == HW_QUIET,
+          "live capture: static colour + asusd profiles");
+    lhw.aura_mode = 4;
+    profile_meta_from_hw(&lhw, &lm);
+    CHECK(lm.aura[0] == '\0', "live capture: other effect is not written back");
+    lhw.aura_mode = HW_AURA_MODE_NONSTATIC;
+    profile_meta_from_hw(&lhw, &lm);
+    CHECK(lm.aura[0] == '\0', "live capture: nameless non-static mode omitted");
+    lhw.has_aura = false;
+    lhw.aura_mode = HW_AURA_MODE_STATIC;
+    profile_meta_from_hw(&lhw, &lm);
+    CHECK(lm.aura[0] == '\0', "live capture: no aura interface omitted");
+
+    lhw.has_aura = true;
+    lhw.aura_mode = HW_AURA_MODE_STATIC;
+    lhw.aura_rgb = 0x00ffff;
+    profile_meta_from_hw(&lhw, &lm);
+    char d[192];
+    profile_meta_diff(&lhw, &lm, d, sizeof(d));
+    CHECK(profile_meta_diff_count(&lhw, &lm) == 0,
+          "diff: matching aura + asusd is live");
+    snprintf(lm.aura, sizeof(lm.aura), "static ff0000");
+    lm.asusd_ac = HW_PERFORMANCE;
+    profile_meta_diff(&lhw, &lm, d, sizeof(d));
+    CHECK(strstr(d, "aura") != NULL && strstr(d, "asusd-ac") != NULL &&
+              strstr(d, "asusd-bat") == NULL &&
+              profile_meta_diff_count(&lhw, &lm) == 2,
+          "diff: colour and AC profile changes");
+    lhw.aura_mode = HW_AURA_MODE_NONSTATIC;
+    CHECK(profile_meta_diff_count(&lhw, &lm) == 2,
+          "diff: proven static/non-static mismatch counts once per field");
+    lhw.aura_mode = 3;
+    lhw.aura_rgb = 0xff0000;
+    profile_meta_from_hw(&lhw, &lm);
+    snprintf(lm.aura, sizeof(lm.aura), "breathe ff0000");
+    CHECK(lm.aura[0] != '\0' && profile_meta_diff_count(&lhw, &lm) == 0,
+          "diff: two nameless non-static effects cannot be told apart");
+    lhw.aura_rgb = 0x00ff00;
+    profile_meta_from_hw(&lhw, &lm);
+    snprintf(lm.aura, sizeof(lm.aura), "breathe ff0000");
+    CHECK(profile_meta_diff_count(&lhw, &lm) == 1, "diff: colour mismatch only");
+
+    /* --- CPU-ceiling rules --- */
+    hw_state_t chw;
+    memset(&chw, 0, sizeof(chw));
+    chw.cpu_n = 4;
+    chw.cpu_ids[0] = 0; chw.cpu_ids[1] = 1; chw.cpu_ids[2] = 8; chw.cpu_ids[3] = 9;
+    chw.cpu_mhz_min = 400;
+    chw.cpu_mhz_max = 5386;
+    chw.core_n = 2;
+    chw.core_cpu[0] = 0; chw.core_cpu[1] = 8;
+    chw.core_sib[0] = 1;  chw.core_sib[1] = 9;
+    chw.core_ccd[0] = 0;  chw.core_ccd[1] = 1;
+    chw.ccd_n = 2;
+
+    profile_meta_t cm;
+    profile_meta_init(&cm);
+    char cerr[128] = "";
+    CHECK(profile_core_rule(&cm, &chw, "4000", cerr, sizeof(cerr)) == 0 &&
+              cm.freq == 4000 && cm.core_n == 0,
+          "core rule: aggregate");
+    CHECK(profile_core_rule(&cm, &chw, "core 8 3000", cerr, sizeof(cerr)) == 0 &&
+              cm.core_n == 2 && cm.core_mhz[0] == 3000 && cm.core_mhz[1] == 3000,
+          "core rule: stages the SMT sibling too");
+    CHECK(profile_core_rule(&cm, &chw, "ccd 1 2800", cerr, sizeof(cerr)) == 0 &&
+              cm.core_n == 2 && cm.core_mhz[1] == 2800,
+          "core rule: ccd updates in place");
+    CHECK(profile_core_rule(&cm, &chw, "core 0 3500, core 8 2600",
+                            cerr, sizeof(cerr)) == 0 && cm.core_n == 4,
+          "core rule: joined rules");
+    profile_meta_t before = cm;
+    CHECK(profile_core_rule(&cm, &chw, "5000, core 7 3000", cerr, sizeof(cerr)) != 0 &&
+              cm.freq == before.freq && cm.core_n == before.core_n &&
+              cerr[0] != '\0',
+          "core rule: a bad rule leaves the model untouched");
+    CHECK(profile_core_rule(&cm, &chw, "ccd 5 3000", cerr, sizeof(cerr)) != 0,
+          "core rule: ccd out of range");
+    CHECK(profile_core_rule(&cm, &chw, "core 8", cerr, sizeof(cerr)) != 0,
+          "core rule: core without a value");
+    CHECK(profile_core_rule(&cm, &chw, "abc", cerr, sizeof(cerr)) != 0,
+          "core rule: garbage");
+    CHECK(profile_core_rule(&cm, &chw, "", cerr, sizeof(cerr)) != 0,
+          "core rule: empty");
+    CHECK(profile_core_rule(&cm, &chw, "99999", cerr, sizeof(cerr)) == 0 &&
+              cm.freq == 5386,
+          "core rule: clamped to cpuinfo max");
+    CHECK(profile_core_rule(&cm, &chw, "10", cerr, sizeof(cerr)) == 0 &&
+              cm.freq == 400,
+          "core rule: clamped to cpuinfo min");
+    /* cpu 0 is the third entry here (8, 9, 0, 1) and its sibling is 1 */
+    CHECK(profile_core_rule(&cm, &chw, "core 0 1", cerr, sizeof(cerr)) == 0 &&
+              cm.core_ids[2] == 0 && cm.core_mhz[2] == 400 &&
+              cm.core_ids[3] == 1 && cm.core_mhz[3] == 400,
+          "core rule: per-core clamp");
+    CHECK(profile_core_rule(&cm, &chw, "max", cerr, sizeof(cerr)) == 0 &&
+              cm.freq == 5386,
+          "core rule: max");
+    CHECK(profile_save_meta("cores", &cm) == 0 &&
+              profile_meta_parse("cores", &p) == 0 && p.core_n == cm.core_n &&
+              p.core_ids[3] == cm.core_ids[3] &&
+              p.core_mhz[3] == cm.core_mhz[3] && p.freq == cm.freq,
+          "core rule: result round-trips through .ctr");
+    CHECK(profile_core_rule(&cm, &chw, "clear", cerr, sizeof(cerr)) == 0 &&
+              cm.core_n == 0 && cm.freq == 5386,
+          "core rule: clear drops only the per-core list");
+    chw.core_n = 0; /* topology unknown: thread ids still work */
+    CHECK(profile_core_rule(&cm, &chw, "core 9 2000", cerr, sizeof(cerr)) == 0 &&
+              cm.core_n == 1 && cm.core_ids[0] == 9 && cm.core_mhz[0] == 2000,
+          "core rule: works without topology");
+    CHECK(profile_core_rule(&cm, &chw, "ccd 0 2000", cerr, sizeof(cerr)) != 0,
+          "core rule: ccd needs topology");
+    CHECK(profile_core_rule(NULL, &chw, "4000", cerr, sizeof(cerr)) != 0 &&
+              profile_core_rule(&cm, NULL, "4000", cerr, sizeof(cerr)) != 0,
+          "core rule: NULL arguments");
+
+    CHECK(profile_delete("scope") == 0 && profile_delete("cores") == 0,
+          "scope cleanup");
+    char pdir[400];
+    snprintf(pdir, sizeof(pdir), "%s/profiles", tmp);
+    rmdir(pdir);
+    rmdir(tmp);
+}
+
 static void *log_hammer(void *arg)
 {
     (void)arg;
@@ -2432,6 +2786,7 @@ int main(void)
     check_ppt_ryzen_argv();
     check_gpu_clock();
     check_snapshots();
+    check_snapshot_scope();
     check_progress_and_log();
     check_no_sudo();
     check_tinput();

@@ -140,6 +140,31 @@ typedef enum { HW_KBD_OFF = 0, HW_KBD_LOW, HW_KBD_MED, HW_KBD_HIGH, HW_KBD_COUNT
 const char *hw_kbd_name(hw_kbd_t k);                /* off/low/med/high */
 int hw_kbd_from_name(const char *s);
 
+/* ---- TUF single-zone AURA keyboard (asusd) ----------------------------- */
+
+#define AURA_MODES_MAX 12
+/* asusd's mode index of the one effect whose number is proven (the
+ * daemon's file names it while the bus reports 0) */
+#define HW_AURA_MODE_STATIC 0
+/* aura_tuf.ron names a non-static mode but carries no index */
+#define HW_AURA_MODE_NONSTATIC -2
+
+/* Pure parsers for asusd's TUF aura interface, unit-tested. */
+/* `busctl get-property` LedModeData output, e.g.
+ *   (uu(yyy)(yyy)ss) 0 0 0 255 255 0 0 0 "Med" "Right"
+ * -> mode, zone and colour1 (0xRRGGBB). 0 on success. */
+int hw_aura_dbus_parse(const char *out, int *mode, int *zone, int *rgb);
+/* SupportedBasicModes output ("au 2 0 1"): the mode indices into
+ * ids[0..max). Returns the count, -1 when unparseable. */
+int hw_aura_modes_parse(const char *out, int *ids, int max);
+/* /etc/asusd/aura_tuf.ron body: the configured mode and its colour.
+ * The file stores the mode by NAME, so *mode is 0 (Static) or 1 for any
+ * other named mode (its index is not in the file); -1 when unreadable. */
+int hw_aura_ron_parse(const char *text, int *mode, int *rgb);
+/* Mode index as ctron can honestly name it: "static" for 0, "mode N"
+ * otherwise (asusd's numbers for the other effects are not documented). */
+const char *hw_aura_mode_label(int mode, char *out, size_t n);
+
 /* ---- state ----------------------------------------------------------- */
 
 #define HZ_MAX_MODES 16
@@ -252,6 +277,15 @@ typedef struct hw_state {
     bool cpu_boost;
     hw_kbd_t kbd;
 
+    /* TUF single-zone AURA keyboard through asusd (xyz.ljones.Aura on
+     * /xyz/ljones/aura/tuf), read by hw_refresh_live. While the daeboard
+     * daemon is up it owns the keyboard and nothing here is read. */
+    bool has_aura;                     /* asusd answered the TUF interface */
+    int aura_mode;                     /* live mode index, -1 unknown */
+    int aura_rgb;                      /* live colour 0xRRGGBB, -1 unknown */
+    int aura_modes[AURA_MODES_MAX];    /* SupportedBasicModes indices */
+    int aura_mode_n;                   /* 0 = unknown */
+
     /* GPU core-clock lock (nvidia-smi -lgc), session-tracked: the
      * driver exposes no way to read the lock back, so this is what
      * ctron itself set. 0 = driver default. gpu_mhz_max = hardware
@@ -320,6 +354,17 @@ int hw_path_fan_curve(hw_state_t *hw, char *out, size_t n);
 /* Unconditional live read of the fan curve hwmon into cpu/gpu (either may be NULL).
  * Returns 0 on success, -1 if no fan curve hwmon path exists. */
 int hw_fan_hwmon_read_live(hw_state_t *hw, fan_curve_t *cpu, fan_curve_t *gpu);
+
+/* Read the keyboard LED mode + colour straight from asusd (no daeboard
+ * check, no hw update): the write layer's read-back. 0 on success. */
+int hw_aura_read_live(int *mode, int *rgb);
+/* Refresh hw->aura_*: asusd first, /etc/asusd/aura_tuf.ron as the
+ * fallback when the daemon is down (that file may lag a fresh write). */
+void hw_aura_read(hw_state_t *hw);
+/* True when asusd reports exactly one effect and it is static. */
+bool hw_aura_static_only(const hw_state_t *hw);
+/* "static only" | "static + N" | "--" for status/doctor/the TUI. */
+const char *hw_aura_effects_label(const hw_state_t *hw, char *out, size_t n);
 
 /* true when `id` is a present cpu (kernel numbering, hw->cpu_ids) */
 bool hw_cpu_present(const hw_state_t *hw, int id);

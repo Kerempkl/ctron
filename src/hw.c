@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #endif
 #include "hw.h"
+#include "daeboard.h"
 #include "util.h"
 #include "settings.h"
 #include "display/display.h"
@@ -1403,6 +1404,243 @@ static void read_kbd(hw_state_t *hw)
         hw->kbd = (hw_kbd_t)v;
 }
 
+/* ---- TUF AURA keyboard (asusd) ---------------------------------------- */
+
+#define AURA_BUS   "xyz.ljones.Asusd"
+#define AURA_OBJ   "/xyz/ljones/aura/tuf"
+#define AURA_IFACE "xyz.ljones.Aura"
+#define AURA_RON   "/etc/asusd/aura_tuf.ron"
+
+/* ASCII-only helper: mode names in asusd's file are always ASCII, while
+ * isalnum() follows the TUI's locale */
+static bool asc_word(char c)
+{
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+           (c >= '0' && c <= '9') || c == '_';
+}
+
+int hw_aura_dbus_parse(const char *out, int *mode, int *zone, int *rgb)
+{
+    if (mode) *mode = -1;
+    if (zone) *zone = -1;
+    if (rgb)  *rgb = -1;
+    if (!out)
+        return -1;
+    int m, z, r, g, b;
+    /* signature word, then: mode zone r g b r g b "speed" "direction" */
+    if (sscanf(out, "%*s %d %d %d %d %d", &m, &z, &r, &g, &b) != 5)
+        return -1;
+    if (m < 0 || m > 255 || z < 0 || z > 255 ||
+        r < 0 || r > 255 || g < 0 || g > 255 || b < 0 || b > 255)
+        return -1;
+    if (mode) *mode = m;
+    if (zone) *zone = z;
+    if (rgb)  *rgb = (r << 16) | (g << 8) | b;
+    return 0;
+}
+
+int hw_aura_modes_parse(const char *out, int *ids, int max)
+{
+    if (!out || !ids || max <= 0)
+        return -1;
+    const char *p = out;
+    while (*p == ' ' || *p == '\t') p++;
+    while (*p && *p != ' ' && *p != '\t') p++;          /* signature */
+    while (*p == ' ' || *p == '\t') p++;
+    if (!*p)
+        return -1;
+    long n = strtol(p, (char **)&p, 10);                /* element count */
+    if (n < 0 || n > max)
+        return -1;
+    int got = 0;
+    for (long i = 0; i < n; i++) {
+        while (*p == ' ' || *p == '\t') p++;
+        char *end;
+        long v = strtol(p, &end, 10);
+        if (end == p || v < 0 || v > 255)
+            return -1;
+        ids[got++] = (int)v;
+        p = end;
+    }
+    return got;
+}
+
+/* r/g/b inside "( r: 0, g: 255, b: 255, )" */
+static int ron_component(const char *p, const char *end, char label)
+{
+    for (; p + 1 < end; p++) {
+        if (p[0] != label || p[1] != ':')
+            continue;
+        p += 2;
+        while (p < end && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r'))
+            p++;
+        if (p >= end || *p < '0' || *p > '9')
+            return -1;
+        int v = 0;
+        while (p < end && *p >= '0' && *p <= '9') {
+            v = v * 10 + (*p - '0');
+            if (v > 9999)
+                return -1;
+            p++;
+        }
+        return v <= 255 ? v : -1;
+    }
+    return -1;
+}
+
+int hw_aura_ron_parse(const char *text, int *mode, int *rgb)
+{
+    if (mode) *mode = -1;
+    if (rgb)  *rgb = -1;
+    if (!text)
+        return -1;
+
+    const char *p = strstr(text, "current_mode");
+    if (!p)
+        return -1;
+    p = strchr(p, ':');
+    if (!p)
+        return -1;
+    p++;
+    while (*p == ' ' || *p == '\t' || *p == '"' || *p == '\'')
+        p++;
+    size_t n = 0;
+    while (p[n] && asc_word(p[n]) && n < 31)
+        n++;
+    if (n == 0)
+        return -1;
+    char name[32];
+    memcpy(name, p, n);
+    name[n] = '\0';
+
+    static const char *const KNOWN[] = {
+        "Static", "Breathe", "RainbowCycle", "RainbowWave", "Pulse",
+        "Stars", "Rain", "Highlight", "Laser", "Ripple", "Comet", "Flash"
+    };
+    int kind = -1;
+    for (size_t i = 0; i < sizeof(KNOWN) / sizeof(KNOWN[0]); i++) {
+        if (ut_ascii_ieq(name, KNOWN[i])) {
+            kind = (i == 0) ? HW_AURA_MODE_STATIC : 1;
+            break;
+        }
+    }
+    if (kind < 0)
+        return -1;
+    if (mode)
+        *mode = kind;
+
+    /* the colour lives in that mode's builtin block: "<Name>: ( ... )" */
+    const char *from = strstr(text, "builtins");
+    if (!from)
+        return 0;
+    char key[40];
+    snprintf(key, sizeof(key), "%s: (", name);
+    const char *b = strstr(from, key);
+    if (!b) {
+        snprintf(key, sizeof(key), "\"%s\": (", name);
+        b = strstr(from, key);
+    }
+    if (!b)
+        return 0;
+    b = strchr(b, '(');
+    int depth = 0;
+    const char *e = b;
+    for (; *e; e++) {
+        if (*e == '(') {
+            depth++;
+        } else if (*e == ')' && --depth == 0) {
+            break;
+        }
+    }
+    if (!*e)
+        return 0;
+    const char *c1 = b;
+    while (c1 + 7 < e && strncmp(c1, "colour1", 7) != 0)
+        c1++;
+    if (c1 + 7 >= e)
+        return 0;
+    int r = ron_component(c1, e, 'r');
+    int g = ron_component(c1, e, 'g');
+    int bl = ron_component(c1, e, 'b');
+    if (r >= 0 && g >= 0 && bl >= 0 && rgb)
+        *rgb = (r << 16) | (g << 8) | bl;
+    return 0;
+}
+
+const char *hw_aura_mode_label(int mode, char *out, size_t n)
+{
+    if (mode == HW_AURA_MODE_STATIC)
+        snprintf(out, n, "static");
+    else if (mode == HW_AURA_MODE_NONSTATIC)
+        snprintf(out, n, "non-static");
+    else if (mode >= 0)
+        snprintf(out, n, "mode %d", mode);
+    else
+        snprintf(out, n, "--");
+    return out;
+}
+
+bool hw_aura_static_only(const hw_state_t *hw)
+{
+    return hw && hw->has_aura && hw->aura_mode_n == 1 &&
+           hw->aura_modes[0] == HW_AURA_MODE_STATIC;
+}
+
+const char *hw_aura_effects_label(const hw_state_t *hw, char *out, size_t n)
+{
+    if (!hw || hw->aura_mode_n <= 0) {
+        snprintf(out, n, "--");
+    } else if (hw_aura_static_only(hw)) {
+        snprintf(out, n, "static only");
+    } else {
+        int others = hw->aura_mode_n;
+        for (int i = 0; i < hw->aura_mode_n; i++)
+            if (hw->aura_modes[i] == HW_AURA_MODE_STATIC)
+                others--;
+        snprintf(out, n, "static + %d", others);
+    }
+    return out;
+}
+
+int hw_aura_read_live(int *mode, int *rgb)
+{
+    if (mode) *mode = -1;
+    if (rgb)  *rgb = -1;
+    char out[192] = {0};
+    const char *av[] = {
+        "busctl", "get-property", AURA_BUS, AURA_OBJ, AURA_IFACE,
+        "LedModeData", NULL
+    };
+    if (ut_exec_argv_raw(av, out, sizeof(out)) != 0)
+        return -1;
+    return hw_aura_dbus_parse(out, mode, NULL, rgb);
+}
+
+void hw_aura_read(hw_state_t *hw)
+{
+    int mode = -1, rgb = -1;
+    if (db_up()) {
+        /* the daemon is the keyboard's only writer while it is up: what
+         * asusd remembers is not what the LEDs show */
+        hw->aura_mode = -1;
+        hw->aura_rgb = -1;
+        return;
+    }
+    if (hw_aura_read_live(&mode, &rgb) == 0) {
+        hw->has_aura = true;
+    } else {
+        char buf[8192];
+        if (ut_read_file_all(AURA_RON, buf, sizeof(buf)) == 0) {
+            hw->has_aura = true;
+            hw_aura_ron_parse(buf, &mode, &rgb);
+            if (mode == 1)
+                mode = HW_AURA_MODE_NONSTATIC;
+        }
+    }
+    hw->aura_mode = mode;
+    hw->aura_rgb = rgb;
+}
+
 /* ---- init ------------------------------------------------------------- */
 
 static void cpu_limits_sweep(hw_state_t *hw, bool full);
@@ -1554,6 +1792,23 @@ void hw_init(hw_state_t *hw)
     read_profile(hw);
     read_epp(hw);
     read_kbd(hw);
+
+    /* TUF aura: the supported effects are a fixed property of the
+     * keyboard, read once; the live mode/colour follow in hw_refresh_live */
+    hw->aura_mode = -1;
+    hw->aura_rgb = -1;
+    if (hw->has_asusctl) {
+        char out[256] = {0};
+        const char *av[] = {
+            "busctl", "get-property", AURA_BUS, AURA_OBJ, AURA_IFACE,
+            "SupportedBasicModes", NULL
+        };
+        if (ut_exec_argv_raw(av, out, sizeof(out)) == 0) {
+            int n = hw_aura_modes_parse(out, hw->aura_modes, AURA_MODES_MAX);
+            hw->aura_mode_n = n > 0 ? n : 0;
+        }
+    }
+    hw_aura_read(hw);
 
     /* display */
     const display_ops_t *d = display_get();
@@ -2119,6 +2374,7 @@ void hw_refresh_live(hw_state_t *hw)
     read_profile(hw);
     read_epp(hw);
     read_kbd(hw);
+    hw_aura_read(hw);
 
     const display_ops_t *d = display_get();
     if (d) {

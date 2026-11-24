@@ -166,6 +166,25 @@ void profile_meta_init(profile_meta_t *m)
     m->panel_od = -1;
     m->fan_cpu_on = -1;
     m->fan_gpu_on = -1;
+    m->asusd_ac = -2;
+    m->asusd_bat = -2;
+}
+
+/* "off" | "Quiet" | "Balanced" | "Performance" for the ac/battery-profile
+ * lines; -2 (asusd absent) never reaches a file */
+static const char *asusd_name(int v)
+{
+    if (v == -1)
+        return "off";
+    return hw_profile_name((hw_profile_t)ut_clamp_i(v, 0, HW_PROF_COUNT - 1));
+}
+
+static int asusd_value(const char *val)
+{
+    if (ut_ascii_ieq(val, "off"))
+        return -1;
+    int v = hw_profile_from_name(val);
+    return v >= 0 ? v : -2;
 }
 
 void profile_meta_from_hw(const hw_state_t *hw, profile_meta_t *m)
@@ -199,6 +218,11 @@ void profile_meta_from_hw(const hw_state_t *hw, profile_meta_t *m)
     m->hz = hw->hz_cur > 0 ? hw->hz_cur : 0;
     m->bat = hw->bat_limit > 0 ? hw->bat_limit : 80;
     snprintf(m->kbd, sizeof(m->kbd), "%s", hw_kbd_name(hw->kbd));
+    /* only the static effect has a mode number ctron can write back */
+    if (hw->has_aura && hw->aura_mode == HW_AURA_MODE_STATIC && hw->aura_rgb >= 0)
+        snprintf(m->aura, sizeof(m->aura), "static %06x", hw->aura_rgb);
+    m->asusd_ac = hw->asusd_ac;
+    m->asusd_bat = hw->asusd_bat;
     m->fan_cpu_on = hw->fan_cpu_on ? 1 : 0;
     m->fan_gpu_on = hw->fan_gpu_on ? 1 : 0;
     fan_to_csv(&hw->fan_cpu, m->fan_cpu_t, sizeof(m->fan_cpu_t),
@@ -240,6 +264,10 @@ int profile_save_meta(const char *name, const profile_meta_t *m)
         fprintf(f, "epp = %s\n", m->epp);
     if (m->cpu_boost >= 0)
         fprintf(f, "cpu-boost = %s\n", m->cpu_boost ? "on" : "off");
+    if (m->asusd_ac >= -1)
+        fprintf(f, "ac-profile = %s\n", asusd_name(m->asusd_ac));
+    if (m->asusd_bat >= -1)
+        fprintf(f, "battery-profile = %s\n", asusd_name(m->asusd_bat));
     if (m->freq > 0)
         fprintf(f, "freq = %d\n", m->freq);
     for (int i = 0; i < m->core_n && i < HW_CPU_MAX; i++) {
@@ -274,6 +302,8 @@ int profile_save_meta(const char *name, const profile_meta_t *m)
     fprintf(f, "[light]\n");
     if (m->kbd[0])
         fprintf(f, "kbd = %s\n", m->kbd);
+    if (m->aura[0])
+        fprintf(f, "aura = %s\n", m->aura);
 
     if (ut_atomic_commit(f, tmp, path) != 0)
         return -1;
@@ -347,6 +377,10 @@ int profile_export(const char *name, const hw_state_t *hw)
             fprintf(f, "# note: %s\n", m.note);
         fprintf(f, "[perf]\nprofile = %s\nepp = %s\ncpu-boost = %s\nfreq = 0\n",
                 m.profile, m.epp, m.cpu_boost ? "on" : "off");
+        if (m.asusd_ac >= -1)
+            fprintf(f, "ac-profile = %s\n", asusd_name(m.asusd_ac));
+        if (m.asusd_bat >= -1)
+            fprintf(f, "battery-profile = %s\n", asusd_name(m.asusd_bat));
         fprintf(f, "[power]\n");
         if (m.ppt_off == 1)
             fprintf(f, "ppt = off\n");
@@ -362,6 +396,8 @@ int profile_export(const char *name, const hw_state_t *hw)
         fprintf(f, "fan-curve cpu = %s %s\nfan-curve gpu = %s %s\n",
                 m.fan_cpu_t, m.fan_cpu_p, m.fan_gpu_t, m.fan_gpu_p);
         fprintf(f, "[light]\nkbd = %s\n", m.kbd);
+        if (m.aura[0])
+            fprintf(f, "aura = %s\n", m.aura);
         if (ut_atomic_commit(f, tmp, path) != 0)
             return -1;
         ut_log("snapshot exported: %s", safe);
@@ -369,6 +405,65 @@ int profile_export(const char *name, const hw_state_t *hw)
     }
 
     return profile_save_meta(safe, &m);
+}
+
+/* ---- aura / core-rule helpers ------------------------------------------ */
+
+static bool is_hex6(const char *s)
+{
+    return strlen(s) == 6 &&
+           strspn(s, "0123456789abcdefABCDEF") == 6;
+}
+
+int profile_aura_normalize(const char *val, char *out, size_t n)
+{
+    if (out && n)
+        out[0] = '\0';
+    char eff[32] = {0}, col[32] = {0}, extra[8] = {0};
+    if (!val || sscanf(val, "%31s %31s", eff, col) < 1)
+        return -1;
+    /* anything after the colour is a typo, not part of the value */
+    if (sscanf(val, "%*s %*s %7s", extra) == 1)
+        return -1;
+    int e = ctrl_aura_effect_idx(eff);
+    if (e < 0)
+        return -1;
+    const char *hex = AURA_COLOR_HEX[0];
+    if (col[0]) {
+        if (is_hex6(col)) {
+            hex = col;
+        } else {
+            hex = NULL;
+            for (int i = 0; i < AURA_COLOR_COUNT; i++) {
+                if (ut_ascii_ieq(col, AURA_COLOR_NAMES[i])) {
+                    hex = AURA_COLOR_HEX[i];
+                    break;
+                }
+            }
+            if (!hex)
+                return -1;
+        }
+    }
+    int w = snprintf(out, n, "%s %s", AURA_EFFECTS[e], hex);
+    return (w > 0 && (size_t)w < n) ? 0 : -1;
+}
+
+int profile_aura_split(const char *aura, char *eff, size_t effn,
+                       char *hex, size_t hexn)
+{
+    if (eff && effn)
+        eff[0] = '\0';
+    if (hex && hexn)
+        hex[0] = '\0';
+    char e[32] = {0}, h[8] = {0};
+    if (!aura || sscanf(aura, "%31s %7s", e, h) != 2 ||
+        ctrl_aura_effect_idx(e) < 0 || !is_hex6(h))
+        return -1;
+    if (eff)
+        snprintf(eff, effn, "%s", e);
+    if (hex)
+        snprintf(hex, hexn, "%s", h);
+    return 0;
 }
 
 /* ---- import ----------------------------------------------------------- */
@@ -691,9 +786,16 @@ void profile_meta_summary(const profile_meta_t *m, char *out, size_t n)
         snprintf(ppt, sizeof(ppt), " · %d/%d/%dW",
                  m->ppt_spl, m->ppt_sppt, m->ppt_fppt);
 
-    snprintf(out, n, "%s%s · %s · %s · kbd %s%s", head,
+    char aura[16] = "";
+    if (m->aura[0]) {
+        char hex[16];
+        if (profile_aura_split(m->aura, NULL, 0, hex, sizeof(hex)) == 0)
+            snprintf(aura, sizeof(aura), " · #%.6s", hex);
+    }
+
+    snprintf(out, n, "%s%s · %s · %s · kbd %s%s%s", head,
              m->profile[0] ? m->profile : "-", hz, bat,
-             m->kbd[0] ? m->kbd : "-", ppt);
+             m->kbd[0] ? m->kbd : "-", aura, ppt);
 }
 
 int profile_summary(const char *name, char *out, size_t n)
@@ -720,6 +822,112 @@ static void record_core_override(profile_meta_t *m, int id, int mhz)
         m->core_mhz[m->core_n] = mhz;
         m->core_n++;
     }
+}
+
+/* stage "<mhz>" on one thread (plus its SMT sibling: the threads have
+ * separate cpufreq policies) or on every thread of a CCD */
+static int core_rule_store(profile_meta_t *m, const hw_state_t *hw,
+                           bool by_ccd, int sel, int mhz)
+{
+    if (!by_ccd) {
+        if (!hw_cpu_present(hw, sel))
+            return -1;
+        record_core_override(m, sel, mhz);
+        for (int k = 0; k < hw->core_n && k < HW_CPU_MAX; k++) {
+            int a = hw->core_cpu[k], b = hw->core_sib[k];
+            int sib = a == sel ? b : (b == sel ? a : -1);
+            if (sib >= 0 && hw_cpu_present(hw, sib))
+                record_core_override(m, sib, mhz);
+        }
+        return 0;
+    }
+    if (hw->topo_odd)
+        return -1;
+    int stored = 0;
+    for (int k = 0; k < hw->core_n && k < HW_CPU_MAX; k++) {
+        int a = hw->core_cpu[k], b = hw->core_sib[k];
+        if (hw->core_ccd[k] != sel)
+            continue;
+        if (hw_cpu_present(hw, a)) {
+            record_core_override(m, a, mhz);
+            stored++;
+        }
+        if (b >= 0 && hw_cpu_present(hw, b)) {
+            record_core_override(m, b, mhz);
+            stored++;
+        }
+    }
+    return stored > 0 ? 0 : -1;
+}
+
+int profile_core_rule(profile_meta_t *m, const hw_state_t *hw, const char *spec,
+                      char *err, size_t errn)
+{
+    if (err && errn)
+        err[0] = '\0';
+    if (!m || !hw || !spec || !spec[0] || strlen(spec) >= 256) {
+        if (err && errn)
+            snprintf(err, errn, "cpu ceiling: empty rule");
+        return -1;
+    }
+    char text[256];
+    snprintf(text, sizeof(text), "%s", spec);
+
+    /* stage everything in a copy: one bad rule must change nothing */
+    profile_meta_t t = *m;
+    const int lo = hw->cpu_mhz_min > 0 ? hw->cpu_mhz_min : 100;
+    const int hi = hw->cpu_mhz_max > 0 ? hw->cpu_mhz_max : 10000;
+    const char *bad = NULL;
+    const char *bad_part = NULL;
+    int rules = 0;
+
+    char *save = NULL;
+    for (char *part = strtok_r(text, ",;", &save); part && !bad;
+         part = strtok_r(NULL, ",;", &save)) {
+        char *s = ut_trim(part);
+        if (!*s)
+            continue;
+        char w1[24] = {0}, extra[8] = {0};
+        int sel = 0, mhz = 0;
+        if (ut_ascii_ieq(s, "max")) {
+            t.freq = hi;
+        } else if (ut_ascii_ieq(s, "clear")) {
+            t.core_n = 0;
+        } else if (sscanf(s, "%23s %d %d %7s", w1, &sel, &mhz, extra) == 3 &&
+                   ut_ascii_ieq(w1, "core")) {
+            mhz = ut_clamp_i(mhz, lo, hi);
+            if (sel < 0 || core_rule_store(&t, hw, false, sel, mhz) != 0) {
+                bad = "no such cpu";
+                bad_part = s;
+            }
+        } else if (sscanf(s, "%23s %d %d %7s", w1, &sel, &mhz, extra) == 3 &&
+                   ut_ascii_ieq(w1, "ccd")) {
+            mhz = ut_clamp_i(mhz, lo, hi);
+            if (sel < 0 || core_rule_store(&t, hw, true, sel, mhz) != 0) {
+                bad = "no such ccd";
+                bad_part = s;
+            }
+        } else if (sscanf(s, "%d %7s", &mhz, extra) == 1) {
+            t.freq = ut_clamp_i(mhz, lo, hi);
+        } else {
+            bad = "expected <mhz> | core <cpu-id> <mhz> | ccd <n> <mhz> | max | clear";
+            bad_part = s;
+        }
+        if (!bad)
+            rules++;
+    }
+    if (bad) {
+        if (err && errn)
+            snprintf(err, errn, "cpu ceiling: '%.32s' — %s", bad_part, bad);
+        return -1;
+    }
+    if (!rules) {
+        if (err && errn)
+            snprintf(err, errn, "cpu ceiling: empty rule");
+        return -1;
+    }
+    *m = t;
+    return 0;
 }
 
 int profile_meta_parse(const char *name, profile_meta_t *m)
@@ -788,6 +996,12 @@ int profile_meta_parse(const char *name, profile_meta_t *m)
                 m->bat = atoi(val);
             else if (!strcasecmp(key, "kbd"))
                 snprintf(m->kbd, sizeof(m->kbd), "%s", val);
+            else if (!strcasecmp(key, "aura"))
+                profile_aura_normalize(val, m->aura, sizeof(m->aura));
+            else if (!strcasecmp(key, "ac-profile"))
+                m->asusd_ac = asusd_value(val);
+            else if (!strcasecmp(key, "battery-profile"))
+                m->asusd_bat = asusd_value(val);
             else if (!strcasecmp(key, "panel-od"))
                 m->panel_od = cmd_parse_bool(val);
             else if (!strcasecmp(key, "cpu-boost"))
@@ -822,6 +1036,25 @@ int profile_meta_parse(const char *name, profile_meta_t *m)
     }
     fclose(f);
     return 0;
+}
+
+bool profile_aura_differs(const hw_state_t *hw, const char *aura)
+{
+    if (!aura || !aura[0] || !hw->has_aura)
+        return false;
+    char eff[32], hex[8];
+    if (profile_aura_split(aura, eff, sizeof(eff), hex, sizeof(hex)) != 0)
+        return false;
+    bool want_static = (strcmp(eff, "static") == 0);
+    bool live_static = (hw->aura_mode == HW_AURA_MODE_STATIC);
+    /* a non-static live mode with no index is all the file tells */
+    bool live_other = hw->aura_mode > 0 || hw->aura_mode == HW_AURA_MODE_NONSTATIC;
+    /* two different non-static effects cannot be told apart, so only a
+     * proven mode change or the colour counts as a diff */
+    if (want_static != live_static && (live_static || live_other))
+        return true;
+    return (!want_static || live_static) && hw->aura_rgb >= 0 &&
+           (int)strtol(hex, NULL, 16) != hw->aura_rgb;
 }
 
 static int curve_differs(const char *t, const char *p, const fan_curve_t *live)
@@ -893,6 +1126,13 @@ static int diff_collect(const hw_state_t *hw, const profile_meta_t *m,
         ADD_LABEL("battery");
     if (m->kbd[0] && strcasecmp(m->kbd, hw_kbd_name(hw->kbd)))
         ADD_LABEL("kbd");
+    if (profile_aura_differs(hw, m->aura))
+        ADD_LABEL("aura");
+    if (m->asusd_ac >= -1 && hw->asusd_ac >= -1 && m->asusd_ac != hw->asusd_ac)
+        ADD_LABEL("asusd-ac");
+    if (m->asusd_bat >= -1 && hw->asusd_bat >= -1 &&
+        m->asusd_bat != hw->asusd_bat)
+        ADD_LABEL("asusd-bat");
     if (m->panel_od >= 0 && m->panel_od != (int)hw->panel_od)
         ADD_LABEL("panel-od");
     if (m->cpu_boost >= 0 && m->cpu_boost != (int)hw->cpu_boost)

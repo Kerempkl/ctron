@@ -611,6 +611,22 @@ int ut_clamp_i(int v, int lo, int hi)
     return v;
 }
 
+bool ut_ascii_ieq(const char *a, const char *b)
+{
+    if (!a || !b)
+        return a == b;
+    while (*a && *b) {
+        char ca = *a, cb = *b;
+        if (ca >= 'A' && ca <= 'Z') ca += 'a' - 'A';
+        if (cb >= 'A' && cb <= 'Z') cb += 'a' - 'A';
+        if (ca != cb)
+            return false;
+        a++;
+        b++;
+    }
+    return *a == *b;
+}
+
 int ut_cells(const char *s)
 {
     int cells = 0;

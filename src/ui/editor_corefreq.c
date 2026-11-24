@@ -34,6 +34,23 @@ enum {
 
 /* ---- shared ------------------------------------------------------------ */
 
+/* Snapshot mode (the `4 Snapshots` editor, CPU-ceiling row): the same grid
+ * and keys, but over prof_cf_staged[] — what the .ctr will replay —
+ * instead of POWER's cf_staged[]. Nothing here reaches hardware, and
+ * because the two pools are separate a snapshot edit can never show up
+ * as a pending POWER write. Leaving folds the staged threads back into
+ * the snapshot model. */
+static bool cf_snapshot_mode(void)
+{
+    return g_ui.prof_in_cores;
+}
+
+/* the pool the grid writes to in the current mode */
+static int *cf_pool(void)
+{
+    return cf_snapshot_mode() ? g_ui.prof_cf_staged : g_ui.cf_staged;
+}
+
 static int cf_clamp(int v)
 {
     hw_state_t *hw = g_ui.hw;
@@ -42,12 +59,23 @@ static int cf_clamp(int v)
     return v;
 }
 
+/* value of a thread nobody staged: the live ceiling, or in a snapshot
+ * the aggregate the snapshot would write over every thread */
+static int cf_base(int id)
+{
+    if (cf_snapshot_mode()) {
+        int ceiling = g_ui.prof_edit.freq;
+        if (ceiling > 0 && hw_cpu_present(g_ui.hw, id))
+            return ceiling;
+    }
+    return g_ui.hw->cpu_mhz_core[id];
+}
+
 static int cf_eff(int id)
 {
     if (id < 0 || id >= HW_CPU_MAX)
         return 0;
-    return g_ui.cf_staged[id] > 0 ? g_ui.cf_staged[id]
-                                  : g_ui.hw->cpu_mhz_core[id];
+    return cf_pool()[id] > 0 ? cf_pool()[id] : cf_base(id);
 }
 
 static void cf_revert(void)
@@ -55,11 +83,39 @@ static void cf_revert(void)
     memset(g_ui.cf_staged, 0, sizeof(g_ui.cf_staged));
 }
 
+/* leaving the view with a grid open: POWER keeps its staging (it rides
+ * the next Apply), a snapshot grid is simply dropped — the edit it
+ * belonged to is discarded with the editor */
+void editor_corefreq_close(void)
+{
+    if (cf_snapshot_mode()) {
+        panel_profiles_cores_close(false);
+        return;
+    }
+    g_ui.cf_input_active = 0;
+    g_ui.pw_in_cores = false;
+}
+
 /* POWER's revert drops core staging too — one pool, one revert */
 void cf_reset_staging(void)
 {
     cf_revert();
+    /* a snapshot grid cannot be open while an apply starts, but its pool
+     * must never outlive the edit either way */
+    memset(g_ui.prof_cf_staged, 0, sizeof(g_ui.prof_cf_staged));
+    g_ui.prof_in_cores = false;
     pw_recompute_dirty();
+}
+
+/* leaving the grid: a snapshot one keeps what was staged */
+static void cf_leave(void)
+{
+    g_ui.cf_input_active = 0;
+    if (cf_snapshot_mode()) {
+        panel_profiles_cores_close(true);
+        return;
+    }
+    g_ui.pw_in_cores = false;
 }
 
 /* ---- entry walk (navigation + mouse share one numbering) ---------------
@@ -130,10 +186,11 @@ static int cf_core_b(int k)
 /* stage v to both threads of core k */
 static void cf_scope_stage(int k, int v)
 {
-    g_ui.cf_staged[cf_core_a(k)] = v;
+    int *pool = cf_pool();
+    pool[cf_core_a(k)] = v;
     int b = cf_core_b(k);
     if (b >= 0)
-        g_ui.cf_staged[b] = v;
+        pool[b] = v;
 }
 
 static bool cf_scope_diff(int k)
@@ -341,6 +398,47 @@ static int cf_group_cores(int g)
     return n;
 }
 
+/* snapshot mode: a thread counts as "set" when the file will name it —
+ * a staged value equal to the aggregate needs no line of its own */
+static bool cf_named(int id)
+{
+    int v = g_ui.prof_cf_staged[id];
+    int ceiling = g_ui.prof_edit.freq;
+    return v > 0 && (ceiling <= 0 || v != ceiling);
+}
+
+static int cf_set_count(void)
+{
+    hw_state_t *hw = g_ui.hw;
+    int n = 0;
+    if (cf_core_mode()) {
+        for (int k = 0; k < hw->core_n; k++)
+            if (cf_named(cf_core_a(k)))
+                n++;
+    } else {
+        for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++)
+            if (cf_named(hw->cpu_ids[c]))
+                n++;
+    }
+    return n;
+}
+
+/* the ● mark: a pending POWER write, or a thread the snapshot names */
+static bool cf_marked_core(int k)
+{
+    if (cf_snapshot_mode())
+        return cf_named(cf_core_a(k));
+    return cf_scope_diff(k);
+}
+
+static bool cf_marked_thread(int id)
+{
+    if (cf_snapshot_mode())
+        return cf_named(id);
+    return g_ui.cf_staged[id] != 0 &&
+           g_ui.cf_staged[id] != g_ui.hw->cpu_mhz_core[id];
+}
+
 void editor_corefreq_draw(struct ncplane *n, const rect_t *r)
 {
     const palette_t *pal = ui_palette(g_prefs.theme);
@@ -349,18 +447,28 @@ void editor_corefreq_draw(struct ncplane *n, const rect_t *r)
     if (w < 16 || r->h < 4)
         return;
 
-    bool foc = g_ui.pw_in_cores;
+    bool snap = cf_snapshot_mode();
+    bool foc = g_ui.pw_in_cores || snap;
     char hdr[80];
     int ntot = cf_core_mode() ? hw->core_n : hw->cpu_n;
     int ncap = cf_capped_count();
     int nstg = cf_staged_n();
-    if (nstg > 0)
+    if (snap) {
+        char ceiling[16];
+        if (g_ui.prof_edit.freq > 0)
+            snprintf(ceiling, sizeof(ceiling), "%d", g_ui.prof_edit.freq);
+        else
+            snprintf(ceiling, sizeof(ceiling), "--");
+        snprintf(hdr, sizeof(hdr), "SNAPSHOT CORE LIMITS · ceiling %s MHz · %d/%d set",
+                 ceiling, cf_set_count(), ntot);
+    } else if (nstg > 0) {
         snprintf(hdr, sizeof(hdr), "CORE LIMITS · %d/%d capped · %d staged",
                  ncap, ntot, nstg);
-    else if (ncap > 0)
+    } else if (ncap > 0) {
         snprintf(hdr, sizeof(hdr), "CORE LIMITS · %d/%d capped", ncap, ntot);
-    else
+    } else {
         snprintf(hdr, sizeof(hdr), "CORE LIMITS (c)");
+    }
     ui_putln(n, x, r->y, w, hdr, foc ? pal->accent : pal->muted, true);
     {
         int hw_cells = ut_cells(hdr) + 1;
@@ -410,8 +518,7 @@ void editor_corefreq_draw(struct ncplane *n, const rect_t *r)
             bool sel = foc && (i == g_ui.cf_sel);
             int val = cf_eff(id);
             bool capped = hw->cpu_mhz_max > 0 && val < hw->cpu_mhz_max;
-            bool staged = g_ui.cf_staged[id] != 0 &&
-                          g_ui.cf_staged[id] != hw->cpu_mhz_core[id];
+            bool staged = cf_marked_thread(id);
             char cell[24];
             snprintf(cell, sizeof(cell), "%sc%02d %4d%s",
                      sel ? "▸" : " ", id, val,
@@ -464,7 +571,7 @@ void editor_corefreq_draw(struct ncplane *n, const rect_t *r)
                     int val = cf_eff(a);
                     bool sel = foc && (g_ui.cf_sel == e);
                     bool capped = hw->cpu_mhz_max > 0 && val < hw->cpu_mhz_max;
-                    bool staged = cf_scope_diff(k);
+                    bool staged = cf_marked_core(k);
                     char cell[40], lab[16];
                     cf_core_label(k, lab, sizeof(lab));
                     snprintf(cell, sizeof(cell), "%s%-7s %4d%s",
@@ -490,9 +597,13 @@ void editor_corefreq_draw(struct ncplane *n, const rect_t *r)
     }
 
     if (r->h >= 5) {
-        const char *foot = foc
-            ? "h/l ±100 · e exact · a CCD · A all · o max · Esc power"
-            : "press c or click a core to edit per-core ceilings";
+        const char *foot;
+        if (snap)
+            foot = "h/l ±100 · e exact · x clear · a CCD · A all · o max · r undo · Esc/c back";
+        else if (foc)
+            foot = "h/l ±100 · e exact · a CCD · A all · o max · Esc power";
+        else
+            foot = "press c or click a core to edit per-core ceilings";
         ui_putln(n, x, r->y + r->h - 1, w, foot, pal->muted, false);
     }
 }
@@ -514,7 +625,7 @@ void editor_corefreq_key(uint32_t key)
                 if (cf_core_mode())
                     cf_sel_apply(cf_clamp(atoi(g_ui.cf_input.buf)));
                 else if (g_ui.cf_sel >= 0 && g_ui.cf_sel < hw->cpu_n)
-                    g_ui.cf_staged[hw->cpu_ids[g_ui.cf_sel]] =
+                    cf_pool()[hw->cpu_ids[g_ui.cf_sel]] =
                         cf_clamp(atoi(g_ui.cf_input.buf));
             }
             g_ui.cf_input_active = 0;
@@ -527,7 +638,7 @@ void editor_corefreq_key(uint32_t key)
 
     if (n == 0) {
         if (key == NCKEY_ESC || key == 'c' || key == 'C')
-            g_ui.pw_in_cores = false;
+            cf_leave();
         return;
     }
     if (g_ui.cf_sel >= n)
@@ -540,7 +651,7 @@ void editor_corefreq_key(uint32_t key)
         case NCKEY_ESC:
         case 'c':
         case 'C':
-            g_ui.pw_in_cores = false;
+            cf_leave();
             return;
         case 'j': case NCKEY_DOWN:
             g_ui.cf_sel = (g_ui.cf_sel + 1) % n;
@@ -561,6 +672,12 @@ void editor_corefreq_key(uint32_t key)
             g_ui.cf_input_active = 1;
             tin_clear(&g_ui.cf_input);
             return;
+        case 'x': case 'X': case NCKEY_DEL:
+            /* snapshot only: drop the selection from the .ctr (POWER has
+             * no "unstage" — untouched is its default) */
+            if (cf_snapshot_mode())
+                cf_sel_apply(0);
+            return;
         case 'a': case 'A': {
             int v = cf_clamp(cf_sel_base());
             if (key == 'a') {
@@ -577,11 +694,19 @@ void editor_corefreq_key(uint32_t key)
             pw_recompute_dirty();
             return;
         case 'r': case 'R':
+            if (cf_snapshot_mode()) {
+                panel_profiles_cores_reload();
+                return;
+            }
             cf_revert();
             pw_recompute_dirty();
             return;
         case 'w': case 'W':
         case NCKEY_ENTER: case '\r': case '\n': case ' ':
+            if (cf_snapshot_mode()) {
+                cf_leave();
+                return;
+            }
             g_ui.pw_in_cores = false;
             ui_spawn_apply(APPLY_POWER, "power settings", "");
             return;
@@ -591,11 +716,12 @@ void editor_corefreq_key(uint32_t key)
     }
 
     int id = hw->cpu_ids[g_ui.cf_sel];
+    int *pool = cf_pool();
     switch (key) {
     case NCKEY_ESC:
     case 'c':
     case 'C':
-        g_ui.pw_in_cores = false;
+        cf_leave();
         return;
     case 'j': case NCKEY_DOWN:
         g_ui.cf_sel = (g_ui.cf_sel + 1) % n;
@@ -604,11 +730,11 @@ void editor_corefreq_key(uint32_t key)
         g_ui.cf_sel = (g_ui.cf_sel + n - 1) % n;
         return;
     case 'h': case NCKEY_LEFT:
-        g_ui.cf_staged[id] = cf_clamp(cf_eff(id) - 100);
+        pool[id] = cf_clamp(cf_eff(id) - 100);
         pw_recompute_dirty();
         return;
     case 'l': case NCKEY_RIGHT:
-        g_ui.cf_staged[id] = cf_clamp(cf_eff(id) + 100);
+        pool[id] = cf_clamp(cf_eff(id) + 100);
         pw_recompute_dirty();
         return;
     case 'e': case 'E':
@@ -616,23 +742,35 @@ void editor_corefreq_key(uint32_t key)
         g_ui.cf_input_active = 1;
         tin_clear(&g_ui.cf_input);
         return;
+    case 'x': case 'X': case NCKEY_DEL:
+        if (cf_snapshot_mode())
+            pool[id] = 0;
+        return;
     case 'a': case 'A': {
         int v = cf_eff(id);
         for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++)
-            g_ui.cf_staged[hw->cpu_ids[c]] = v;
+            pool[hw->cpu_ids[c]] = v;
         pw_recompute_dirty();
         return;
     }
     case 'o': case 'O':
-        g_ui.cf_staged[id] = hw->cpu_mhz_max;
+        pool[id] = hw->cpu_mhz_max;
         pw_recompute_dirty();
         return;
     case 'r': case 'R':
+        if (cf_snapshot_mode()) {
+            panel_profiles_cores_reload();
+            return;
+        }
         cf_revert();
         pw_recompute_dirty();
         return;
     case 'w': case 'W':
     case NCKEY_ENTER: case '\r': case '\n': case ' ':
+        if (cf_snapshot_mode()) {
+            cf_leave();
+            return;
+        }
         g_ui.pw_in_cores = false;
         ui_spawn_apply(APPLY_POWER, "power settings", "");
         return;
@@ -653,7 +791,7 @@ void editor_corefreq_act(int id_)
                 cf_sel_apply(cf_clamp(cf_sel_base() + 100));
             } else {
                 int cid = g_ui.hw->cpu_ids[e];
-                g_ui.cf_staged[cid] = cf_clamp(cf_eff(cid) + 100);
+                cf_pool()[cid] = cf_clamp(cf_eff(cid) + 100);
             }
             pw_recompute_dirty();
         } else {

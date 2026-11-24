@@ -112,6 +112,11 @@ int ut_parse_ints(const char *s, int *out, int max);
 /* Clamp helpers. */
 int ut_clamp_i(int v, int lo, int hi);
 
+/* Case-insensitive equality for ASCII identifiers, independent of the
+ * locale: strcasecmp folds I/i differently under tr_TR, where the TUI
+ * runs ("Ice" is a ctron colour name). */
+bool ut_ascii_ieq(const char *a, const char *b);
+
 /* Display cells in a UTF-8 string (lead bytes, not continuation). */
 int ut_cells(const char *s);
 
