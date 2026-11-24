@@ -1,29 +1,24 @@
 #!/usr/bin/env python3
-"""ctron TUI smoke harness.
+"""ctron v0.12.0 TUI smoke harness (Konsept C layout & unified keymap).
 
 Runs the real ./build/ctron TUI under a pty and drives it with keys and
 mouse clicks. A responder answers notcurses's terminal queries during
-the FIRST ~1 s only (late replies parse as ESC and open windows — the
-lesson recorded in NEXT.md), then stays silent while still draining
-output.
-
-NOTE: the fan-editor click flow performs a real `ctrl_fan_write` (a
-no-op re-write of the live curves) — it needs the same privileges as
-the TUI itself. Flows that only read still run fine without sudo.
+the FIRST ~1 s only, then stays silent while draining output.
 
 Usage:  scripts/tui_smoke.py [path-to-ctron]     exit 0 = all pass
 """
 
+import fcntl
 import os
 import pty
 import re
-import select
 import shutil
 import signal
+import struct
 import subprocess
 import sys
-import termios
 import tempfile
+import termios
 import threading
 import time
 
@@ -47,17 +42,16 @@ def ok(flow, msg):
 class Session:
     """One ctron process on a pty, with a bounded output buffer."""
 
-    def __init__(self, flow):
+    def __init__(self, flow, rows=ROWS, cols=COLS):
         self.flow = flow
+        self.rows = rows
+        self.cols = cols
         self.master, slave = pty.openpty()
         termios.tcsetattr(slave, termios.TCSANOW, termios.tcgetattr(slave))
-        import fcntl
-        import struct
         fcntl.ioctl(slave, termios.TIOCSWINSZ,
-                    struct.pack("HHHH", ROWS, COLS, 0, 0))
+                    struct.pack("HHHH", rows, cols, 0, 0))
         env = dict(os.environ)
         env["TERM"] = "xterm-256color"
-        # never fight the user's real TUI for the single-instance slot
         env["CTRON_TEST"] = "1"
         env.pop("LINES", None)
         env.pop("COLUMNS", None)
@@ -67,16 +61,12 @@ class Session:
         os.close(slave)
         self.buf = bytearray()
         self.lock = threading.Lock()
-        self.t0 = time.monotonic()
         self.thread = threading.Thread(target=self._reader, daemon=True)
         self.thread.start()
-        # give notcurses a moment to send its queries, then answer once
         deadline = time.monotonic() + RESPONDER_WINDOW_S
         while time.monotonic() < deadline:
             time.sleep(0.02)
             self._respond()
-
-    # ---- plumbing -------------------------------------------------------
 
     def _reader(self):
         while True:
@@ -97,33 +87,29 @@ class Session:
         os.write(self.master, data)
 
     def _respond(self):
-        """Answer notcurses's init queries. Replies follow the exact
-        formats terminals use; anything unknown is left unanswered."""
         tail = self._tail()
         replies = []
-        if b"\x1b[6n" in tail:                       # cursor position
+        if b"\x1b[6n" in tail:
             replies.append(b"\x1b[1;1R")
-        if re.search(rb"\x1b\[\??[0-9]*c", tail):    # DA1
+        if re.search(rb"\x1b\[\??[0-9]*c", tail):
             replies.append(b"\x1b[?62;1;2;6;9;15;22c")
-        if b"\x1b[>c" in tail:                       # secondary DA
+        if b"\x1b[>c" in tail:
             replies.append(b"\x1b[>41;361;0c")
-        if b"\x1b[>0q" in tail:                      # XTVERSION
+        if b"\x1b[>0q" in tail:
             replies.append(b"\x1bP>|tui_smoke.py\x1b\\")
-        if re.search(rb"\x1b\[\??>u", tail):         # kitty keyboard
+        if re.search(rb"\x1b\[\??>u", tail):
             replies.append(b"\x1b[?0u")
-        if b"\x1b[?2026$p" in tail:                  # sync mode query
+        if b"\x1b[?2026$p" in tail:
             replies.append(b"\x1b[?2026;2$y")
-        for m in re.finditer(rb"\x1b\]4;(\d+);\?", tail):   # OSC 4 palette
+        for m in re.finditer(rb"\x1b\]4;(\d+);\?", tail):
             replies.append(b"\x1b]4;" + m.group(1) +
-                          b";rgb:0000/0000/0000\x1b\\")
-        if b"\x1b]10;?" in tail:                     # default fg
-            replies.append(b"\x1b]10;rgb:c5c5/c5c5/c5c5\x1b\\")
-        if b"\x1b]11;?" in tail:                     # default bg
-            replies.append(b"\x1b]11;rgb:0000/0000/0000\x1b\\")
+                           b";rgb:0000/0000/0000\x1b\\")
+        if b"\x1b]10;?" in tail:
+            replies.append(b"\x1b]10;rgb:d8d8/dede/e9e9\x1b\\")
+        if b"\x1b]11;?" in tail:
+            replies.append(b"\x1b]11;rgb:1414/1616/1919\x1b\\")
         for r in replies:
             self._send(r)
-
-    # ---- driving ----------------------------------------------------------
 
     def bytes_since(self, mark):
         with self.lock:
@@ -134,7 +120,6 @@ class Session:
             return len(self.buf)
 
     def wait_render(self, timeout=4.0):
-        """Wait until output stops flowing (frame drawn)."""
         prev = -1
         end = time.monotonic() + timeout
         while time.monotonic() < end:
@@ -147,7 +132,6 @@ class Session:
         return False
 
     def wait_for(self, needle, timeout=4.0, since=None):
-        """Wait until `needle` appears in newly emitted bytes."""
         start = self.mark() if since is None else since
         end = time.monotonic() + timeout
         while time.monotonic() < end:
@@ -160,7 +144,6 @@ class Session:
         self._send(k if isinstance(k, bytes) else k.encode())
 
     def click(self, col, row):
-        """SGR mouse press+release at 1-based (col, row)."""
         self._send(f"\x1b[<0;{col};{row}M".encode())
         time.sleep(0.05)
         self._send(f"\x1b[<0;{col};{row}m".encode())
@@ -189,802 +172,558 @@ class Session:
             pass
 
 
-def fan_row_geometry():
-    """Control-row screen coordinates for ROWSxCOLS, matching
-    ui_layout defaults (topbar 1, left 33%, telem 5)."""
-    lw = max(30, min(COLS * 33 // 100, COLS - 20))
-    x = lw + 2                     # first button cell (CPU)
-    y = 1 + 1                      # below topbar + control row
-    # CPU | space | GPU | sp | + | sp | - | sp | Write
-    return {"cpu": x, "gpu": x + 4, "add": x + 8, "del": x + 10,
-            "write": x + 13, "y": y + 1}   # 1-based click row
+class IsolatedConfig:
+    """Context manager isolating CTRON_CONFIG to a clean temp dir."""
+
+    def __init__(self, settings_text=None):
+        self.settings_text = settings_text
+        self.tmpcfg = None
+        self.oldcfg = None
+
+    def __enter__(self):
+        self.tmpcfg = tempfile.mkdtemp(prefix="ctron-tui-")
+        self.oldcfg = os.environ.get("CTRON_CONFIG")
+        os.environ["CTRON_CONFIG"] = self.tmpcfg
+        if self.settings_text is not None:
+            with open(os.path.join(self.tmpcfg, "settings.ini"), "w") as f:
+                f.write(self.settings_text)
+        return self.tmpcfg
+
+    def __exit__(self, *_):
+        if self.oldcfg is None:
+            os.environ.pop("CTRON_CONFIG", None)
+        else:
+            os.environ["CTRON_CONFIG"] = self.oldcfg
+        shutil.rmtree(self.tmpcfg, ignore_errors=True)
 
 
 def flow_open_quit():
-    s = Session("open_quit")
-    try:
-        if not s.wait_render(6.0):
-            fail("open_quit", "no frame rendered (notcurses_init stuck?)")
-            return
-        if not s.alive():
-            fail("open_quit", "process died during startup")
-            return
-        rc = s.quit_expect0()
-        if rc == 0:
-            ok("open_quit", "opened, rendered, q -> exit 0")
-        else:
-            fail("open_quit", f"q exit code {rc!r}")
-    finally:
-        s.close()
+    with IsolatedConfig():
+        s = Session("open_quit")
+        try:
+            if not s.wait_render(6.0):
+                fail("open_quit", "no frame rendered")
+                return
+            frame = s.bytes_since(0)
+            if b"VIEWS" not in frame or b"LIVE" not in frame or b"Platform profile" not in frame:
+                fail("open_quit", "Konsept C rail + Power view did not render")
+                return
+            rc = s.quit_expect0()
+            if rc == 0:
+                ok("open_quit", "Konsept C rail + Power rendered, q -> exit 0")
+            else:
+                fail("open_quit", f"q exit code {rc!r}")
+        finally:
+            s.close()
 
 
 def flow_settings_overlay():
-    s = Session("settings")
-    try:
-        s.wait_render()
-        m = s.mark()
-        s.key(b"\x1b")             # ESC opens the settings overlay
-        if not s.wait_for(b"LAYOUT", since=m):
-            fail("settings", "ESC did not open the settings overlay")
-        else:
-            ok("settings", "ESC overlay shows LAYOUT")
-        rc = s.quit_expect0()
-        if rc == 0:
-            ok("settings", "q from overlay -> exit 0")
-        else:
-            fail("settings", f"q from overlay exit {rc!r}")
-    finally:
-        s.close()
+    with IsolatedConfig():
+        s = Session("settings")
+        try:
+            s.wait_render()
+            # Esc on main screen must NOT open Settings (new keymap rule)
+            m0 = s.mark()
+            s.key(b"\x1b")
+            time.sleep(0.3)
+            if b"PREFERENCES" in s.bytes_since(m0):
+                fail("settings", "Esc on main screen must not open Preferences")
+                return
+            ok("settings", "Esc on main screen stays silent (no surprise menu)")
+            m = s.mark()
+            s.key(b",")
+            if not s.wait_for(b"Startup view", since=m):
+                fail("settings", "',' did not open Preferences with Startup view")
+                return
+            ok("settings", "',' opens Preferences modal with Startup view")
+            m2 = s.mark()
+            s.key(b"l")            # cycle Startup view: Power -> Fans
+            if not s.wait_for(b"Fans", since=m2):
+                fail("settings", "h/l did not change Startup view")
+                return
+            ok("settings", "Startup view cycles cleanly")
+            s.key(b"\x1b")         # Esc closes Preferences
+            time.sleep(0.25)
+            rc = s.quit_expect0()
+            if rc == 0:
+                ok("settings", "Esc closes modal, q -> exit 0")
+            else:
+                fail("settings", f"q exit {rc!r}")
+        finally:
+            s.close()
+
+
+def flow_startup_view():
+    """Verify startup_view = 4 launches straight into 5 Telemetry."""
+    with IsolatedConfig("startup_view = 4\n"):
+        s = Session("startup_view")
+        try:
+            if not s.wait_render(6.0):
+                fail("startup_view", "no frame rendered")
+                return
+            if b"TELEMETRY" in s.bytes_since(0):
+                ok("startup_view", "startup_view=4 opens directly on Telemetry")
+            else:
+                fail("startup_view", "did not boot into Telemetry view")
+                return
+            rc = s.quit_expect0()
+            if rc != 0:
+                fail("startup_view", f"q exit {rc!r}")
+        finally:
+            s.close()
+
+
+def flow_views_and_tab():
+    with IsolatedConfig():
+        s = Session("views")
+        try:
+            s.wait_render()
+            # direct 1..5 view hotkeys
+            for key, needle, name in [
+                (b"2", b"Custom", "2 -> Fans"),
+                (b"3", b"DISPLAY", "3 -> Display & Light"),
+                (b"4", b"(none", "4 -> Snapshots"),
+                (b"5", b"TELEMETRY", "5 -> Telemetry"),
+                (b"1", b"Platform profile", "1 -> Power"),
+            ]:
+                m = s.mark()
+                s.key(key)
+                if not s.wait_for(needle, since=m, timeout=10.0):
+                    fail("views", f"{name} did not render {needle!r}")
+                    return
+                ok("views", name)
+            # Tab cycle forward Power -> Fans -> Display & Light
+            m = s.mark()
+            s.key(b"\t")
+            if not s.wait_for(b"Presets (m)", since=m, timeout=8.0):
+                fail("views", "Tab did not advance Power -> Fans")
+                return
+            m = s.mark()
+            s.key(b"\t")
+            if not s.wait_for(b"DISPLAY", since=m, timeout=8.0):
+                fail("views", "Tab did not advance Fans -> Display & Light")
+                return
+            ok("views", "Tab cycles across views cleanly")
+            rc = s.quit_expect0()
+            if rc != 0:
+                fail("views", f"q exit {rc!r}")
+        finally:
+            s.close()
 
 
 def flow_power_stage_apply():
-    s = Session("power")
-    try:
-        s.wait_render()
-        s.key(b"3")                # focus workspace
-        s.key(b"P")                # uppercase: POWER view ('p' is the
-        s.key(b"j")                #   fan editor's pwm key)
-        s.key(b"l")                # stage a value
-        s.key(b"h")                # stage it back -> net-zero staging,
-        time.sleep(0.3)            #   Apply logs but writes nothing
-        m = s.mark()
-        s.key(b"w")                # apply
-        if s.wait_for(b"power apply", since=m, timeout=10.0):
-            ok("power", "apply wrote the log line")
-        else:
-            fail("power", "no 'power apply' log after w")
-        s.key(b"r")                # revert
-        rc = s.quit_expect0()
-        if rc != 0:
-            fail("power", f"q exit {rc!r} after apply+revert")
-        else:
-            ok("power", "apply, revert, clean exit")
-    finally:
-        s.close()
+    with IsolatedConfig():
+        s = Session("power")
+        try:
+            s.wait_render()
+            s.key(b"j")
+            s.key(b"l")
+            s.key(b"h")
+            time.sleep(0.3)
+            m = s.mark()
+            s.key(b"w")
+            if s.wait_for(b"power apply", since=m, timeout=10.0):
+                ok("power", "w apply wrote completion log")
+            else:
+                fail("power", "no 'power apply' log after w")
+            s.key(b"r")
+            rc = s.quit_expect0()
+            if rc == 0:
+                ok("power", "apply, revert, clean exit")
+            else:
+                fail("power", f"q exit {rc!r}")
+        finally:
+            s.close()
 
 
 def flow_corefreq_overlay():
-    """Per-core editor overlay: opens, stages without writing, closes."""
-    s = Session("corefreq")
-    try:
-        s.wait_render()
-        s.key(b"3")                # focus workspace
-        s.key(b"P")                # POWER view
-        m = s.mark()
-        s.key(b"c")                # open the CORE LIMITS overlay
-        if not s.wait_for(b"CORE LIMITS", since=m):
-            fail("corefreq", "'c' did not open the overlay")
-            return
-        ok("corefreq", "overlay opened from POWER")
-        # topology view: this FA608PP run shows CCD headers and paired
-        # thread labels (c0·16); other topologies fall back to cNN cells
-        if s.wait_for(b"CCD1", since=m):
-            if s.wait_for(b"c0", since=m):
-                ok("corefreq", "core mode: CCD headers + core cells")
-            else:
-                fail("corefreq", "CCD header but no core cells")
-                return
-        # stage +100 on the selected core, then close WITHOUT writing:
-        # the staging must survive and show up in POWER's will-write
-        # preview (single apply pool); POWER 'r' then reverts the pool
-        s.key(b"j")                # move selection
-        s.key(b"l")                # stage +100 (no write)
-        m = s.mark()
-        s.key(b"\x1b")             # ESC closes (staging kept)
-        time.sleep(0.4)
-        if s.wait_for(b"cores: 1 staged", since=m, timeout=6.0):
-            ok("corefreq", "staged core survives close -> POWER preview")
-            s.key(b"r")            # POWER revert: one pool, one revert
-            time.sleep(0.3)
-        elif s.wait_for(b"capped", since=m, timeout=1.0):
-            fail("corefreq", "staged core not shown in POWER preview")
-            return
-        # (no cpufreq policies -> no cells, staging silently skipped)
-        m = s.mark()
-        if not s.alive():
-            fail("corefreq", "process died in the overlay")
-            return
-        ok("corefreq", "staged, reverted, closed, still alive")
-        rc = s.quit_expect0()
-        if rc != 0:
-            fail("corefreq", f"q exit {rc!r}")
-        else:
-            ok("corefreq", "clean exit after overlay use")
-    finally:
-        s.close()
-
-
-def flow_fan_buttons():
-    """Regression for the ACT id collision (Write click opened Help).
-
-    Runs against an ISOLATED CTRON_CONFIG with no settings.ini: the
-    in-memory curves then equal the live EC read at init, so the Write
-    click re-writes identical values (true no-op). Since fan_staged
-    (2026-10-03) the old assumption "Write is a no-op re-write of the
-    live curves" broke against the REAL config: settings.ini curves
-    get staged at load and the click pushed them onto the EC and into
-    asusd's per-profile store — observed live as the user's aggressive
-    curve ramping the CPU fan to 100% under the Performance profile
-    (2026-10-08)."""
-    tmpcfg = tempfile.mkdtemp(prefix="ctron-tui-")
-    oldcfg = os.environ.get("CTRON_CONFIG")
-    os.environ["CTRON_CONFIG"] = tmpcfg
-    s = None
-    try:
-        s = Session("fan_buttons")
-        s.wait_render()
-        g = fan_row_geometry()
-        for name in ("cpu", "gpu", "add", "del"):
+    with IsolatedConfig():
+        s = Session("corefreq")
+        try:
+            s.wait_render()
             m = s.mark()
-            s.click(g[name], g["y"])
-            time.sleep(0.25)
-            new = s.bytes_since(m)
-            if b"PRIVILEGES" in new or b"Platform profile" in new:
-                fail("fan_buttons", f"click on {name} switched views")
+            s.key(b"c")
+            if not s.wait_for(b"CORE LIMITS", since=m):
+                fail("corefreq", "'c' did not open CORE LIMITS overlay")
                 return
-        ok("fan_buttons", "control-row clicks stay in the fan editor")
-        m = s.mark()
-        s.click(g["write"], g["y"])
-        if s.wait_for(b"fan curve", since=m, timeout=6.0):
-            ok("fan_buttons", "Write click applies the curve")
-        else:
-            fail("fan_buttons", "Write click did nothing (no write log)")
-        rc = s.quit_expect0()
-        if rc != 0:
-            fail("fan_buttons", f"q exit {rc!r}")
-    finally:
-        if s is not None:
+            ok("corefreq", "overlay opened from Power")
+            if s.wait_for(b"CCD1", since=m):
+                if s.wait_for(b"c0", since=m):
+                    ok("corefreq", "core mode: CCD headers + core cells")
+                else:
+                    fail("corefreq", "CCD header but no core cells")
+                    return
+            s.key(b"j")
+            s.key(b"l")
+            m = s.mark()
+            s.key(b"\x1b")
+            time.sleep(0.4)
+            if s.wait_for(b"cores: 1 staged", since=m, timeout=6.0):
+                ok("corefreq", "staged core survives close -> Power preview")
+                s.key(b"r")
+                time.sleep(0.3)
+            ok("corefreq", "staged, reverted, closed, still alive")
+            rc = s.quit_expect0()
+            if rc != 0:
+                fail("corefreq", f"q exit {rc!r}")
+        finally:
             s.close()
-        if oldcfg is None:
-            os.environ.pop("CTRON_CONFIG", None)
-        else:
-            os.environ["CTRON_CONFIG"] = oldcfg
-        shutil.rmtree(tmpcfg, ignore_errors=True)
+
+
+def flow_system_view():
+    with IsolatedConfig():
+        s = Session("system")
+        try:
+            s.wait_render()
+            m = s.mark()
+            s.key(b"3")
+            if not s.wait_for(b"DAEBOARD", since=m, timeout=8.0):
+                fail("system", "'3' did not render Display & Light view")
+                return
+            ok("system", "Display & Light sections rendered")
+            # move to Panel overdrive, stage toggle, check 'will write:', revert
+            s.key(b"j")
+            m2 = s.mark()
+            s.key(b"l")
+            if not s.wait_for(b"will write:", since=m2, timeout=6.0):
+                fail("system", "staging Panel OD did not show will write preview")
+                return
+            ok("system", "staged edit shows will write preview")
+            s.key(b"r")
+            time.sleep(0.25)
+            rc = s.quit_expect0()
+            if rc != 0:
+                fail("system", f"q exit {rc!r}")
+        finally:
+            s.close()
 
 
 def last_chip(buf):
-    """Last full "1:temp,pwm" point chip in the byte stream, as a
-    (temp, pwm) tuple. Full chips only appear in whole-view repaints
-    (initial paint, view switches) — notcurses otherwise emits diffs
-    with unchanged cells (the "1:" prefix) omitted."""
-    m = re.findall(rb"1:(\d+),(\d+)", buf)
+    m = re.findall(rb"1:(\d+)\xc2\xb0,(\d+)", buf)
     return (int(m[-1][0]), int(m[-1][1])) if m else None
 
 
-def flow_fan_staging():
-    """Regression: a staged fan-curve edit must survive the POWER view
-    round-trip — ws_set_view(POWER) runs hw_refresh_live, which used to
-    overwrite the in-memory curve from hwmon and silently drop the edit.
-    Runs against an isolated CTRON_CONFIG so the real settings.ini and
-    the real EC stay untouched (the edit is never written)."""
-    tmpcfg = tempfile.mkdtemp(prefix="ctron-tui-")
-    oldcfg = os.environ.get("CTRON_CONFIG")
-    os.environ["CTRON_CONFIG"] = tmpcfg
-    s = None
-    try:
-        s = Session("fan_staging")
-        if not s.wait_render(6.0):
-            fail("fan_staging", "no frame rendered")
-            return
-        t0 = last_chip(s.bytes_since(0))   # initial full-screen paint
-        if t0 is None:
-            fail("fan_staging", "no point chip found in the frame")
-            return
-        m = s.mark()
-        s.key(b"3")                # focus workspace (FAN view by default)
-        s.key(b"l")                # nudge point 1 temp +1 (stages an edit)
-        time.sleep(0.5)
-        # the chip diff rewrites only the changed temp digits (the "1:"
-        # prefix and ",pwm" tail are unchanged), so the bare number is
-        # what shows up next to the graph updates
-        if f"{t0[0] + 1}".encode() not in s.bytes_since(m):
-            fail("fan_staging", f"'l' nudge produced no visible change (expected {t0[0] + 1} in the diff)")
-            return
-        ok("fan_staging", f"point 1 staged {t0[0]} -> {t0[0] + 1}")
-        m2 = s.mark()
-        s.key(b"P")                # POWER view: ws_set_view -> hw_refresh_live
-        if not s.wait_for(b"Platform profile", since=m2, timeout=15.0):
-            fail("fan_staging", "POWER view did not render")
-            return
-        m3 = s.mark()
-        s.key(b"F")                # back to FAN: full interior repaint
-        if not s.wait_for(b"FAN CURVE", since=m3, timeout=15.0):
-            fail("fan_staging", "did not return to the FAN view")
-            return
-        time.sleep(0.5)
-        t2 = last_chip(s.bytes_since(m3))
-        if t2 == (t0[0] + 1, t0[1]):
-            ok("fan_staging", "staged edit survived the POWER round-trip")
-        else:
-            fail("fan_staging", f"staged edit lost: chip reads {t2!r}, staged {(t0[0] + 1, t0[1])}")
-        s.key(b"h")                # undo the nudge before quitting
-        rc = s.quit_expect0()
-        if rc != 0:
-            fail("fan_staging", f"q exit {rc!r}")
-    finally:
-        if s is not None:
-            s.close()
-        if oldcfg is None:
-            os.environ.pop("CTRON_CONFIG", None)
-        else:
-            os.environ["CTRON_CONFIG"] = oldcfg
-        shutil.rmtree(tmpcfg, ignore_errors=True)
-
-
-def flow_view_hotkeys():
-    """Regression for the view hotkeys 5..8: they must switch workspace
-    views from ANY focus. The user-reported gap: p/l are taken by the
-    fan editor (pwm field / nudge), f/p/l do nothing outside the
-    workspace, and after an accidental 'p' the next key is swallowed by
-    the typing field. The digits work everywhere and no view binds them."""
-    s = Session("view_hotkeys")
-    try:
-        s.wait_render()
-        # default focus is CONTROLS — deliberately no '3' pressed
-        m = s.mark()
-        s.key(b"6")
-        if not s.wait_for(b"Platform profile", since=m, timeout=15.0):
-            fail("views", "'6' did not open POWER from the controls focus")
-            return
-        ok("views", "'6' opens POWER from any focus")
-        m = s.mark()
-        s.key(b"5")
-        if not s.wait_for(b"FAN CURVE", since=m, timeout=15.0):
-            fail("views", "'5' did not open FAN")
-            return
-        ok("views", "'5' opens FAN")
-        m = s.mark()
-        s.key(b"7")
-        if not s.wait_for(b"Kbd brightness", since=m, timeout=15.0):
-            fail("views", "'7' did not open LIGHT")
-            return
-        ok("views", "'7' opens LIGHT")
-        m = s.mark()
-        s.key(b"8")
-        if not s.wait_for(b"GLOBAL", since=m, timeout=15.0):
-            fail("views", "'8' did not open HELP")
-            return
-        ok("views", "'8' opens HELP")
-        rc = s.quit_expect0()
-        if rc != 0:
-            fail("views", f"q exit {rc!r}")
-    finally:
-        s.close()
-
-
-def flow_mode_drift():
-    """CONTROLS Mode row states: "- → name" before any apply, "name"
-    after, "name*" once a tracked field drifts from the apply-time
-    snapshot. Isolated CTRON_CONFIG with a one-step mode (profile
-    quiet); the REAL profile is saved before and restored after — the
-    drift step performs one real (harmless) profile write."""
-    try:
-        out = subprocess.run(["asusctl", "profile", "get"],
-                             capture_output=True, text=True, timeout=10).stdout
-    except Exception:
-        out = ""
-    orig = next((n for n in ("Performance", "Balanced", "Quiet") if n in out),
-                None)
-
-    tmpcfg = tempfile.mkdtemp(prefix="ctron-tui-")
-    oldcfg = os.environ.get("CTRON_CONFIG")
-    os.environ["CTRON_CONFIG"] = tmpcfg
-    with open(os.path.join(tmpcfg, "modes.ini"), "w") as f:
-        f.write("[drift]\nsteps = profile quiet\n")
-    s = None
-    try:
-        s = Session("mode_drift")
-        if not s.wait_render(6.0):
-            fail("mode_drift", "no frame rendered")
-            return
-        m = s.mark()
-        s.key(b"2")                # controls focus, Mode row selected
-        s.key(b"\r")               # Enter applies the drift mode
-        # applies run on the background worker now: the busy status
-        # line ("reads paused") proves the spawn, the finalize log
-        # (after busy drops — preserves key ordering) proves completion
-        if not s.wait_for(b"reads paused", since=m, timeout=15.0):
-            fail("mode_drift", "Enter did not trigger the mode apply")
-            return
-        if not s.wait_for(b"drift'", since=m, timeout=15.0):
-            fail("mode_drift", "mode apply did not complete")
-            return
-        ok("mode_drift", "mode applied via the Mode row")
-        m2 = s.mark()
-        s.key(b"6")                # POWER: change the profile behind it
-        if not s.wait_for(b"Platform profile", since=m2, timeout=15.0):
-            fail("mode_drift", "POWER did not render")
-            return
-        s.key(b"l")                # stage the next profile
-        s.key(b"w")                # apply it
-        if not s.wait_for(b"power apply", since=m2, timeout=15.0):
-            fail("mode_drift", "profile apply did not run")
-            return
-        m3 = s.mark()
-        s.key(b"2")                # back to controls: full repaint
-        time.sleep(0.5)
-        if s.wait_for(b"drift*", since=m3, timeout=8.0):
-            ok("mode_drift", "drifted mode shows name*")
-        else:
-            fail("mode_drift", "no 'drift*' in the Mode row after a change")
-        rc = s.quit_expect0()
-        if rc != 0:
-            fail("mode_drift", f"q exit {rc!r}")
-    finally:
-        if s is not None:
-            s.close()
-        if oldcfg is None:
-            os.environ.pop("CTRON_CONFIG", None)
-        else:
-            os.environ["CTRON_CONFIG"] = oldcfg
-        shutil.rmtree(tmpcfg, ignore_errors=True)
-        if orig:
-            subprocess.run([BIN, "--profile", orig], capture_output=True,
-                           timeout=30)
-            print(f"  (restored profile to {orig})")
-        else:
-            print("  (could not parse the original profile — not restored)")
-
-
-def flow_fan_grid():
-    """'i' toggles the fan-graph value guides (dotted 10 °C / 25 %
-    lines + axis labels). Grid dots ('·') must appear on toggle-on and
-    be gone on toggle-off."""
-    s = Session("fan_grid")
-    try:
-        s.wait_render()
-        s.key(b"5")                # FAN view from the default focus
-        time.sleep(0.4)
-        m = s.mark()
-        s.key(b"i")
-        time.sleep(0.5)
-        if b"\xc2\xb7" in s.bytes_since(m):
-            ok("fan_grid", "guides drawn on 'i'")
-        else:
-            fail("fan_grid", "no guide dots after 'i'")
-            return
-        m = s.mark()
-        s.key(b"i")
-        time.sleep(0.5)
-        if b"\xc2\xb7" in s.bytes_since(m):
-            fail("fan_grid", "dots remained after the second 'i'")
-        else:
-            ok("fan_grid", "guides cleared on the second 'i'")
-        rc = s.quit_expect0()
-        if rc != 0:
-            fail("fan_grid", f"q exit {rc!r}")
-    finally:
-        s.close()
-
-
-def flow_telem_full():
-    """Fullscreen telemetry ('t'): contextual open from a non-typing view,
-    sections render, j/k cursor + enter opens a section detail page,
-    h/l flips sections, 1-8 jumps directly, esc backs out to the grid,
-    stray keys are swallowed, t closes, reopens, q quits cleanly."""
-    tmpcfg = tempfile.mkdtemp(prefix="ctron-tui-")
-    oldcfg = os.environ.get("CTRON_CONFIG")
-    os.environ["CTRON_CONFIG"] = tmpcfg
-    s = None
-    try:
-        s = Session("telem_full")
-        s.wait_render()
-        # startup (focus = profiles): lowercase 't' has no editor owner
-        # and opens telemetry directly
-        m0 = s.mark()
-        s.key(b"t")
-        if not s.wait_for(b"TELEMETRY", since=m0, timeout=6.0):
-            fail("telem_full", "'t' does not open TELEMETRY at startup")
-            return
-        ok("telem_full", "'t' opens at startup (no editor owns it)")
-        s.key(b"t")                # close
-        time.sleep(0.4)
-        # 4 (focus the LIVE strip) + Enter opens the fullscreen view too
-        m = s.mark()
-        s.key(b"4")
-        s.key(b"\r")
-        if not s.wait_for(b"TELEMETRY", since=m, timeout=6.0):
-            fail("telem_full", "4 + Enter does not open TELEMETRY")
-            return
-        ok("telem_full", "4 + Enter opens from the LIVE-strip focus")
-        s.key(b"t")                # close
-        time.sleep(0.4)
-        # workspace FOCUSED in the default FAN view: lowercase 't' is
-        # the fan editor's exact-value key — the settled keymap must win
-        s.key(b"3")
-        time.sleep(0.3)
-        m1 = s.mark()
-        s.key(b"t")
-        time.sleep(0.4)
-        if b"TELEMETRY" in s.bytes_since(m1):
-            fail("telem_full", "lowercase 't' must not open telemetry in FAN view")
-            return
-        ok("telem_full", "fan-view lowercase 't' left to the editor")
-        s.key(b"\x1b")               # leave the typing prompt
-        time.sleep(0.2)
-        # 'T' opens from that same state (works everywhere)
-        m2 = s.mark()
-        s.key(b"T")
-        if not s.wait_for(b"TELEMETRY", since=m2, timeout=6.0):
-            fail("telem_full", "'T' did not open TELEMETRY from the FAN editor focus")
-            return
-        ok("telem_full", "'T' opens from the FAN editor focus")
-        m3 = s.mark()
-        s.key(b"t")                # close
-        time.sleep(0.4)
-        s.key(b"7")                # LIGHT view: lowercase 't' is free there
-        time.sleep(0.4)
-        m = s.mark()
-        s.key(b"t")                # open fullscreen telemetry
-        if not s.wait_for(b"TELEMETRY", since=m, timeout=6.0):
-            fail("telem_full", "'t' did not open the fullscreen TELEMETRY")
-            return
-        ok("telem_full", "fullscreen opened on lowercase 't' (non-typing view)")
-        for sec in (b"CPU", b"GPU", b"RAM", b"STORAGE", b"NET", b"FAN", b"POWER"):
-            if not s.wait_for(sec, since=m, timeout=6.0):
-                fail("telem_full", f"section {sec!r} missing")
+def flow_fan_staging_and_presets():
+    with IsolatedConfig():
+        s = Session("fan")
+        try:
+            s.wait_render()
+            m = s.mark()
+            s.key(b"2")
+            if not s.wait_for(b"Presets (m)", since=m, timeout=8.0):
+                fail("fan", "'2' did not open Fans view")
                 return
-        ok("telem_full", "all sections render")
-        # the footer button draws with the FIRST grid frame; later
-        # transitions keep its cells unchanged so the render diff never
-        # re-emits it — probe it against the open mark, not later ones
-        if not s.wait_for(b"reset stats", since=m, timeout=6.0):
-            fail("telem_full", "footer reset-stats button missing")
-            return
-        ok("telem_full", "footer carries the [r] reset-stats button")
-        # navigation is SPATIAL on the 2-column grid (7 sections = 4
-        # rows): j = one row down, l = one column right. CPU -> iGPU ->
-        # RAM proves it (linear j/j/l would have landed elsewhere)
-        m4 = s.mark()
-        s.key(b"j")
-        time.sleep(0.2)
-        s.key(b"l")
-        time.sleep(0.2)
-        s.key(b"\r")
-        # footer words, not phrases: the render diff skips unchanged
-        # space cells, so multi-word probes arrive fragmented
-        if not s.wait_for(b"h/l", since=m4, timeout=6.0):
-            fail("telem_full", "enter did not open the section detail")
-            return
-        ok("telem_full", "enter opens the selected detail page")
-        if not s.wait_for(b"swap", since=m4, timeout=6.0):
-            fail("telem_full", "spatial j+l did not land on RAM (no swap line)")
-            return
-        ok("telem_full", "spatial grid nav: j down + l right = CPU->iGPU->RAM")
-        m5 = s.mark()
-        s.key(b"l")                # detail flip: RAM -> STORAGE
-        if not s.wait_for(b"NVMe", since=m5, timeout=6.0):
-            fail("telem_full", "h/l did not switch to the STORAGE detail")
-            return
-        ok("telem_full", "h/l switches detail sections")
-        m6 = s.mark()
-        s.key(b"6")                # direct digit jump to the NET page
-        # "total" comes from the NET totals info line; "rx" itself is
-        # fragment-prone: the 'r' cell does not change coming from the
-        # STORAGE page whose chart label is "read" (diff skips it)
-        if not s.wait_for(b"total", since=m6, timeout=6.0):
-            fail("telem_full", "digit jump did not open the NET detail")
-            return
-        ok("telem_full", "1-8 digits jump straight to a detail page")
-        m6b = s.mark()
-        s.key(b"r")                # 'r' clears every min/avg/max ring
-        if not s.wait_for(b"cleared", since=m6b, timeout=6.0):
-            fail("telem_full", "'r' stats-reset acknowledgement missing")
-            return
-        ok("telem_full", "'r' resets the stats (title flash)")
-        m6c = s.mark()
-        s.key(b"s")                # stats source: 60 s window <-> since reset
-        # "back" only exists in the since-mode line ("'s' back to the
-        # 60 s window"); the whole mode line redraws, so it is emitted
-        if not s.wait_for(b"back", since=m6c, timeout=6.0):
-            fail("telem_full", "'s' stats-source switch missing")
-            return
-        ok("telem_full", "'s' switches the table to since-reset stats")
-        s.key(b"s")                # back to the window mode
-        time.sleep(0.3)
-        m7 = s.mark()
-        s.key(b"\x1b")             # esc: detail -> grid (not closed)
-        if not s.wait_for(b"j/k", since=m7, timeout=6.0):
-            fail("telem_full", "esc did not return to the grid")
-            return
-        ok("telem_full", "esc backs out to the grid")
-        m8 = s.mark()
-        s.key(b"x")                # unbound key: still swallowed
-        time.sleep(0.3)
-        if b"h/l" in s.bytes_since(m8):
-            fail("telem_full", "stray key 'x' must stay swallowed in the grid")
-            return
-        ok("telem_full", "stray keys still swallowed in the grid")
-        s.key(b"t")                # close
-        time.sleep(0.4)
-        m3 = s.mark()
-        s.key(b"t")                # reopen (also proves the close worked)
-        if not s.wait_for(b"TELEMETRY", since=m3, timeout=6.0):
-            fail("telem_full", "'t' did not re-open after close")
-            return
-        ok("telem_full", "close + reopen round-trip")
-        rc = s.quit_expect0()      # q from the fullscreen quits cleanly
-        if rc != 0:
-            fail("telem_full", f"q exit {rc!r}")
-    finally:
-        if s is not None:
+            time.sleep(0.3)
+            t0 = last_chip(s.bytes_since(m))
+            if t0 is None:
+                fail("fan", "no point chip found in Fans view")
+                return
+            m1 = s.mark()
+            s.key(b"l")
+            time.sleep(0.4)
+            if f"{t0[0] + 1}".encode() not in s.bytes_since(m1):
+                fail("fan", f"'l' nudge did not update temp to {t0[0] + 1}")
+                return
+            ok("fan", f"point 1 staged {t0[0]} -> {t0[0] + 1}")
+            # round-trip to Power and back: staged point must survive
+            m2 = s.mark()
+            s.key(b"1")
+            if not s.wait_for(b"Platform profile", since=m2, timeout=10.0):
+                fail("fan", "switch to Power failed")
+                return
+            m3 = s.mark()
+            s.key(b"2")
+            if not s.wait_for(b"Presets (m)", since=m3, timeout=10.0):
+                fail("fan", "return to Fans failed")
+                return
+            time.sleep(0.3)
+            t2 = last_chip(s.bytes_since(m3))
+            if t2 == (t0[0] + 1, t0[1]):
+                ok("fan", "staged edit survived Power round-trip")
+            else:
+                fail("fan", f"staged edit lost: got {t2!r}, expected {(t0[0] + 1, t0[1])}")
+                return
+            # toggle value guides 'i'
+            m4 = s.mark()
+            s.key(b"i")
+            if s.wait_for(b"128", since=m4, timeout=4.0):
+                ok("fan", "guides drawn on 'i'")
+            else:
+                fail("fan", "guides not drawn on 'i'")
+                return
+            s.key(b"i")
+            # open presets modal 'm' and load Quiet
+            m5 = s.mark()
+            s.key(b"m")
+            if not s.wait_for(b"FAN PRESETS", since=m5, timeout=6.0):
+                fail("fan", "'m' did not open FAN PRESETS modal")
+                return
+            ok("fan", "FAN PRESETS modal opened on 'm'")
+            m6 = s.mark()
+            s.key(b"1")
+            time.sleep(0.2)
+            s.key(b"\r")
+            time.sleep(0.4)
+            diff = s.bytes_since(m6)
+            if b"Quiet" in diff and (b"loaded" in diff or b"editor" in diff):
+                ok("fan", "Quiet preset loaded into editor")
+            else:
+                fail("fan", "Quiet preset load log missing")
+                return
+            rc = s.quit_expect0()
+            if rc != 0:
+                fail("fan", f"q exit {rc!r}")
+        finally:
             s.close()
-        if oldcfg is None:
-            os.environ.pop("CTRON_CONFIG", None)
-        else:
-            os.environ["CTRON_CONFIG"] = oldcfg
-        shutil.rmtree(tmpcfg, ignore_errors=True)
+
+
+def flow_fan_clicks():
+    """Konsept C fan control row click coordinates (rc_ws.x = 24, rc_ws.y = 2 -> 1-based row 3)."""
+    with IsolatedConfig():
+        s = Session("fan_clicks")
+        try:
+            s.wait_render()
+            s.key(b"2")
+            time.sleep(0.3)
+            # " CPU " (25..29) " GPU " (31..35) " + " (37..39) " - " (41..43) " Write " (45..51)
+            row = 3
+            for name, col in (("cpu", 26), ("gpu", 32), ("add", 38), ("del", 42)):
+                m = s.mark()
+                s.click(col, row)
+                time.sleep(0.2)
+                if b"Platform profile" in s.bytes_since(m):
+                    fail("fan_clicks", f"click on {name} switched views")
+                    return
+            ok("fan_clicks", "control-row clicks stay in Fans view")
+            m = s.mark()
+            s.click(47, row)       # Write
+            if s.wait_for(b"fan curve", since=m, timeout=6.0):
+                ok("fan_clicks", "Write click logged fan curve write")
+            else:
+                fail("fan_clicks", "Write click did nothing")
+                return
+            rc = s.quit_expect0()
+            if rc != 0:
+                fail("fan_clicks", f"q exit {rc!r}")
+        finally:
+            s.close()
+
+
+def flow_telemetry():
+    with IsolatedConfig():
+        s = Session("telemetry")
+        try:
+            s.wait_render()
+            # 't' jumps straight to Telemetry from Power
+            m = s.mark()
+            s.key(b"t")
+            if not s.wait_for(b"TELEMETRY", since=m, timeout=6.0):
+                fail("telemetry", "'t' did not open Telemetry view")
+                return
+            ok("telemetry", "'t' jumps directly to Telemetry")
+            frame = s.bytes_since(m)
+            for sec in (b"CPU 1", b"GPU 2", b"iGPU 3", b"RAM 4", b"STORAGE 5",
+                        b"NET 6", b"FAN 7", b"POWER 8"):
+                if sec not in frame:
+                    fail("telemetry", f"section {sec!r} missing")
+                    return
+            ok("telemetry", "all 8 sections render inside workspace")
+            if b"[r] reset stats" not in frame:
+                fail("telemetry", "[r] reset stats header button missing")
+                return
+            # spatial nav j + l -> RAM 4, Enter opens detail
+            s.key(b"j")
+            s.key(b"l")
+            time.sleep(0.3)
+            m2 = s.mark()
+            s.key(b"\r")
+            if not s.wait_for(b"swap", since=m2, timeout=6.0):
+                fail("telemetry", "Enter did not open RAM detail")
+                return
+            ok("telemetry", "spatial grid nav + Enter detail")
+            # 1..8 jumps inside detail page (6 -> NET)
+            m3 = s.mark()
+            s.key(b"6")
+            if not s.wait_for(b"NET", since=m3, timeout=6.0):
+                fail("telemetry", "'6' inside detail did not jump to NET")
+                return
+            ok("telemetry", "1-8 jumps directly inside detail page")
+            m4 = s.mark()
+            s.key(b"r")
+            if not s.wait_for(b"cleared", since=m4, timeout=6.0):
+                fail("telemetry", "'r' stats reset ack missing")
+                return
+            ok("telemetry", "'r' resets stats (cleared flash)")
+            m5 = s.mark()
+            s.key(b"s")
+            if not s.wait_for(b"back", since=m5, timeout=6.0):
+                fail("telemetry", "'s' since-reset switch missing")
+                return
+            ok("telemetry", "'s' toggles since-reset stats")
+            s.key(b"s")
+            time.sleep(0.2)
+            # Esc from detail -> back to grid
+            m6 = s.mark()
+            s.key(b"\x1b")
+            if not s.wait_for(b"STORAGE 5", since=m6, timeout=6.0):
+                fail("telemetry", "Esc did not return from detail to grid")
+                return
+            ok("telemetry", "Esc returns detail -> grid")
+            # 't' on grid toggles back to previous view (Power)
+            m7 = s.mark()
+            s.key(b"t")
+            if not s.wait_for(b"Platform profile", since=m7, timeout=6.0):
+                fail("telemetry", "'t' on grid did not return to Power")
+                return
+            ok("telemetry", "'t' toggles cleanly back to previous view")
+            rc = s.quit_expect0()
+            if rc != 0:
+                fail("telemetry", f"q exit {rc!r}")
+        finally:
+            s.close()
 
 
 def flow_snapshots():
-    """SNAPSHOTS panel round-trip against an isolated CTRON_CONFIG:
-    save (with preview) → rename → note → delete. No hardware writes
-    (export only reads hw state; apply is never pressed)."""
-    tmpcfg = tempfile.mkdtemp(prefix="ctron-tui-")
-    oldcfg = os.environ.get("CTRON_CONFIG")
-    os.environ["CTRON_CONFIG"] = tmpcfg
-    s = None
-    try:
+    with IsolatedConfig():
         s = Session("snapshots")
-        if not s.wait_render(6.0):
-            fail("snapshots", "no frame rendered")
-            return
-        s.key(b"1")                # focus the snapshots panel
-        m = s.mark()
-        s.key(b"s")                # save mode: name typing + preview
-        if not s.wait_for(b"save:", since=m, timeout=8.0):
-            fail("snapshots", "'s' did not open save typing")
-            return
-        ok("snapshots", "save typing + preview shown")
-        s.key(b"t"); s.key(b"s"); s.key(b"1")
-        m = s.mark()
-        s.key(b"\r")
-        if not s.wait_for(b"ts1", since=m, timeout=8.0):
-            fail("snapshots", "saved entry did not appear in the list")
-            return
-        ok("snapshots", "saved ts1 listed")
-        s.key(b"r")                # rename: seeded with ts1
-        time.sleep(0.2)
-        # exercise mid-string cursor editing: Left -> insert 'x' -> End -> BS -> '2'
-        # turns "ts1" into "tsx2" without clearing the whole field
-        s.key(b"\x1b[D")           # Left (between 's' and '1')
-        s.key(b"x")                # -> "tsx1"
-        s.key(b"\x05")             # Ctrl+E (End)
-        s.key(b"\x7f")             # Backspace ('1')
-        s.key(b"2")                # -> "tsx2"
-        m = s.mark()
-        s.key(b"\r")
-        if not s.wait_for(b"tsx2", since=m, timeout=8.0):
-            fail("snapshots", "mid-string cursor rename did not produce tsx2")
-            return
-        ok("snapshots", "mid-string cursor rename produced tsx2")
-        s.key(b"c")                # note
-        time.sleep(0.2)
-        s.key(b"n"); s.key(b"1")
-        m = s.mark()
-        s.key(b"\r")
-        if not s.wait_for(b"n1", since=m, timeout=8.0):
-            fail("snapshots", "note not reflected in the summary")
-            return
-        ok("snapshots", "note shown in summary")
-        # double-d delete confirmation: first 'd' arms, other key cancels, 'd'+'d' deletes
-        m = s.mark()
-        s.key(b"d")
-        if not s.wait_for(b"again", since=m, timeout=6.0):
-            fail("snapshots", "first 'd' did not arm delete confirmation")
-            return
-        ok("snapshots", "first 'd' arms delete confirmation")
-        s.key(b"j")                # any non-d key cancels
-        time.sleep(0.2)
-        m2 = s.mark()
-        s.key(b"d")                # must re-arm, not delete yet
-        if not s.wait_for(b"again", since=m2, timeout=6.0):
-            fail("snapshots", "non-d key did not cancel delete arm")
-            return
-        m3 = s.mark()
-        s.key(b"d")                # second 'd' confirms delete
-        if not s.wait_for(b"(none", since=m3, timeout=8.0):
-            fail("snapshots", "second 'd' did not delete snapshot")
-            return
-        ok("snapshots", "double-d delete confirmed; list empty again")
-        rc = s.quit_expect0()
-        if rc != 0:
-            fail("snapshots", f"q exit {rc!r}")
-    finally:
-        if s is not None:
+        try:
+            s.wait_render()
+            s.key(b"4")            # 4 Snapshots
+            time.sleep(0.25)
+            m = s.mark()
+            s.key(b"s")
+            if not s.wait_for(b"save:", since=m, timeout=6.0):
+                fail("snapshots", "'s' did not open save prompt")
+                return
+            ok("snapshots", "save typing + preview shown")
+            s.key(b"\x15")         # Ctrl+U clear default "my-snapshot"
+            s.key(b"t"); s.key(b"s"); s.key(b"1")
+            m = s.mark()
+            s.key(b"\r")
+            if not s.wait_for(b"ts1", since=m, timeout=6.0):
+                fail("snapshots", "saved ts1 not listed")
+                return
+            ok("snapshots", "saved ts1 listed")
+            s.key(b"r")
+            time.sleep(0.2)
+            # mid-string cursor edit: Left -> 'x' -> Ctrl+E -> BS -> '2' => tsx2
+            s.key(b"\x1b[D")
+            s.key(b"x")
+            s.key(b"\x05")
+            s.key(b"\x7f")
+            s.key(b"2")
+            m = s.mark()
+            s.key(b"\r")
+            if not s.wait_for(b"tsx2", since=m, timeout=6.0):
+                fail("snapshots", "mid-string cursor rename did not produce tsx2")
+                return
+            ok("snapshots", "mid-string cursor rename produced tsx2")
+            s.key(b"c")
+            time.sleep(0.2)
+            s.key(b"n"); s.key(b"1")
+            m = s.mark()
+            s.key(b"\r")
+            if not s.wait_for(b"n1", since=m, timeout=6.0):
+                fail("snapshots", "note not shown in footer")
+                return
+            ok("snapshots", "note shown in inspector footer")
+            m = s.mark()
+            s.key(b"d")
+            if not s.wait_for(b"again", since=m, timeout=6.0):
+                fail("snapshots", "first 'd' did not arm delete")
+                return
+            ok("snapshots", "first 'd' arms delete confirmation")
+            s.key(b"j")            # cancels arm
+            time.sleep(0.2)
+            m2 = s.mark()
+            s.key(b"d")
+            if not s.wait_for(b"again", since=m2, timeout=6.0):
+                fail("snapshots", "non-d key did not cancel delete arm")
+                return
+            m3 = s.mark()
+            s.key(b"d")
+            if not s.wait_for(b"(none", since=m3, timeout=6.0):
+                fail("snapshots", "second 'd' did not delete snapshot")
+                return
+            ok("snapshots", "double-d delete confirmed; list empty again")
+            rc = s.quit_expect0()
+            if rc != 0:
+                fail("snapshots", f"q exit {rc!r}")
+        finally:
             s.close()
-        if oldcfg is None:
-            os.environ.pop("CTRON_CONFIG", None)
-        else:
-            os.environ["CTRON_CONFIG"] = oldcfg
-        shutil.rmtree(tmpcfg, ignore_errors=True)
 
 
-def flow_log_overlay():
-    """EVENT LOG floating overlay ('L'): opens from anywhere, displays
-    recent ut_log entries (including 'TUI ready'), scrolls with j/k,
-    closes on Esc, and re-opens cleanly."""
-    s = Session("log_overlay")
-    try:
-        if not s.wait_render(6.0):
-            fail("log_overlay", "no frame rendered")
-            return
-        m = s.mark()
-        s.key(b"L")
-        if not s.wait_for(b"EVENT LOG", since=m, timeout=6.0):
-            fail("log_overlay", "'L' did not open EVENT LOG overlay")
-            return
-        ok("log_overlay", "'L' opens EVENT LOG overlay")
-        if not s.wait_for(b"TUI ready", since=m, timeout=4.0):
-            fail("log_overlay", "EVENT LOG missing startup 'TUI ready' entry")
-            return
-        ok("log_overlay", "startup log entry visible in EVENT LOG")
-        s.key(b"j"); s.key(b"k"); s.key(b"G"); s.key(b"g")
-        time.sleep(0.2)
-        s.key(b"\x1b")             # Esc closes
-        time.sleep(0.3)
-        m2 = s.mark()
-        s.key(b"L")                # reopen proves close worked
-        if not s.wait_for(b"EVENT LOG", since=m2, timeout=6.0):
-            fail("log_overlay", "'L' did not re-open after Esc close")
-            return
-        ok("log_overlay", "Esc close + 'L' reopen round-trip")
-        rc = s.quit_expect0()
-        if rc != 0:
-            fail("log_overlay", f"q exit {rc!r}")
-    finally:
-        s.close()
-
-
-def flow_fan_presets():
-    """FAN PRESETS modal overlay ('m'): opens floating window, selects Quiet preset,
-    applies with Enter, and checks staged points and log."""
-    tmpcfg = tempfile.mkdtemp(prefix="ctron-tui-")
-    oldcfg = os.environ.get("CTRON_CONFIG")
-    os.environ["CTRON_CONFIG"] = tmpcfg
-    s = None
-    try:
-        s = Session("fan_presets")
-        s.wait_render()
-        s.key(b"5")                # switch to FAN view
-        time.sleep(0.4)
-        m = s.mark()
-        s.key(b"m")                # open presets overlay
-        if not s.wait_for(b"FAN PRESETS", since=m, timeout=6.0):
-            fail("fan_presets", "'m' did not open the FAN PRESETS modal")
-            return
-        ok("fan_presets", "modal overlay opened on 'm'")
-        m2 = s.mark()
-        s.key(b"1")                # select Quiet
-        time.sleep(0.2)
-        s.key(b"\r")               # Enter applies preset
-        time.sleep(0.5)
-        diff = s.bytes_since(m2)
-        if b"Quiet" in diff and (b"loaded" in diff or b"editor" in diff):
-            ok("fan_presets", "Quiet preset applied and logged")
-        else:
-            fail("fan_presets", f"Quiet preset apply log missing: {diff!r}")
-            return
-        rc = s.quit_expect0()
-        if rc != 0:
-            fail("fan_presets", f"q exit {rc!r}")
-    finally:
-        if s is not None:
+def flow_log_and_help():
+    with IsolatedConfig():
+        s = Session("log_help")
+        try:
+            s.wait_render()
+            m = s.mark()
+            s.key(b"L")
+            if not s.wait_for(b"EVENT LOG", since=m, timeout=6.0):
+                fail("log_help", "'L' did not open EVENT LOG")
+                return
+            if not s.wait_for(b"TUI ready", since=m, timeout=4.0):
+                fail("log_help", "startup log entry missing in EVENT LOG")
+                return
+            ok("log_help", "'L' opens EVENT LOG with startup entry")
+            s.key(b"j"); s.key(b"k"); s.key(b"\x1b")
+            time.sleep(0.25)
+            m2 = s.mark()
+            s.key(b"?")
+            if not s.wait_for(b"KEYMAP", since=m2, timeout=6.0):
+                fail("log_help", "'?' did not open HELP modal")
+                return
+            ok("log_help", "'?' opens floating HELP modal")
+            s.key(b"\x1b")
+            time.sleep(0.25)
+            rc = s.quit_expect0()
+            if rc != 0:
+                fail("log_help", f"q exit {rc!r}")
+        finally:
             s.close()
-        if oldcfg is None:
-            os.environ.pop("CTRON_CONFIG", None)
-        else:
-            os.environ["CTRON_CONFIG"] = oldcfg
-        shutil.rmtree(tmpcfg, ignore_errors=True)
 
 
-
-def flow_focus_shift():
-    """Shift+arrows move the focus between panels (geometric, nearest
-    rect in the arrow's direction). 's' discriminates the focus in
-    plain text: the focused SNAPSHOTS panel owns it (save prompt),
-    anywhere else it opens the SETTINGS overlay (asserted via its
-    LAYOUT header)."""
-    s = Session("focus_shift")
-    try:
-        s.wait_render()
-        s.key(b"1")                # pin focus to SNAPSHOTS (the startup
-        time.sleep(0.3)            # default is CONTROLS)
-        # 's' is the save prompt while SNAPSHOTS owns the focus
-        m = s.mark()
-        s.key(b"s")
-        if not s.wait_for(b"save:", since=m, timeout=6.0):
-            fail("focus_shift", "'s' did not open the profiles save prompt")
-            return
-        ok("focus_shift", "profiles focus: 's' = save")
-        s.key(b"\x1b")            # cancel the prompt
-        time.sleep(0.3)
-        # shift+right -> WORKSPACE: 'p' is the fan editor's pwm typing
-        # (the full-width telemetry strip is NOT the "panel to the
-        # right" — the beside-you rule must skip it)
-        m = s.mark()
-        s.key(b"\x1b[1;2C")
-        time.sleep(0.3)
-        s.key(b"p")
-        if not s.wait_for(b"P[", since=m, timeout=6.0):
-            fail("focus_shift", "shift+right did not reach the workspace")
-            return
-        ok("focus_shift", "shift+right moves profiles -> workspace")
-        s.key(b"\x1b")            # cancel pwm typing
-        time.sleep(0.3)
-        # shift+left -> back to PROFILES
-        m = s.mark()
-        s.key(b"\x1b[1;2D")
-        time.sleep(0.3)
-        s.key(b"s")
-        if not s.wait_for(b"save:", since=m, timeout=6.0):
-            fail("focus_shift", "shift+left did not move focus back")
-            return
-        ok("focus_shift", "shift+left moves workspace -> profiles")
-        s.key(b"\x1b")            # cancel the prompt
-        time.sleep(0.3)
-        # shift+down -> CONTROLS: 's' now opens the settings overlay
-        m = s.mark()
-        s.key(b"\x1b[1;2B")
-        time.sleep(0.3)
-        s.key(b"s")
-        if not s.wait_for(b"LAYOUT", since=m, timeout=6.0):
-            fail("focus_shift", "shift+down did not move focus (no SETTINGS)")
-            return
-        ok("focus_shift", "shift+down moves profiles -> controls")
-        s.key(b"\x1b")            # close settings
-        time.sleep(0.3)
-        # shift+up -> back to PROFILES
-        m = s.mark()
-        s.key(b"\x1b[1;2A")
-        time.sleep(0.3)
-        s.key(b"s")
-        if not s.wait_for(b"save:", since=m, timeout=6.0):
-            fail("focus_shift", "shift+up did not move focus back")
-            return
-        ok("focus_shift", "shift+up moves controls -> profiles")
-        s.key(b"\x1b")
-        time.sleep(0.3)
-        rc = s.quit_expect0()
-        if rc != 0:
-            fail("focus_shift", f"q exit {rc!r}")
-    finally:
-        s.close()
+def flow_narrow_terminal():
+    """Below 96 cols the left rail auto-collapses into inline top tabs."""
+    with IsolatedConfig():
+        s = Session("narrow", rows=28, cols=80)
+        try:
+            if not s.wait_render(6.0):
+                fail("narrow", "no frame rendered at 28x80")
+                return
+            frame = s.bytes_since(0)
+            if b"1 Power" not in frame or b"5 Telem" not in frame:
+                fail("narrow", "inline top tabs missing at 80 cols")
+                return
+            ok("narrow", "rail auto-collapses to inline top tabs at 80 cols")
+            rc = s.quit_expect0()
+            if rc != 0:
+                fail("narrow", f"q exit {rc!r}")
+        finally:
+            s.close()
 
 
 def main():
     if not os.access(BIN, os.X_OK):
         print(f"no executable at {BIN} (run make first)")
         return 2
-    print(f"tui_smoke: {BIN} on {ROWS}x{COLS} pty")
-    flows = [flow_open_quit, flow_settings_overlay,
-             flow_power_stage_apply, flow_corefreq_overlay,
-             flow_fan_buttons, flow_fan_staging, flow_fan_presets,
-             flow_telem_full, flow_log_overlay,
-             flow_view_hotkeys, flow_focus_shift, flow_mode_drift,
-             flow_fan_grid,
-             flow_snapshots]
-
+    print(f"tui_smoke: {BIN} on {ROWS}x{COLS} pty (Konsept C)")
+    flows = [
+        flow_open_quit,
+        flow_settings_overlay,
+        flow_startup_view,
+        flow_views_and_tab,
+        flow_power_stage_apply,
+        flow_corefreq_overlay,
+        flow_system_view,
+        flow_fan_staging_and_presets,
+        flow_fan_clicks,
+        flow_telemetry,
+        flow_snapshots,
+        flow_log_and_help,
+        flow_narrow_terminal,
+    ]
     for f in flows:
         f()
     if failures:
