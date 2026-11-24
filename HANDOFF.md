@@ -5,7 +5,33 @@
 
 ---
 
-## Latest session — 2026-11-24 (Snapshot scope: keyboard colour, asusd profiles, per-core grid)
+## Latest session — 2026-11-25 (Snapshot Editor: PPT row edits watts by hand)
+
+**GLM 5.4 / Kerempkl / FA608PP** — user follow-up on the widened snapshot
+scope: the `PPT (SPL/SPPT/FPPT)` row stepped only through the
+Q45/B60/P80/off presets, so hand-entered watts were one `h`/`l` away from
+being replaced wholesale (a typed `50,60,70` snapped to B60/P80).
+
+- **`step_field()` SF_PPT (`panel_profiles.c`):** preset cycling replaced
+  with exactly `1 Power`'s stepping — all three limits ±5 W per press,
+  clamped into `ctrl_ppt_limits()` windows, ordering kept by
+  `ctrl_ppt_order()`; entering from `off`/omitted starts at the live
+  values (seeded already) or `60/75/75`. `e` remains the manual path
+  (`SPL,SPPT,FPPT`, one value = all three, `off`); `Q45`/`B60`/`P80` still
+  parse as typing shortcuts, they just no longer own the stepping. Hint
+  texts now lead with the watts format.
+- **Verified:** 0 warnings, unit tests green; `make tuitest` all flows
+  pass with a new step in `flow_snapshots` (type `62,77,77`, press `l` →
+  `67/82/82`, save → `\nppt = 67,82,82\n` in the `.ctr`); screenshot
+  over a seeded `52,64,70` snapshot shows `57 / 69 / 75 W` after one `l`.
+- Still `[Unreleased]`; version cut remains the user's call (see the
+  2026-11-24 entry below).
+
+Signed: **GLM 5.4** — snapshot PPT row manual watt stepping.
+
+---
+
+## Previous session — 2026-11-24 (Snapshot scope: keyboard colour, asusd profiles, per-core grid)
 
 **GLM 5.4 / Kerempkl / FA608PP** — user asked to widen what `4 Snapshots`
 can carry ("keyboard light modes, colours, per-core frequency limits, and

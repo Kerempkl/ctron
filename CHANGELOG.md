@@ -52,6 +52,16 @@ see [docs/history/changelog-2026-09-11.md](docs/history/changelog-2026-09-11.md)
   output of the FA608PP.
 
 ### Changed
+- **Snapshot Editor PPT row steps watts, not presets (`panel_profiles.c`):**
+  `h`/`l` no longer jumps between the Q45/B60/P80/off presets — one step
+  could replace hand-entered watts wholesale (a typed `50,60,70` snapped
+  straight to B60's `60/75/75` or P80). The row now steps all three watt
+  limits in 5 W increments inside `1 Power`'s own windows
+  (`ctrl_ppt_limits`) with the `fppt >= sppt >= spl` ordering
+  (`ctrl_ppt_order`), entering from `off`/omitted at the live values or
+  `60/75/75`. `e` is the manual path — `SPL,SPPT,FPPT`, one value for all
+  three, or `off`; `Q45`/`B60`/`P80` still parse as typing shortcuts, they
+  just no longer own the stepping.
 - **`3 Display & Light` AURA rows show the real keyboard (`panel_workspace.c`):**
   the colour rows start from what the keyboard shows (an untouched custom
   colour is displayed as `#rrggbb (live)`), and on a keyboard whose effect

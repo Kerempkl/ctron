@@ -108,7 +108,10 @@ applies, `s`/`n` saves a fresh live snapshot, `uu` overwrites the selected
 snapshot from live hardware (preserving its `# note:`), and `e` focuses the
 field editor (`h`/`l` step, `e` exact value, `x` toggle `— (skip)` for
 selective/partial snapshots that leave omitted hardware untouched on apply,
-`f` capture the live value, `w`/`Enter` save). A snapshot carries platform
+`f` capture the live value, `w`/`Enter` save). On the `PPT` row, `h`/`l` step
+the three watt limits in 5 W increments (the same windows and ordering as
+the Power view) and `e` takes `SPL,SPPT,FPPT`, a single value for all
+three, or `off` — never a preset snap. A snapshot carries platform
 profile, EPP, CPU boost, the all-core and per-core CPU ceilings, PPT, GPU clock
 lock, the asusd AC/battery profiles, refresh rate, panel overdrive, charge
 limit, keyboard backlight and colour, and both fan curves.
