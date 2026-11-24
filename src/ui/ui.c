@@ -404,6 +404,8 @@ void ui_set_view(ui_view_t v)
     if (g_ui.view == v)
         return;
     g_ui.pw_typing = false;
+    g_ui.pw_in_cores = false;
+    g_ui.cf_input_active = 0;
     g_ui.sys_bat_typing = false;
     g_ui.lt_hex_active = 0;
     g_ui.fe_input = 0;
@@ -501,7 +503,7 @@ static void draw_help_overlay(struct ncplane *n, const rect_t *r)
         "  j / k        select row · h / l step value (staged, nothing writes yet)",
         "  e            type exact value (watts, MHz, battery %, hex color)",
         "  w / Enter    apply all staged edits · r revert to live values",
-        "  c / b        Core Limits overlay (Power) · daeboard editor (Display & Light)",
+        "  c / b        focus inline Core Limits (Power) · daeboard (Display & Light)",
         "",
         "FANS (2)",
         "  c / g        CPU / GPU curve · < > select point · h/l/j/k nudge",
@@ -855,7 +857,16 @@ static void draw_footer(struct ncplane *n, unsigned dimy, unsigned dimx)
     bool dirty_here = (g_ui.view == VIEW_POWER && pw_staged_count() > 0) ||
                       (g_ui.view == VIEW_SYSTEM && sys_staged_count() > 0) ||
                       (g_ui.view == VIEW_FANS && g_ui.hw->fan_staged);
-    if (g_ui.view == VIEW_POWER) {
+    if (g_ui.view == VIEW_POWER && g_ui.pw_in_cores) {
+        const ui_hint_t h[] = {
+            { "Esc/c", "power", false },  { "j/k", "core", false },
+            { "h/l", "±100", false },     { "e", "exact", false },
+            { "a/A", "CCD·all", false },  { "o", "max", false },
+            { "w", "apply", dirty_here }, { "r", "revert", false },
+            { "L", "log", false },        { "q", "quit", false },
+        };
+        ui_keybar(n, 1, ky, W - 2, h, (int)(sizeof(h) / sizeof(h[0])));
+    } else if (g_ui.view == VIEW_POWER) {
         const ui_hint_t h[] = {
             { "1-5/Tab", "view", false }, { "j/k", "row", false },
             { "h/l", "step", false },     { "e", "edit", false },
@@ -951,13 +962,6 @@ static void handle_mouse(struct ncplane *stdn, const struct ncinput *ni, uint32_
             editor_daeboard_act(t & TGT_ID_MASK);
         return;
     }
-    if (g_ui.cf_overlay) {
-        if (outside) { g_ui.cf_overlay = false; return; }
-        int t = tgt_find(mx, my);
-        if (((t >> 24) & 0x7f) == TGT_PANEL_COREFREQ)
-            editor_corefreq_act(t & TGT_ID_MASK);
-        return;
-    }
     if (g_ui.fe_presets_overlay) {
         if (outside) { g_ui.fe_presets_overlay = false; return; }
         int t = tgt_find(mx, my);
@@ -998,6 +1002,12 @@ static void handle_mouse(struct ncplane *stdn, const struct ncinput *ni, uint32_
         break;
     case TGT_PANEL_WORKSPACE:
         panel_workspace_act(id);
+        break;
+    case TGT_PANEL_COREFREQ:
+        if (g_ui.view == VIEW_POWER) {
+            g_ui.pw_in_cores = true;
+            editor_corefreq_act(id);
+        }
         break;
     case TGT_PANEL_TELEM:
         panel_telem_full_act(id);
@@ -1268,10 +1278,6 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
         editor_daeboard_key(key);
         return;
     }
-    if (g_ui.cf_overlay) {
-        editor_corefreq_key(key);
-        return;
-    }
     if (g_ui.fe_presets_overlay) {
         editor_fan_presets_key(key);
         return;
@@ -1301,6 +1307,10 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
     }
     if (g_ui.view == VIEW_FANS && g_ui.fe_input != 0) {
         editor_fan_key(key);
+        return;
+    }
+    if (g_ui.view == VIEW_POWER && g_ui.cf_input_active) {
+        editor_corefreq_key(key);
         return;
     }
     if (g_ui.view == VIEW_POWER && g_ui.pw_typing) {
@@ -1369,8 +1379,10 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
     case '4': ui_set_view(VIEW_SNAPSHOTS); return;
     case '5': ui_set_view(VIEW_TELEM);     return;
     case NCKEY_ESC:
-        /* Esc NEVER opens a menu: cancels armed delete or exits telem back */
-        if (g_ui.prof_del_arm >= 0) {
+        /* Esc NEVER opens a menu: exits inline cores, cancels delete arm, or leaves telem */
+        if (g_ui.view == VIEW_POWER && g_ui.pw_in_cores) {
+            g_ui.pw_in_cores = false;
+        } else if (g_ui.prof_del_arm >= 0) {
             g_ui.prof_del_arm = -1;
         } else if (g_ui.view == VIEW_TELEM && g_ui.prev_view != VIEW_TELEM) {
             ui_set_view(g_ui.prev_view);
@@ -1515,9 +1527,6 @@ int ui_run(hw_state_t *hw)
             draw_log_overlay(stdn, &g_ui.rc_overlay);
         } else if (g_ui.db_overlay) {
             editor_daeboard_draw(stdn, &g_ui.rc_overlay);
-            ui_modal_end();
-        } else if (g_ui.cf_overlay) {
-            editor_corefreq_draw(stdn, &g_ui.rc_overlay);
             ui_modal_end();
         } else if (g_ui.fe_presets_overlay) {
             editor_fan_presets_draw(stdn, &g_ui.rc_overlay);

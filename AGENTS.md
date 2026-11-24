@@ -22,10 +22,10 @@ audit state lives in `AUDIT.md`. Append to `HANDOFF.md` (signed) and
   below 96 cols), full-height right workspace (`1 Power`, `2 Fans`,
   `3 Display & Light`, `4 Snapshots`, `5 Telemetry`; startup tab selectable
   in `,` Preferences), and unified 2-row status/log + contextual keybar.
-  Preferences (`,`), Event Log (`L`), Help (`?`), Core Limits (`c`), Fan
-  Presets (`m`), and daeboard editor (`b`) run as clean single-line modals
-  (`Esc` strictly backs out/closes). `ui_layout()` in `src/ui/ui.c` is the
-  only place that places regions.
+  Preferences (`,`), Event Log (`L`), Help (`?`), Fan Presets (`m`), and
+  daeboard editor (`b`) run as clean single-line modals (`Esc` strictly backs
+  out/closes); per-core limits (`c`) sit inline inside `1 Power`. `ui_layout()`
+  in `src/ui/ui.c` is the only place that places regions.
 
 ## Architecture map
 

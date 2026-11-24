@@ -68,8 +68,8 @@ typedef struct ui_ctx {
     int log_scroll;             /* top visible log index (0 = newest) */
     bool help_overlay;          /* '?': keymap help modal */
     bool db_overlay;            /* 'b': daeboard editor / installer */
-    bool cf_overlay;            /* 'c': per-core frequency editor */
     bool fe_presets_overlay;    /* 'm': fan presets modal */
+    bool pw_in_cores;           /* true when focus is in inline CORE LIMITS pane */
 
     /* telemetry view (5th tab: grid + detail pages) */
     int telem_sel;              /* grid cursor (section idx) */

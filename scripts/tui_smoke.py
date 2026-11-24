@@ -337,32 +337,35 @@ def flow_power_stage_apply():
 
 
 def flow_corefreq_overlay():
+    """Inline CORE LIMITS pane right inside 1 Power: visible without a
+    popup modal, 'c' focuses it, stages a core, Esc returns to Power."""
     with IsolatedConfig():
         s = Session("corefreq")
         try:
             s.wait_render()
-            m = s.mark()
-            s.key(b"c")
-            if not s.wait_for(b"CORE LIMITS", since=m):
-                fail("corefreq", "'c' did not open CORE LIMITS overlay")
+            init_frame = s.bytes_since(0)
+            if b"CORE LIMITS" not in init_frame or b"CCD1" not in init_frame:
+                fail("corefreq", "inline CORE LIMITS / CCD1 not visible inside Power")
                 return
-            ok("corefreq", "overlay opened from Power")
-            if s.wait_for(b"CCD1", since=m):
-                if s.wait_for(b"c0", since=m):
-                    ok("corefreq", "core mode: CCD headers + core cells")
-                else:
-                    fail("corefreq", "CCD header but no core cells")
-                    return
-            s.key(b"j")
-            s.key(b"l")
+            ok("corefreq", "inline CORE LIMITS + CCD1 visible directly inside Power")
             m = s.mark()
-            s.key(b"\x1b")
-            time.sleep(0.4)
-            if s.wait_for(b"cores: 1 staged", since=m, timeout=6.0):
-                ok("corefreq", "staged core survives close -> Power preview")
-                s.key(b"r")
-                time.sleep(0.3)
-            ok("corefreq", "staged, reverted, closed, still alive")
+            s.key(b"c")            # focus inline CORE LIMITS pane
+            if not s.wait_for(b"Esc power", since=m, timeout=6.0):
+                fail("corefreq", "'c' did not focus inline CORE LIMITS pane")
+                return
+            ok("corefreq", "'c' focuses inline CORE LIMITS pane")
+            s.key(b"j")            # move from CCD1 header to core c0·16
+            m2 = s.mark()
+            s.key(b"h")            # stage -100 below max -> live preview updates
+            if not s.wait_for(b"cores: 1 staged", since=m2, timeout=6.0):
+                fail("corefreq", "staged core not reflected in Power preview")
+                return
+            ok("corefreq", "staged core immediately shown in Power preview")
+            s.key(b"\x1b")         # Esc returns focus to Power list
+            time.sleep(0.3)
+            s.key(b"r")            # revert staged core
+            time.sleep(0.3)
+            ok("corefreq", "Esc returns to Power, revert + clean exit")
             rc = s.quit_expect0()
             if rc != 0:
                 fail("corefreq", f"q exit {rc!r}")

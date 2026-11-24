@@ -47,6 +47,11 @@ see [docs/history/changelog-2026-09-11.md](docs/history/changelog-2026-09-11.md)
   (`ctrl_battery_oneshot()`), Keyboard backlight, Aura, Custom hex swatch, and
   daeboard controls under one clean staged view backed by the `APPLY_SYSTEM`
   background worker.
+- **Inline `CORE LIMITS` pane inside `1 Power`:** per-core / per-CCD frequency
+  ceilings now sit directly beside (wide terminals `>= 89` workspace cols) or
+  below (`>= 28` rows) the Power settings list with live CCD1/CCD2 ceilings,
+  focused via `c` or clicking any core cell (`Esc`/`c` returns focus to Power;
+  no popup modal needed).
 - **GPU live temp marker (`▲`)** on the Fan Curve x-axis when editing GPU curve.
 
 ### Fixed

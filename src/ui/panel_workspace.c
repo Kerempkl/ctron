@@ -681,7 +681,7 @@ static void pw_commit_typed(void)
     pw_recompute_dirty();
 }
 
-static void draw_power(struct ncplane *n, const rect_t *r)
+static void draw_power_list(struct ncplane *n, const rect_t *r)
 {
     const palette_t *pal = ui_palette(g_prefs.theme);
     const hw_state_t *hw = g_ui.hw;
@@ -825,7 +825,7 @@ static void draw_power(struct ncplane *n, const rect_t *r)
                 break;
             y = y0 + ln;
         }
-        bool sel = (i == g_ui.pw_sel);
+        bool sel = !g_ui.pw_in_cores && (i == g_ui.pw_sel);
         if (i == PW_PRESET) {
             int lw = w * 42 / 100;
             if (lw < 18) lw = 18;
@@ -862,6 +862,40 @@ static void draw_power(struct ncplane *n, const rect_t *r)
         char prev[176];
         snprintf(prev, sizeof(prev), "will write: %s", sum);
         ui_putln(n, x, py, w, prev, pal->warn, false);
+    }
+}
+
+static void draw_power(struct ncplane *n, const rect_t *r)
+{
+    const palette_t *pal = ui_palette(g_prefs.theme);
+    const hw_state_t *hw = g_ui.hw;
+
+    if (hw->cpu_n <= 0) {
+        draw_power_list(n, r);
+        return;
+    }
+
+    if (r->w >= 89) {
+        /* wide terminal: Power list left + hairline + inline CORE LIMITS right */
+        int lw = ut_clamp_i(r->w * 54 / 100, 50, 62);
+        rect_t pr = { r->x, r->y, lw, r->h };
+        rect_t cr = { r->x + lw + 3, r->y, r->w - lw - 3, r->h };
+        draw_power_list(n, &pr);
+        ui_vline(n, r->x + lw + 1, r->y, r->h, pal->border);
+        editor_corefreq_draw(n, &cr);
+    } else if (r->h >= 28) {
+        /* narrower but tall: Power list top + inline CORE LIMITS below */
+        int ph = 18;
+        rect_t pr = { r->x, r->y, r->w, ph };
+        rect_t cr = { r->x, r->y + ph + 1, r->w, r->h - ph - 1 };
+        draw_power_list(n, &pr);
+        ui_hline(n, r->x, r->y + ph, r->w, pal->border);
+        editor_corefreq_draw(n, &cr);
+    } else if (g_ui.pw_in_cores) {
+        /* tiny terminal: focused pane fills the workspace cleanly */
+        editor_corefreq_draw(n, r);
+    } else {
+        draw_power_list(n, r);
     }
 }
 
@@ -1308,6 +1342,10 @@ void panel_workspace_key(uint32_t key)
     }
 
     if (g_ui.view == VIEW_POWER) {
+        if (g_ui.pw_in_cores) {
+            editor_corefreq_key(key);
+            return;
+        }
         if (g_ui.pw_typing) {
             if (key == NCKEY_ESC) {
                 g_ui.pw_typing = false;
@@ -1455,13 +1493,17 @@ void panel_workspace_act(int id)
         return;
     }
     if (id >= ACT_WS_PW_PRESET_BASE && id < ACT_WS_PW_PRESET_BASE + 3) {
-        if (g_ui.view == VIEW_POWER)
+        if (g_ui.view == VIEW_POWER) {
+            g_ui.pw_in_cores = false;
             pw_stage_preset_idx(id - ACT_WS_PW_PRESET_BASE);
+        }
         return;
     }
     if (id >= ACT_WS_PW_BASE && id < ACT_WS_PW_BASE + PW_ROWS) {
         int row = id - ACT_WS_PW_BASE;
-        if (row == g_ui.pw_sel) {
+        bool was_cores = g_ui.pw_in_cores;
+        g_ui.pw_in_cores = false;
+        if (!was_cores && row == g_ui.pw_sel) {
             if (row == PW_MODE && g_ui.mode_n > 0)
                 ui_spawn_apply(APPLY_MODE, "mode",
                                g_ui.modes[ut_clamp_i(g_ui.ctl_mode_idx, 0,

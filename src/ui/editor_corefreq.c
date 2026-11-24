@@ -287,21 +287,23 @@ int cf_apply_list(hw_state_t *hw, const int ids[HW_CPU_MAX],
 
 /* ---- open / draw --------------------------------------------------------- */
 
-void editor_corefreq_open(void)
+static void cf_seed_missing(void)
 {
-    /* seed only never-touched cores: staging survives close/open, or
-     * the will-write preview in POWER would promise something the
-     * reopened editor silently drops */
     hw_state_t *hw = g_ui.hw;
     for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
         int id = hw->cpu_ids[c];
         if (g_ui.cf_staged[id] == 0)
             g_ui.cf_staged[id] = hw->cpu_mhz_core[id];
     }
+}
+
+void editor_corefreq_open(void)
+{
+    cf_seed_missing();
     g_ui.cf_input_active = 0;
     if (g_ui.cf_sel >= cf_entries())
         g_ui.cf_sel = 0;
-    g_ui.cf_overlay = true;
+    g_ui.pw_in_cores = true;
     pw_recompute_dirty();
 }
 
@@ -350,14 +352,34 @@ void editor_corefreq_draw(struct ncplane *n, const rect_t *r)
 {
     const palette_t *pal = ui_palette(g_prefs.theme);
     hw_state_t *hw = g_ui.hw;
-    int x = r->x + 2, w = r->w - 4;
+    int x = r->x, w = r->w;
+    if (w < 16 || r->h < 4)
+        return;
 
-    /* staging here feeds pw_dirty (title ●, Apply light, quit guard);
-     * recomputed on draw — the draw-time rising-edge precedent */
+    cf_seed_missing();
     pw_recompute_dirty();
 
-    ui_window(n, r, "CORE LIMITS");
+    bool foc = g_ui.pw_in_cores;
+    char hdr[80];
+    int ntot = cf_core_mode() ? hw->core_n : hw->cpu_n;
+    int ncap = cf_capped_count();
+    int nstg = cf_staged_n();
+    if (nstg > 0)
+        snprintf(hdr, sizeof(hdr), "CORE LIMITS · %d/%d capped · %d staged",
+                 ncap, ntot, nstg);
+    else if (ncap > 0)
+        snprintf(hdr, sizeof(hdr), "CORE LIMITS · %d/%d capped", ncap, ntot);
+    else
+        snprintf(hdr, sizeof(hdr), "CORE LIMITS (c)");
+    ui_putln(n, x, r->y, w, hdr, foc ? pal->accent : pal->muted, true);
+    {
+        int hw_cells = ut_cells(hdr) + 1;
+        if (w - hw_cells > 2)
+            ui_hline(n, x + hw_cells, r->y, w - hw_cells,
+                     foc ? pal->accent : pal->border);
+    }
 
+    int y0 = r->y + 1;
     if (g_ui.cf_input_active) {
         char disp[68], line[144];
         tin_format(&g_ui.cf_input, disp, sizeof(disp), true);
@@ -366,35 +388,28 @@ void editor_corefreq_draw(struct ncplane *n, const rect_t *r)
             int k = cf_entry_at(g_ui.cf_sel, &g);
             char lab[16];
             if (k == -1)
-                snprintf(lab, sizeof lab, "%s", cf_group_label(g));
+                snprintf(lab, sizeof(lab), "%s", cf_group_label(g));
             else
-                cf_core_label(k, lab, sizeof lab);
-            snprintf(line, sizeof(line), "%s MHz: %s · Enter stages · Esc cancels",
+                cf_core_label(k, lab, sizeof(lab));
+            snprintf(line, sizeof(line), "edit %s MHz: %s  (Enter ok · Esc cancel)",
                      lab, disp);
         } else {
             int id = (g_ui.cf_sel >= 0 && g_ui.cf_sel < hw->cpu_n)
                          ? hw->cpu_ids[g_ui.cf_sel] : 0;
-            snprintf(line, sizeof(line), "cpu %d MHz: %s · Enter stages · Esc cancels",
+            snprintf(line, sizeof(line), "edit cpu %d MHz: %s  (Enter ok · Esc cancel)",
                      id, disp);
         }
-        ui_putln(n, x, r->y + 1, w, line, pal->accent, true);
-    } else if (cf_core_mode()) {
-        ui_putln(n, x, r->y + 1, w,
-                 "h/l ±100 · j/k select · e value · a CCD · A all · o max · w apply · r revert · Esc close",
-                 pal->muted, false);
-    } else {
-        ui_putln(n, x, r->y + 1, w,
-                 "h/l ±100 · j/k select · e value · a all · o max · w apply · r revert · Esc close",
-                 pal->muted, false);
+        ui_putln(n, x, y0, w, line, pal->accent, true);
+        y0++;
     }
 
-    int rows = r->h - 6;
-    int y0 = r->y + 3;
-    int ymax = y0 + (rows > 0 ? rows : 0);
+    int ymax = r->y + r->h - 1;
+    int rows = ymax - y0;
+    if (rows < 1)
+        rows = 1;
 
     if (!cf_core_mode()) {
-        /* CPU fallback: the historical per-thread grid */
-        int cellw = 11;
+        int cellw = 12;
         int cols = w / cellw;
         if (cols < 1)
             cols = 1;
@@ -402,7 +417,7 @@ void editor_corefreq_draw(struct ncplane *n, const rect_t *r)
             int id = hw->cpu_ids[i];
             int cx = x + (i % cols) * cellw;
             int cy = y0 + i / cols;
-            bool sel = (i == g_ui.cf_sel);
+            bool sel = foc && (i == g_ui.cf_sel);
             bool capped = hw->cpu_mhz_max > 0 &&
                           g_ui.cf_staged[id] < hw->cpu_mhz_max;
             bool staged = g_ui.cf_staged[id] != 0 &&
@@ -411,33 +426,40 @@ void editor_corefreq_draw(struct ncplane *n, const rect_t *r)
             snprintf(cell, sizeof(cell), "%sc%02d %4d%s",
                      sel ? "▸" : " ", id, g_ui.cf_staged[id],
                      staged ? "●" : " ");
-            ui_putln(n, cx, cy, cellw + 1, cell,
-                     capped ? pal->accent : (staged ? pal->accent2 : pal->text),
-                     sel);
+            uint32_t fg = sel ? pal->accent
+                        : staged ? pal->warn
+                        : capped ? pal->accent : pal->text;
+            ncplane_set_channels(n, ui_ch(fg, sel));
+            ncplane_set_styles(n, sel ? NCSTYLE_BOLD : NCSTYLE_NONE);
+            ncplane_putstr_yx(n, cy, cx, cell);
+            ncplane_set_styles(n, NCSTYLE_NONE);
             tgt_register(cx, cy, cellw, 1,
                          TGT(TGT_PANEL_COREFREQ, ACT_CF_CELL + i));
         }
     } else {
-        /* CORE mode: one COLUMN per CCD, cores stacked under the
-         * header — the two CCDs sit side by side like two chips */
-        int cellw = 15;   /* fits "▸c255·255 5386●" */
+        int cellw = 16;
         int colw = w / (hw->ccd_n > 0 ? hw->ccd_n : 1);
         if (colw < cellw)
-            colw = cellw; /* clipping beats cramping */
+            colw = cellw;
         int e = 0;
         for (int g = 0; g < hw->ccd_n; g++) {
             int cx = x + g * colw;
             int y = y0;
             if (hw->ccd_n > 1) {
-                if (y < ymax) {
+                if (y < ymax && cx < x + w) {
                     char lab[40];
-                    int lw = colw > 24 ? 24 : colw;
+                    int lw = colw - 1;
+                    if (lw > 22) lw = 22;
+                    if (cx + lw > x + w) lw = x + w - cx;
+                    bool hsel = foc && (g_ui.cf_sel == e);
                     snprintf(lab, sizeof(lab), "%s%s %d/%d capped",
-                             g_ui.cf_sel == e ? "▸" : " ", cf_group_label(g),
+                             hsel ? "▸" : " ", cf_group_label(g),
                              cf_group_capped(g), cf_group_cores(g));
-                    bool hsel = (g_ui.cf_sel == e);
-                    ui_putln(n, cx, y, lw, lab,
-                             hsel ? pal->accent : pal->muted, hsel);
+                    ui_trunc(lab, lw);
+                    ncplane_set_channels(n, ui_ch(hsel ? pal->accent : pal->muted, hsel));
+                    ncplane_set_styles(n, (hsel || true) ? NCSTYLE_BOLD : NCSTYLE_NONE);
+                    ncplane_putstr_yx(n, y, cx, lab);
+                    ncplane_set_styles(n, NCSTYLE_NONE);
                     tgt_register(cx, y, lw, 1,
                                  TGT(TGT_PANEL_COREFREQ, ACT_CF_CELL + e));
                 }
@@ -449,20 +471,26 @@ void editor_corefreq_draw(struct ncplane *n, const rect_t *r)
                     continue;
                 if (y < ymax && cx < x + w) {
                     int a = cf_core_a(k);
-                    bool sel = (g_ui.cf_sel == e);
+                    bool sel = foc && (g_ui.cf_sel == e);
                     bool capped = hw->cpu_mhz_max > 0 &&
                                   g_ui.cf_staged[a] < hw->cpu_mhz_max;
                     bool staged = cf_scope_diff(k);
                     char cell[40], lab[16];
-                    cf_core_label(k, lab, sizeof lab);
-                    snprintf(cell, sizeof(cell), "%s%-8s %4d%s",
+                    cf_core_label(k, lab, sizeof(lab));
+                    snprintf(cell, sizeof(cell), "%s%-7s %4d%s",
                              sel ? "▸" : " ", lab, g_ui.cf_staged[a],
                              staged ? "●" : " ");
-                    ui_putln(n, cx, y, cellw + 1, cell,
-                             capped ? pal->accent
-                                    : (staged ? pal->accent2 : pal->text),
-                             sel);
-                    tgt_register(cx, y, cellw, 1,
+                    int cw = cellw;
+                    if (cx + cw > x + w) cw = x + w - cx;
+                    ui_trunc(cell, cw);
+                    uint32_t fg = sel ? pal->accent
+                                : staged ? pal->warn
+                                : capped ? pal->accent : pal->text;
+                    ncplane_set_channels(n, ui_ch(fg, sel));
+                    ncplane_set_styles(n, sel ? NCSTYLE_BOLD : NCSTYLE_NONE);
+                    ncplane_putstr_yx(n, y, cx, cell);
+                    ncplane_set_styles(n, NCSTYLE_NONE);
+                    tgt_register(cx, y, cw, 1,
                                  TGT(TGT_PANEL_COREFREQ, ACT_CF_CELL + e));
                 }
                 e++;
@@ -471,17 +499,12 @@ void editor_corefreq_draw(struct ncplane *n, const rect_t *r)
         }
     }
 
-    int by = r->y + r->h - 2;
-    char st[112];
-    snprintf(st, sizeof(st), "%d/%d capped · %d staged — cores ride POWER Apply (global first, then per-core)",
-             cf_capped_count(),
-             cf_core_mode() ? hw->core_n : hw->cpu_n,
-             cf_staged_n());
-    ui_putln(n, x, by - 1, w, st, pal->muted, false);
-    ui_btn(n, x, by, " Apply ", g_ui.pw_dirty, false,
-           TGT(TGT_PANEL_COREFREQ, ACT_CF_WRITE));
-    ui_btn(n, x + 10, by, " Revert ", false, false,
-           TGT(TGT_PANEL_COREFREQ, ACT_CF_REVERT));
+    if (r->h >= 5) {
+        const char *foot = foc
+            ? "h/l ±100 · e exact · a CCD · A all · o max · Esc power"
+            : "press c or click a core to edit per-core ceilings";
+        ui_putln(n, x, r->y + r->h - 1, w, foot, pal->muted, false);
+    }
 }
 
 /* ---- keys ---------------------------------------------------------------- */
@@ -512,9 +535,9 @@ void editor_corefreq_key(uint32_t key)
         return;
     }
 
-    if (n == 0) {                    /* no cpufreq policies: just close */
-        if (key == NCKEY_ESC || key == 'q' || key == 'Q')
-            g_ui.cf_overlay = false;
+    if (n == 0) {
+        if (key == NCKEY_ESC || key == 'c' || key == 'C')
+            g_ui.pw_in_cores = false;
         return;
     }
     if (g_ui.cf_sel >= n)
@@ -525,9 +548,9 @@ void editor_corefreq_key(uint32_t key)
         int k = cf_entry_at(g_ui.cf_sel, &g);
         switch (key) {
         case NCKEY_ESC:
-        case 'q':
-        case 'Q':
-            g_ui.cf_overlay = false;
+        case 'c':
+        case 'C':
+            g_ui.pw_in_cores = false;
             return;
         case 'j': case NCKEY_DOWN:
             g_ui.cf_sel = (g_ui.cf_sel + 1) % n;
@@ -537,9 +560,11 @@ void editor_corefreq_key(uint32_t key)
             return;
         case 'h': case NCKEY_LEFT:
             cf_sel_apply(cf_clamp(cf_sel_base() - 100));
+            pw_recompute_dirty();
             return;
         case 'l': case NCKEY_RIGHT:
             cf_sel_apply(cf_clamp(cf_sel_base() + 100));
+            pw_recompute_dirty();
             return;
         case 'e': case 'E':
         case 't': case 'T':
@@ -547,7 +572,6 @@ void editor_corefreq_key(uint32_t key)
             tin_clear(&g_ui.cf_input);
             return;
         case 'a': case 'A': {
-            /* 'a' = the selected value across its CCD, 'A' = everywhere */
             int v = cf_clamp(cf_sel_base());
             if (key == 'a') {
                 cf_group_stage(g, v);
@@ -558,17 +582,17 @@ void editor_corefreq_key(uint32_t key)
             (void)k;
             return;
         }
-        case 'o': case 'O':           /* selection back to the cpuinfo max */
+        case 'o': case 'O':
             cf_sel_apply(hw->cpu_mhz_max);
+            pw_recompute_dirty();
             return;
         case 'r': case 'R':
             cf_revert();
+            pw_recompute_dirty();
             return;
         case 'w': case 'W':
         case NCKEY_ENTER: case '\r': case '\n': case ' ':
-            /* one write door: close and let the POWER apply worker do
-             * it (progress line, toast, read-back verify) */
-            g_ui.cf_overlay = false;
+            g_ui.pw_in_cores = false;
             ui_spawn_apply(APPLY_POWER, "power settings", "");
             return;
         default:
@@ -576,13 +600,12 @@ void editor_corefreq_key(uint32_t key)
         }
     }
 
-    /* CPU fallback: historical key map over real ids */
     int id = hw->cpu_ids[g_ui.cf_sel];
     switch (key) {
     case NCKEY_ESC:
-    case 'q':
-    case 'Q':
-        g_ui.cf_overlay = false;
+    case 'c':
+    case 'C':
+        g_ui.pw_in_cores = false;
         return;
     case 'j': case NCKEY_DOWN:
         g_ui.cf_sel = (g_ui.cf_sel + 1) % n;
@@ -601,7 +624,7 @@ void editor_corefreq_key(uint32_t key)
         g_ui.cf_input_active = 1;
         tin_clear(&g_ui.cf_input);
         return;
-    case 'a': case 'A': {           /* selected value to every core */
+    case 'a': case 'A': {
         int v = g_ui.cf_staged[id];
         for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++)
             g_ui.cf_staged[hw->cpu_ids[c]] = v;
@@ -615,8 +638,7 @@ void editor_corefreq_key(uint32_t key)
         return;
     case 'w': case 'W':
     case NCKEY_ENTER: case '\r': case '\n': case ' ':
-        /* one write door: close and let the POWER apply worker do it */
-        g_ui.cf_overlay = false;
+        g_ui.pw_in_cores = false;
         ui_spawn_apply(APPLY_POWER, "power settings", "");
         return;
     default:
@@ -624,16 +646,14 @@ void editor_corefreq_key(uint32_t key)
     }
 }
 
-/* ---- mouse --------------------------------------------------------------- */
-
 void editor_corefreq_act(int id_)
 {
     int n = cf_entries();
     if (id_ >= ACT_CF_CELL && id_ < ACT_CF_CELL + HW_CPU_MAX) {
-        int e = id_ - ACT_CF_CELL;   /* entry index */
+        int e = id_ - ACT_CF_CELL;
         if (e >= n)
             return;
-        if (e == g_ui.cf_sel) {      /* second click: step the value up */
+        if (e == g_ui.cf_sel) {
             if (cf_core_mode()) {
                 cf_sel_apply(cf_clamp(cf_sel_base() + 100));
             } else {
@@ -647,7 +667,7 @@ void editor_corefreq_act(int id_)
     }
     switch (id_) {
     case ACT_CF_WRITE:
-        g_ui.cf_overlay = false;
+        g_ui.pw_in_cores = false;
         ui_spawn_apply(APPLY_POWER, "power settings", "");
         break;
     case ACT_CF_REVERT: cf_revert(); break;

@@ -42,6 +42,10 @@ Workspace)**, `5 Telemetry` as a first-class view, and configurable
     `1..5`/`Tab`, Power/System/Fan staging & presets, Fan clicks, Telemetry
     workspace + `1..8` detail jumps + reset/since, Snapshots cursor rename +
     double-`d` confirm, `L` Log + `?` Help, and 80-col rail auto-collapse.
+- **Inline `CORE LIMITS` in `1 Power` (follow-up):** replaced the popup modal
+  (`cf_overlay`) with an inline pane right inside `1 Power` (side-by-side when
+  `rc_ws.w >= 89`, stacked when tall, compact swap on tiny terminals); `c` or
+  clicking any core cell focuses it and `Esc`/`c` returns focus to Power rows.
 - **Verification:** `make clean && make HARDEN=1 && make test` and standard
   `make clean && make && make test` 0 warnings; UBSan + LSan clean;
   `clang --analyze` 0 findings on all 9 modified C files; `nm -u build/ctron`
