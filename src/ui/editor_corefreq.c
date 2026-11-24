@@ -42,13 +42,17 @@ static int cf_clamp(int v)
     return v;
 }
 
+static int cf_eff(int id)
+{
+    if (id < 0 || id >= HW_CPU_MAX)
+        return 0;
+    return g_ui.cf_staged[id] > 0 ? g_ui.cf_staged[id]
+                                  : g_ui.hw->cpu_mhz_core[id];
+}
+
 static void cf_revert(void)
 {
-    hw_state_t *hw = g_ui.hw;
-    for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
-        int id = hw->cpu_ids[c];
-        g_ui.cf_staged[id] = hw->cpu_mhz_core[id];
-    }
+    memset(g_ui.cf_staged, 0, sizeof(g_ui.cf_staged));
 }
 
 /* POWER's revert drops core staging too — one pool, one revert */
@@ -153,10 +157,10 @@ static int cf_sel_base(void)
     if (k == -1) {
         for (int i = 0; i < hw->core_n; i++)
             if (hw->core_ccd[i] == g)
-                return g_ui.cf_staged[cf_core_a(i)];
+                return cf_eff(cf_core_a(i));
         return hw->cpu_mhz_max;
     }
-    return g_ui.cf_staged[cf_core_a(k)];
+    return cf_eff(cf_core_a(k));
 }
 
 /* stage v to the selection's scope (one core, or a whole CCD header) */
@@ -211,12 +215,12 @@ static int cf_capped_count(void)
     if (cf_core_mode()) {
         for (int k = 0; k < hw->core_n; k++)
             if (hw->cpu_mhz_max > 0 &&
-                g_ui.cf_staged[cf_core_a(k)] < hw->cpu_mhz_max)
+                cf_eff(cf_core_a(k)) < hw->cpu_mhz_max)
                 n++;
     } else {
         for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
             int id = hw->cpu_ids[c];
-            if (hw->cpu_mhz_max > 0 && g_ui.cf_staged[id] < hw->cpu_mhz_max)
+            if (hw->cpu_mhz_max > 0 && cf_eff(id) < hw->cpu_mhz_max)
                 n++;
         }
     }
@@ -287,19 +291,8 @@ int cf_apply_list(hw_state_t *hw, const int ids[HW_CPU_MAX],
 
 /* ---- open / draw --------------------------------------------------------- */
 
-static void cf_seed_missing(void)
-{
-    hw_state_t *hw = g_ui.hw;
-    for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
-        int id = hw->cpu_ids[c];
-        if (g_ui.cf_staged[id] == 0)
-            g_ui.cf_staged[id] = hw->cpu_mhz_core[id];
-    }
-}
-
 void editor_corefreq_open(void)
 {
-    cf_seed_missing();
     g_ui.cf_input_active = 0;
     if (g_ui.cf_sel >= cf_entries())
         g_ui.cf_sel = 0;
@@ -333,7 +326,7 @@ static int cf_group_capped(int g)
     int n = 0;
     for (int i = 0; i < hw->core_n; i++)
         if (hw->core_ccd[i] == g && hw->cpu_mhz_max > 0 &&
-            g_ui.cf_staged[cf_core_a(i)] < hw->cpu_mhz_max)
+            cf_eff(cf_core_a(i)) < hw->cpu_mhz_max)
             n++;
     return n;
 }
@@ -355,9 +348,6 @@ void editor_corefreq_draw(struct ncplane *n, const rect_t *r)
     int x = r->x, w = r->w;
     if (w < 16 || r->h < 4)
         return;
-
-    cf_seed_missing();
-    pw_recompute_dirty();
 
     bool foc = g_ui.pw_in_cores;
     char hdr[80];
@@ -418,13 +408,13 @@ void editor_corefreq_draw(struct ncplane *n, const rect_t *r)
             int cx = x + (i % cols) * cellw;
             int cy = y0 + i / cols;
             bool sel = foc && (i == g_ui.cf_sel);
-            bool capped = hw->cpu_mhz_max > 0 &&
-                          g_ui.cf_staged[id] < hw->cpu_mhz_max;
+            int val = cf_eff(id);
+            bool capped = hw->cpu_mhz_max > 0 && val < hw->cpu_mhz_max;
             bool staged = g_ui.cf_staged[id] != 0 &&
                           g_ui.cf_staged[id] != hw->cpu_mhz_core[id];
             char cell[24];
             snprintf(cell, sizeof(cell), "%sc%02d %4d%s",
-                     sel ? "▸" : " ", id, g_ui.cf_staged[id],
+                     sel ? "▸" : " ", id, val,
                      staged ? "●" : " ");
             uint32_t fg = sel ? pal->accent
                         : staged ? pal->warn
@@ -471,14 +461,14 @@ void editor_corefreq_draw(struct ncplane *n, const rect_t *r)
                     continue;
                 if (y < ymax && cx < x + w) {
                     int a = cf_core_a(k);
+                    int val = cf_eff(a);
                     bool sel = foc && (g_ui.cf_sel == e);
-                    bool capped = hw->cpu_mhz_max > 0 &&
-                                  g_ui.cf_staged[a] < hw->cpu_mhz_max;
+                    bool capped = hw->cpu_mhz_max > 0 && val < hw->cpu_mhz_max;
                     bool staged = cf_scope_diff(k);
                     char cell[40], lab[16];
                     cf_core_label(k, lab, sizeof(lab));
                     snprintf(cell, sizeof(cell), "%s%-7s %4d%s",
-                             sel ? "▸" : " ", lab, g_ui.cf_staged[a],
+                             sel ? "▸" : " ", lab, val,
                              staged ? "●" : " ");
                     int cw = cellw;
                     if (cx + cw > x + w) cw = x + w - cx;
@@ -614,10 +604,12 @@ void editor_corefreq_key(uint32_t key)
         g_ui.cf_sel = (g_ui.cf_sel + n - 1) % n;
         return;
     case 'h': case NCKEY_LEFT:
-        g_ui.cf_staged[id] = cf_clamp(g_ui.cf_staged[id] - 100);
+        g_ui.cf_staged[id] = cf_clamp(cf_eff(id) - 100);
+        pw_recompute_dirty();
         return;
     case 'l': case NCKEY_RIGHT:
-        g_ui.cf_staged[id] = cf_clamp(g_ui.cf_staged[id] + 100);
+        g_ui.cf_staged[id] = cf_clamp(cf_eff(id) + 100);
+        pw_recompute_dirty();
         return;
     case 'e': case 'E':
     case 't': case 'T':
@@ -625,16 +617,19 @@ void editor_corefreq_key(uint32_t key)
         tin_clear(&g_ui.cf_input);
         return;
     case 'a': case 'A': {
-        int v = g_ui.cf_staged[id];
+        int v = cf_eff(id);
         for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++)
             g_ui.cf_staged[hw->cpu_ids[c]] = v;
+        pw_recompute_dirty();
         return;
     }
     case 'o': case 'O':
         g_ui.cf_staged[id] = hw->cpu_mhz_max;
+        pw_recompute_dirty();
         return;
     case 'r': case 'R':
         cf_revert();
+        pw_recompute_dirty();
         return;
     case 'w': case 'W':
     case NCKEY_ENTER: case '\r': case '\n': case ' ':
@@ -658,8 +653,9 @@ void editor_corefreq_act(int id_)
                 cf_sel_apply(cf_clamp(cf_sel_base() + 100));
             } else {
                 int cid = g_ui.hw->cpu_ids[e];
-                g_ui.cf_staged[cid] = cf_clamp(g_ui.cf_staged[cid] + 100);
+                g_ui.cf_staged[cid] = cf_clamp(cf_eff(cid) + 100);
             }
+            pw_recompute_dirty();
         } else {
             g_ui.cf_sel = e;
         }

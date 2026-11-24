@@ -5,7 +5,59 @@
 
 ---
 
-## Latest session — 2026-11-24 (`v0.12.0` Konsept C TUI redesign & unified keymap)
+## Latest session — 2026-11-24 (Snapshot backend audit & two-pane interactive Snapshot Editor)
+
+**Antigravity / Kerempkl / FA608PP** — audited the entire `.ctr` snapshot
+pipeline (`src/profile.{h,c}`, `src/main.c`, `src/ui/ui.c`,
+`src/ui/panel_profiles.c`), fixed 6 backend bugs, and replaced the black-box
+Snapshot list with a two-pane Konsept C **Snapshot List + Live Inspector &
+12-Field Interactive Editor**:
+
+- **Snapshot backend fixes (`src/profile.{h,c}`, `src/main.c`, `src/ui/ui.c`):**
+  1. **Stale TUI exports fixed:** entering `4 Snapshots`, opening `s`/`n`,
+     saving, and `uu` overwriting now run `hw_refresh_live()` first so fields
+     outside `hw_refresh_fast()` (`bat_limit`, `panel_od`, `cpu_boost`, `epp`,
+     `hz_cur`, `ppt_*`) are never exported stale.
+  2. **Unconditional fan clobber fixed:** `profile_import()` now initializes
+     `fan_cpu_on`/`fan_gpu_on` to `-1` (omitted) and `has_curves = false`;
+     `APPLY_SNAPSHOT` and `ctron snapshot apply` only call `ctrl_fan_write()`
+     when `hw->fan_staged` is set by curve lines, and check `ctrl_fan_write()`'s
+     return value instead of ignoring EC write failures.
+  3. **Post-apply sync fixed:** `APPLY_SNAPSHOT` now runs `hw_refresh_live(hw)`
+     at worker completion, and `finalize_apply()` runs `cf_reset_staging()` +
+     `panel_profiles_reload()` so live diffs and Power/System/Core views update
+     immediately.
+  4. **Per-core & `ppt = off` diff + round-trip:** `profile_meta_t` now tracks
+     `core_ids[]`/`core_mhz[]` and `ppt_off`, `profile_meta_diff()` detects
+     `"cores"` and `"ppt"` (`off`) diffs, `profile_export()` preserves `# note:`
+     when overwriting an existing snapshot, `profile_import()` skips redundant
+     `gpu-clock = reset` when `gpu_clock_lock == 0`, and `profile_delete()` /
+     `profile_rename()` remove empty 1-level group subdirectories.
+- **Two-pane Snapshot Inspector & Interactive Editor (`src/ui/panel_profiles.c`):**
+  - Left pane caches `s_meta[MAX_PROFILES]` on reload (zero per-frame disk I/O)
+    and displays `≡ live` / `Δ N` badges per snapshot; `uu` double-confirms
+    overwriting the selected snapshot from fresh live hardware.
+  - Right pane shows all 12 `.ctr` fields alongside `(live: ...)` diffs; `e`/`l`
+    or clicking any field enters edit mode (`h`/`l` step, `e` exact input, `x`
+    toggles `— (skip)` for selective/partial snapshots via `profile_save_meta()`,
+    `f` captures live fan curves or per-core caps, `w`/`Enter` saves).
+- **Bonus bug caught by PTY smoke (`src/ui/editor_corefreq.c`):** untouched
+  cores in inline `CORE LIMITS` now keep `cf_staged[id] == 0` and read live
+  ceilings via `cf_eff(id)` instead of seeding on draw, preventing firmware
+  thermal ceiling oscillation from triggering phantom per-core writes on `w`.
+- **Verification:** `make clean && make HARDEN=1 && make test` and standard
+  `make && make test` 0 warnings (including new unit tests in `check_snapshots`
+  for selective `profile_save_meta`, fanless import, note-preserving overwrite,
+  per-core/`ppt=off` diff, and empty group dir cleanup); UBSan + LSan clean;
+  `clang --analyze` 0 findings on `profile.c`, `main.c`, `ui.c`,
+  `panel_profiles.c`, `editor_corefreq.c`; `make tuitest` **13/13 flows (48/48
+  assertions) PASS** (exit 0).
+
+Signed: **Antigravity** — Snapshot backend fixes & interactive Snapshot Editor.
+
+---
+
+## Previous session — 2026-11-24 (`v0.12.0` Konsept C TUI redesign & unified keymap)
 
 **Antigravity / Kerempkl / FA608PP** — dropped the `v1.0` milestone (`dde0ceb`),
 designed interactive TUI concepts with the user, and implemented, verified, and

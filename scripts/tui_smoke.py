@@ -587,7 +587,7 @@ def flow_telemetry():
 
 
 def flow_snapshots():
-    with IsolatedConfig():
+    with IsolatedConfig() as cfg:
         s = Session("snapshots")
         try:
             s.wait_render()
@@ -630,6 +630,53 @@ def flow_snapshots():
                 fail("snapshots", "note not shown in footer")
                 return
             ok("snapshots", "note shown in inspector footer")
+            # interactive field editor ('e'): step, toggle skip ('x'), save ('w'), Esc back
+            m_ed = s.mark()
+            s.key(b"e")
+            if not s.wait_for(b"EDIT SNAPSHOT", since=m_ed, timeout=6.0):
+                fail("snapshots", "'e' did not open EDIT SNAPSHOT pane")
+                return
+            ok("snapshots", "'e' focuses interactive Snapshot Editor")
+            m_sk = s.mark()
+            s.key(b"x")            # toggle Platform profile -> — (skip)
+            if not s.wait_for(b"(skip)", since=m_sk, timeout=6.0):
+                fail("snapshots", "'x' did not toggle field to skip")
+                return
+            ok("snapshots", "'x' toggles field to selective skip")
+            s.key(b"j")
+            s.key(b"l")            # cycle EPP
+            time.sleep(0.2)
+            m_sv = s.mark()
+            s.key(b"w")            # save edited snapshot
+            if not s.wait_for(b"\xe2\x9c\x93 snapshot", since=m_sv, timeout=6.0):
+                fail("snapshots", "'w' in Snapshot Editor did not save")
+                return
+            ctr_path = os.path.join(cfg, "profiles", "tsx2.ctr")
+            with open(ctr_path, "r") as cf:
+                cbody = cf.read()
+            if "profile =" in cbody or "# note: n1" not in cbody:
+                fail("snapshots", f"selective save content mismatch: {cbody!r}")
+                return
+            ok("snapshots", "'w' saves selective snapshot (skipped field omitted on disk)")
+            s.key(b"\x1b")         # Esc returns focus to Snapshot list
+            time.sleep(0.2)
+            # double-u overwrite from live hardware (preserves note 'n1')
+            m_u1 = s.mark()
+            s.key(b"u")
+            if not s.wait_for(b"overwrite", since=m_u1, timeout=6.0):
+                fail("snapshots", "first 'u' did not arm live overwrite")
+                return
+            m_u2 = s.mark()
+            s.key(b"u")
+            if not s.wait_for(b"overwritten", since=m_u2, timeout=6.0):
+                fail("snapshots", "second 'u' did not overwrite snapshot from live")
+                return
+            with open(ctr_path, "r") as cf:
+                cbody2 = cf.read()
+            if "profile =" not in cbody2 or "# note: n1" not in cbody2:
+                fail("snapshots", "double-u live overwrite did not restore profile or keep note")
+                return
+            ok("snapshots", "double-u overwrites from live while preserving note")
             m = s.mark()
             s.key(b"d")
             if not s.wait_for(b"again", since=m, timeout=6.0):

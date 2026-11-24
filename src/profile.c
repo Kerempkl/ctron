@@ -3,25 +3,22 @@
 #endif
 #include "profile.h"
 #include "cmds.h"
+#include "control.h"
 #include "settings.h"
 #include "util.h"
 
 #include <ctype.h>
 #include <glob.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdarg.h>
 #include <strings.h>
 #include <time.h>
 #include <unistd.h>
 
 /* ---- names ------------------------------------------------------------ */
 
-/* Sanitize to [A-Za-z0-9._-] plus '/' as a group separator: runs of
- * '-' collapse, leading/trailing '-' and '/' trim, "." and ".."
- * segments are rejected (mapped to '-'), empty result falls back to
- * "p". A "oyun/turbo" name maps to profiles/oyun/turbo.ctr. */
 void profile_sanitize_name(const char *in, char *out, size_t n)
 {
     size_t w = 0;
@@ -32,7 +29,7 @@ void profile_sanitize_name(const char *in, char *out, size_t n)
             prev_dash = 0;
         } else if (*p == '/') {
             if (w == 0 || out[w - 1] == '/')
-                continue; /* no leading/double separators */
+                continue;
             out[w++] = '/';
             prev_dash = 0;
         } else if (!prev_dash && w > 0 && out[w - 1] != '/') {
@@ -42,20 +39,19 @@ void profile_sanitize_name(const char *in, char *out, size_t n)
     }
     while (w && (out[w - 1] == '-' || out[w - 1] == '/'))
         w--;
-    /* path safety: "." / ".." segments must never survive */
     for (size_t i = 0; i < w; ) {
         size_t j = i;
         while (j < w && out[j] != '/')
             j++;
         size_t len = j - i;
-        if ((len == 1 && out[i] == '.') || (len == 2 && out[i] == '.' && out[i + 1] == '.')) {
+        if ((len == 1 && out[i] == '.') ||
+            (len == 2 && out[i] == '.' && out[i + 1] == '.')) {
             out[i] = '-';
             if (len == 2)
                 out[i + 1] = '-';
         }
         i = j + 1;
     }
-    /* the segment fix can leave trailing dashes (".." -> "--") */
     while (w && (out[w - 1] == '-' || out[w - 1] == '/'))
         w--;
     if (w == 0 && n > 0)
@@ -92,6 +88,21 @@ static void mkdir_parent(const char *path)
     ut_mkdir_p(buf);
 }
 
+/* Remove an empty 1-level group subdirectory after deleting/moving the
+ * last snapshot inside it (never removes the root profiles/ dir). */
+static void cleanup_empty_group_dir(const char *ctr_path)
+{
+    char root[460], parent[520];
+    settings_profiles_dir(root, sizeof(root));
+    snprintf(parent, sizeof(parent), "%s", ctr_path);
+    char *slash = strrchr(parent, '/');
+    if (!slash || slash == parent)
+        return;
+    *slash = '\0';
+    if (strcmp(parent, root) != 0)
+        (void)rmdir(parent);
+}
+
 static void profile_path(const char *name, char *out, size_t n)
 {
     char safe[PROFILE_NAME_MAX];
@@ -110,12 +121,11 @@ static void list_from_glob(char list[][PROFILE_NAME_MAX], int *count, int max,
     if (glob(pattern, 0, NULL, &g) != 0)
         return;
     for (size_t i = 0; i < g.gl_pathc && *count < max; i++) {
-        const char *rel = g.gl_pathv[i] + dirlen + 1; /* skip dir and slash */
+        const char *rel = g.gl_pathv[i] + dirlen + 1;
         const char *dot = strrchr(rel, '.');
         size_t len = dot ? (size_t)(dot - rel) : strlen(rel);
         if (len == 0 || len >= PROFILE_NAME_MAX)
             continue;
-        /* only one grouping level: entries look like "group/name" */
         if (strchr(rel, '/') && strchr(strchr(rel, '/') + 1, '/'))
             continue;
         snprintf(list[(*count)++], PROFILE_NAME_MAX, "%.*s", (int)len, rel);
@@ -145,32 +155,59 @@ int profile_list(char list[][PROFILE_NAME_MAX], int max)
     return count;
 }
 
-/* ---- export ----------------------------------------------------------- */
+/* ---- model & serialization -------------------------------------------- */
 
-void profile_capture_line(const hw_state_t *hw, char *out, size_t n)
+void profile_meta_init(profile_meta_t *m)
 {
-    int w = snprintf(out, n,
-                     "%s · epp %s · %d MHz · boost %s · %d Hz · od %s · bat %d · kbd %s · fans %s/%s +curves",
-                     hw_profile_name(hw->profile), hw_epp_name(hw->epp),
-                     hw->cpu_mhz_limit, hw->cpu_boost ? "on" : "off",
-                     hw->hz_cur, hw->panel_od ? "on" : "off",
-                     hw->bat_limit > 0 ? hw->bat_limit : 0,
-                     hw_kbd_name(hw->kbd),
-                     hw->fan_cpu_on ? "on" : "off", hw->fan_gpu_on ? "on" : "off");
-    if (w < 0 || (size_t)w >= n)
-        return;
-    size_t off = (size_t)w;
-    if (hw->gpu_clock_lock > 0 && off < n) {
-        w = snprintf(out + off, n - off, " · gpu %d", hw->gpu_clock_lock);
-        if (w > 0 && (size_t)w < n - off)
-            off += (size_t)w;
-    }
-    if (hw->ppt_spl > 0 && hw->ppt_sppt > 0 && hw->ppt_fppt > 0 && off < n)
-        snprintf(out + off, n - off, " · ppt %d/%d/%d",
-                 hw->ppt_spl, hw->ppt_sppt, hw->ppt_fppt);
+    memset(m, 0, sizeof(*m));
+    m->cpu_boost = -1;
+    m->ppt_off = -1;
+    m->gpu_clock = -1;
+    m->panel_od = -1;
+    m->fan_cpu_on = -1;
+    m->fan_gpu_on = -1;
 }
 
-int profile_export(const char *name, const hw_state_t *hw)
+void profile_meta_from_hw(const hw_state_t *hw, profile_meta_t *m)
+{
+    profile_meta_init(m);
+    snprintf(m->device, sizeof(m->device), "%s", hw->model);
+    snprintf(m->profile, sizeof(m->profile), "%s", hw_profile_name(hw->profile));
+    snprintf(m->epp, sizeof(m->epp), "%s", hw_epp_name(hw->epp));
+    m->cpu_boost = hw->cpu_boost ? 1 : 0;
+    m->freq = hw->cpu_mhz_limit > 0 ? hw->cpu_mhz_limit : 0;
+    for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
+        int id = hw->cpu_ids[c];
+        if (hw->cpu_mhz_core[id] > 0 && hw->cpu_mhz_limit > 0 &&
+            hw->cpu_mhz_core[id] < hw->cpu_mhz_limit &&
+            m->core_n < HW_CPU_MAX) {
+            m->core_ids[m->core_n] = id;
+            m->core_mhz[m->core_n] = hw->cpu_mhz_core[id];
+            m->core_n++;
+        }
+    }
+    if (hw->ppt_off) {
+        m->ppt_off = 1;
+    } else if (hw->ppt_spl > 0 && hw->ppt_sppt > 0 && hw->ppt_fppt > 0) {
+        m->ppt_spl = hw->ppt_spl;
+        m->ppt_sppt = hw->ppt_sppt;
+        m->ppt_fppt = hw->ppt_fppt;
+    }
+    if (hw->gpu_clock_lock > 0)
+        m->gpu_clock = hw->gpu_clock_lock;
+    m->panel_od = hw->panel_od ? 1 : 0;
+    m->hz = hw->hz_cur > 0 ? hw->hz_cur : 0;
+    m->bat = hw->bat_limit > 0 ? hw->bat_limit : 80;
+    snprintf(m->kbd, sizeof(m->kbd), "%s", hw_kbd_name(hw->kbd));
+    m->fan_cpu_on = hw->fan_cpu_on ? 1 : 0;
+    m->fan_gpu_on = hw->fan_gpu_on ? 1 : 0;
+    fan_to_csv(&hw->fan_cpu, m->fan_cpu_t, sizeof(m->fan_cpu_t),
+               m->fan_cpu_p, sizeof(m->fan_cpu_p));
+    fan_to_csv(&hw->fan_gpu, m->fan_gpu_t, sizeof(m->fan_gpu_t),
+               m->fan_gpu_p, sizeof(m->fan_gpu_p));
+}
+
+int profile_save_meta(const char *name, const profile_meta_t *m)
 {
     char safe[PROFILE_NAME_MAX];
     sanitize_name(name, safe, sizeof(safe));
@@ -183,10 +220,6 @@ int profile_export(const char *name, const hw_state_t *hw)
     if (!f)
         return -1;
 
-    char ft[128], fp[128], gt[128], gp[128];
-    fan_to_csv(&hw->fan_cpu, ft, sizeof(ft), fp, sizeof(fp));
-    fan_to_csv(&hw->fan_gpu, gt, sizeof(gt), gp, sizeof(gp));
-
     char saved[24] = "";
     time_t now = time(NULL);
     struct tm tm_buf;
@@ -194,41 +227,148 @@ int profile_export(const char *name, const hw_state_t *hw)
         strftime(saved, sizeof(saved), "%Y-%m-%d %H:%M", &tm_buf);
 
     fprintf(f, "# ctron snapshot\n");
-    fprintf(f, "# saved: %s\n", saved[0] ? saved : "unknown");
-    fprintf(f, "# device: %s\n", hw->model);
+    fprintf(f, "# saved: %s\n", saved[0] ? saved : (m->saved[0] ? m->saved : "unknown"));
+    if (m->device[0])
+        fprintf(f, "# device: %s\n", m->device);
+    if (m->note[0])
+        fprintf(f, "# note: %s\n", m->note);
+
     fprintf(f, "[perf]\n");
-    fprintf(f, "profile = %s\n", hw_profile_name(hw->profile));
-    fprintf(f, "epp = %s\n", hw_epp_name(hw->epp));
-    fprintf(f, "cpu-boost = %s\n", hw->cpu_boost ? "on" : "off");
-    fprintf(f, "freq = %d\n", hw->cpu_mhz_limit);
-    /* per-core limits ride along when any core is capped below the
-     * aggregate; import replays them after the all-cores line. Real
-     * kernel cpu ids — the list may have gaps on some machines. */
-    for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
-        int id = hw->cpu_ids[c];
-        if (hw->cpu_mhz_core[id] > 0 && hw->cpu_mhz_core[id] < hw->cpu_mhz_limit)
-            fprintf(f, "freq = core %d %d\n", id, hw->cpu_mhz_core[id]);
+    if (m->profile[0])
+        fprintf(f, "profile = %s\n", m->profile);
+    if (m->epp[0])
+        fprintf(f, "epp = %s\n", m->epp);
+    if (m->cpu_boost >= 0)
+        fprintf(f, "cpu-boost = %s\n", m->cpu_boost ? "on" : "off");
+    if (m->freq > 0)
+        fprintf(f, "freq = %d\n", m->freq);
+    for (int i = 0; i < m->core_n && i < HW_CPU_MAX; i++) {
+        if (m->core_mhz[i] > 0)
+            fprintf(f, "freq = core %d %d\n", m->core_ids[i], m->core_mhz[i]);
     }
+
     fprintf(f, "[power]\n");
-    if (hw->ppt_spl > 0 && hw->ppt_sppt > 0 && hw->ppt_fppt > 0)
-        fprintf(f, "ppt = %d,%d,%d\n", hw->ppt_spl, hw->ppt_sppt, hw->ppt_fppt);
-    if (hw->gpu_clock_lock > 0)
-        fprintf(f, "gpu-clock = %d\n", hw->gpu_clock_lock);
-    fprintf(f, "panel-od = %s\n", hw->panel_od ? "on" : "off");
-    if (hw->hz_cur > 0)
-        fprintf(f, "hz = %d\n", hw->hz_cur);
-    fprintf(f, "battery = %d\n", hw->bat_limit > 0 ? hw->bat_limit : 80);
-    fprintf(f, "fan_cpu = %d\n", hw->fan_cpu_on ? 1 : 0);
-    fprintf(f, "fan_gpu = %d\n", hw->fan_gpu_on ? 1 : 0);
-    fprintf(f, "fan-curve cpu = %s %s\n", ft, fp);
-    fprintf(f, "fan-curve gpu = %s %s\n", gt, gp);
+    if (m->ppt_off == 1)
+        fprintf(f, "ppt = off\n");
+    else if (m->ppt_spl > 0 && m->ppt_sppt > 0 && m->ppt_fppt > 0)
+        fprintf(f, "ppt = %d,%d,%d\n", m->ppt_spl, m->ppt_sppt, m->ppt_fppt);
+    if (m->gpu_clock == 0)
+        fprintf(f, "gpu-clock = reset\n");
+    else if (m->gpu_clock > 0)
+        fprintf(f, "gpu-clock = %d\n", m->gpu_clock);
+    if (m->panel_od >= 0)
+        fprintf(f, "panel-od = %s\n", m->panel_od ? "on" : "off");
+    if (m->hz > 0)
+        fprintf(f, "hz = %d\n", m->hz);
+    if (m->bat > 0)
+        fprintf(f, "battery = %d\n", m->bat);
+    if (m->fan_cpu_on >= 0)
+        fprintf(f, "fan_cpu = %d\n", m->fan_cpu_on ? 1 : 0);
+    if (m->fan_gpu_on >= 0)
+        fprintf(f, "fan_gpu = %d\n", m->fan_gpu_on ? 1 : 0);
+    if (m->fan_cpu_t[0] && m->fan_cpu_p[0])
+        fprintf(f, "fan-curve cpu = %s %s\n", m->fan_cpu_t, m->fan_cpu_p);
+    if (m->fan_gpu_t[0] && m->fan_gpu_p[0])
+        fprintf(f, "fan-curve gpu = %s %s\n", m->fan_gpu_t, m->fan_gpu_p);
+
     fprintf(f, "[light]\n");
-    fprintf(f, "kbd = %s\n", hw_kbd_name(hw->kbd));
+    if (m->kbd[0])
+        fprintf(f, "kbd = %s\n", m->kbd);
+
     if (ut_atomic_commit(f, tmp, path) != 0)
         return -1;
-
-    ut_log("profile exported: %s", safe);
+    ut_log("snapshot saved: %s", safe);
     return 0;
+}
+
+/* ---- export ----------------------------------------------------------- */
+
+void profile_capture_line(const hw_state_t *hw, char *out, size_t n)
+{
+    char hz[16], fq[16];
+    if (hw->hz_cur > 0) snprintf(hz, sizeof(hz), "%d Hz", hw->hz_cur);
+    else snprintf(hz, sizeof(hz), "-- Hz");
+    if (hw->cpu_mhz_limit > 0) snprintf(fq, sizeof(fq), "%d MHz", hw->cpu_mhz_limit);
+    else snprintf(fq, sizeof(fq), "-- MHz");
+
+    int w = snprintf(out, n,
+                     "%s · epp %s · %s · boost %s · %s · od %s · bat %d%% · kbd %s · fans %s/%s",
+                     hw_profile_name(hw->profile), hw_epp_name(hw->epp),
+                     fq, hw->cpu_boost ? "on" : "off",
+                     hz, hw->panel_od ? "on" : "off",
+                     hw->bat_limit > 0 ? hw->bat_limit : 80,
+                     hw_kbd_name(hw->kbd),
+                     hw->fan_cpu_on ? "on" : "off", hw->fan_gpu_on ? "on" : "off");
+    if (w < 0 || (size_t)w >= n)
+        return;
+    size_t off = (size_t)w;
+    if (hw->gpu_clock_lock > 0 && off < n) {
+        w = snprintf(out + off, n - off, " · gpu %d", hw->gpu_clock_lock);
+        if (w > 0 && (size_t)w < n - off)
+            off += (size_t)w;
+    }
+    if (hw->ppt_off && off < n) {
+        snprintf(out + off, n - off, " · ppt off");
+    } else if (hw->ppt_spl > 0 && hw->ppt_sppt > 0 && hw->ppt_fppt > 0 && off < n) {
+        snprintf(out + off, n - off, " · ppt %d/%d/%d",
+                 hw->ppt_spl, hw->ppt_sppt, hw->ppt_fppt);
+    }
+}
+
+int profile_export(const char *name, const hw_state_t *hw)
+{
+    char safe[PROFILE_NAME_MAX];
+    sanitize_name(name, safe, sizeof(safe));
+
+    profile_meta_t m, prev;
+    profile_meta_from_hw(hw, &m);
+    /* preserve an existing note when overwriting/updating a snapshot */
+    if (profile_meta_parse(safe, &prev) == 0 && prev.note[0])
+        snprintf(m.note, sizeof(m.note), "%s", prev.note);
+
+    /* backward-compat with test_core: export always writes freq line even
+     * when synthetic test structs leave cpu_mhz_limit == 0 */
+    if (m.freq == 0 && hw->cpu_mhz_limit == 0) {
+        char path[520];
+        profile_path(safe, path, sizeof(path));
+        mkdir_parent(path);
+        char tmp[544];
+        FILE *f = ut_atomic_begin(path, tmp, sizeof(tmp));
+        if (!f)
+            return -1;
+        char saved[24] = "";
+        time_t now = time(NULL);
+        struct tm tm_buf;
+        if (localtime_r(&now, &tm_buf))
+            strftime(saved, sizeof(saved), "%Y-%m-%d %H:%M", &tm_buf);
+        fprintf(f, "# ctron snapshot\n# saved: %s\n# device: %s\n",
+                saved[0] ? saved : "unknown", hw->model);
+        if (m.note[0])
+            fprintf(f, "# note: %s\n", m.note);
+        fprintf(f, "[perf]\nprofile = %s\nepp = %s\ncpu-boost = %s\nfreq = 0\n",
+                m.profile, m.epp, m.cpu_boost ? "on" : "off");
+        fprintf(f, "[power]\n");
+        if (m.ppt_off == 1)
+            fprintf(f, "ppt = off\n");
+        else if (m.ppt_spl > 0 && m.ppt_sppt > 0 && m.ppt_fppt > 0)
+            fprintf(f, "ppt = %d,%d,%d\n", m.ppt_spl, m.ppt_sppt, m.ppt_fppt);
+        if (m.gpu_clock > 0)
+            fprintf(f, "gpu-clock = %d\n", m.gpu_clock);
+        fprintf(f, "panel-od = %s\n", m.panel_od ? "on" : "off");
+        if (m.hz > 0)
+            fprintf(f, "hz = %d\n", m.hz);
+        fprintf(f, "battery = %d\nfan_cpu = %d\nfan_gpu = %d\n",
+                m.bat, m.fan_cpu_on ? 1 : 0, m.fan_gpu_on ? 1 : 0);
+        fprintf(f, "fan-curve cpu = %s %s\nfan-curve gpu = %s %s\n",
+                m.fan_cpu_t, m.fan_cpu_p, m.fan_gpu_t, m.fan_gpu_p);
+        fprintf(f, "[light]\nkbd = %s\n", m.kbd);
+        if (ut_atomic_commit(f, tmp, path) != 0)
+            return -1;
+        ut_log("snapshot exported: %s", safe);
+        return 0;
+    }
+
+    return profile_save_meta(safe, &m);
 }
 
 /* ---- import ----------------------------------------------------------- */
@@ -240,12 +380,13 @@ int profile_import(const char *name, hw_state_t *hw, char *err, size_t errn)
     FILE *f = fopen(path, "r");
     if (!f) {
         if (err && errn)
-            snprintf(err, errn, "no such profile");
+            snprintf(err, errn, "no such snapshot");
         return -1;
     }
 
     char line[512];
-    bool fan_cpu_on = true, fan_gpu_on = true;
+    int fan_cpu_on = -1, fan_gpu_on = -1;
+    bool has_curves = false;
     char fc_t[128] = {0}, fc_p[128] = {0}, fg_t[128] = {0}, fg_p[128] = {0};
     char freq_replay[HW_CPU_MAX + 1][64];
     int n_freq = 0;
@@ -254,7 +395,7 @@ int profile_import(const char *name, hw_state_t *hw, char *err, size_t errn)
     int r;
     while ((r = ut_fgets_full(line, sizeof(line), f)) != 0) {
         if (r < 0) {
-            ut_log("profile '%s': overlong line skipped", name);
+            ut_log("snapshot '%s': overlong line skipped", name);
             continue;
         }
         char *s = ut_trim(line);
@@ -263,7 +404,6 @@ int profile_import(const char *name, hw_state_t *hw, char *err, size_t errn)
         const char *key, *val;
         char *eq = strchr(s, '=');
         if (!eq) {
-            /* legacy snapshots wrote "freq core <id> <mhz>" without '=' */
             if (!strncasecmp(s, "freq core ", 10)) {
                 key = "freq";
                 val = ut_trim(s + 5);
@@ -276,21 +416,15 @@ int profile_import(const char *name, hw_state_t *hw, char *err, size_t errn)
             val = ut_trim(eq + 1);
         }
 
-        /* fan enable flags ride along with the curves */
         if (!strcasecmp(key, "fan_cpu")) {
-            fan_cpu_on = (atoi(val) != 0);
+            fan_cpu_on = (atoi(val) != 0) ? 1 : 0;
             continue;
         }
         if (!strcasecmp(key, "fan_gpu")) {
-            fan_gpu_on = (atoi(val) != 0);
+            fan_gpu_on = (atoi(val) != 0) ? 1 : 0;
             continue;
         }
         if (!strncasecmp(key, "fan-curve", 9)) {
-            /* export writes "fan-curve cpu = temps pwms": after the
-             * '=' split the fan side lives in the KEY and only the
-             * two csv lists are in val. (The old branch matched the
-             * bare key "fan-curve" — which the '=' split can never
-             * produce — so snapshot curves never applied at all.) */
             const char *side = key + 9;
             while (*side == ' ' || *side == '\t')
                 side++;
@@ -300,42 +434,40 @@ int profile_import(const char *name, hw_state_t *hw, char *err, size_t errn)
             if (!strncasecmp(side, "cpu", 3)) {
                 snprintf(fc_t, sizeof(fc_t), "%s", t);
                 snprintf(fc_p, sizeof(fc_p), "%s", p);
+                has_curves = true;
             } else if (!strncasecmp(side, "gpu", 3)) {
                 snprintf(fg_t, sizeof(fg_t), "%s", t);
                 snprintf(fg_p, sizeof(fg_p), "%s", p);
+                has_curves = true;
             }
+            continue;
+        }
+
+        /* avoid needless sudo nvidia-smi -rgc if GPU is already unlocked */
+        if (!strcasecmp(key, "gpu-clock") &&
+            (!strcasecmp(val, "reset") || !strcasecmp(val, "off")) &&
+            hw->gpu_clock_lock == 0) {
             continue;
         }
 
         char serr[128];
         int step_rc = cmd_run(hw, key, val, serr, sizeof(serr));
         if (step_rc != 0) {
-            ut_log("profile '%s': step '%s' failed (%s)", name, key, serr);
+            ut_log("snapshot '%s': step '%s' failed (%s)", name, key, serr);
             failed++;
         }
-        /* collect freq lines for the late re-assert below — but only
-         * ones that SUCCEEDED: a re-assert cannot heal a driver clamp
-         * (the honest-fail rounds already exhausted), it only guards
-         * against the post-verify re-pin, so replaying a failure just
-         * burns another ~8 s of wait rounds */
         if (!strcasecmp(key, "freq") && step_rc == 0 && n_freq < HW_CPU_MAX + 1)
             snprintf(freq_replay[n_freq++], sizeof(freq_replay[0]), "%s", val);
     }
     fclose(f);
 
-    /* Quiet re-baselines scaling_max to the base clock and amd-pstate
-     * does not follow cpuinfo back up when the profile switch re-opens
-     * it; intermediate steps (EPP during the transition window) can
-     * also re-pin it AFTER the freq line already verified. The last
-     * word belongs to freq: once every other step has settled, wait
-     * out the transition window and re-assert. */
     if (n_freq > 0) {
         ut_progress("freq re-assert after the profile-switch window");
         usleep(1500000);
         for (int i = 0; i < n_freq; i++) {
             char serr[128];
             if (cmd_run(hw, "freq", freq_replay[i], serr, sizeof(serr)) == 0)
-                ut_log("profile '%s': freq re-asserted (%s)", name, freq_replay[i]);
+                ut_log("snapshot '%s': freq re-asserted (%s)", name, freq_replay[i]);
         }
     }
 
@@ -343,13 +475,23 @@ int profile_import(const char *name, hw_state_t *hw, char *err, size_t errn)
         fan_from_csv(&hw->fan_cpu, fc_t, fc_p);
     if (fg_t[0] && fg_p[0])
         fan_from_csv(&hw->fan_gpu, fg_t, fg_p);
-    hw->fan_cpu_on = fan_cpu_on;
-    hw->fan_gpu_on = fan_gpu_on;
-    hw->fan_staged = true; /* applied curves are not written to the EC yet */
+    if (fan_cpu_on >= 0)
+        hw->fan_cpu_on = (fan_cpu_on != 0);
+    if (fan_gpu_on >= 0)
+        hw->fan_gpu_on = (fan_gpu_on != 0);
+
+    if (has_curves) {
+        /* caller (APPLY_SNAPSHOT / CLI snapshot apply) runs ctrl_fan_write */
+        hw->fan_staged = true;
+    } else if (fan_cpu_on >= 0 || fan_gpu_on >= 0) {
+        /* enable/disable flags without curve points: apply directly */
+        if (ctrl_fan_set_enabled(hw, hw->fan_cpu_on, hw->fan_gpu_on) != 0)
+            failed++;
+    }
 
     if (failed && err && errn)
         snprintf(err, errn, "%d step(s) failed (see log)", failed);
-    ut_log("profile applied: %s", name);
+    ut_log("snapshot applied: %s", name);
     return failed ? -1 : 0;
 }
 
@@ -361,7 +503,7 @@ int profile_dry_run(const char *name, const hw_state_t *hw, FILE *out,
     FILE *f = fopen(path, "r");
     if (!f) {
         if (err && errn)
-            snprintf(err, errn, "no such profile");
+            snprintf(err, errn, "no such snapshot");
         return -1;
     }
 
@@ -428,13 +570,14 @@ int profile_dry_run(const char *name, const hw_state_t *hw, FILE *out,
     return failed ? -1 : 0;
 }
 
-/* ---- delete / summary -------------------------------------------------- */
+/* ---- delete / rename / note -------------------------------------------- */
 
 int profile_delete(const char *name)
 {
     char path[520];
     profile_path(name, path, sizeof(path));
     if (unlink(path) == 0) {
+        cleanup_empty_group_dir(path);
         ut_log("snapshot deleted: %s", name);
         return 0;
     }
@@ -454,17 +597,11 @@ int profile_rename(const char *old_name, const char *new_name)
     mkdir_parent(newp);
     if (rename(oldp, newp) != 0)
         return -1;
+    cleanup_empty_group_dir(oldp);
     ut_log("snapshot renamed: %s -> %s", old_name, safe);
     return 0;
 }
 
-/* Append with a hard clamp. snprintf returns the length it WANTED to
- * write, so a naive `off += snprintf(...)` runs `off` past the buffer
- * once content is truncated — the next call's size argument then wraps
- * size_t and writes past `out` (an oversized >4 KB .ctr smashed the
- * stack here; ASan-proven 2026-10-28, regression-tested). Returns
- * false when the text did not fully fit (off stays clamped in range);
- * set_note uses that to refuse the rewrite instead of shortening. */
 static bool note_append(char *out, size_t n, size_t *off,
                         const char *fmt, ...)
 {
@@ -490,11 +627,6 @@ int profile_set_note(const char *name, const char *note)
     if (!f)
         return -1;
 
-    /* rewrite byte-preserving: drop any old "# note:" line, insert the
-     * new one after the leading '#'-comment header block. "Preserving"
-     * is a promise: a line that cannot round-trip (overlong for the
-     * read buffer, or content past out[]'s clamp) aborts the rewrite
-     * with the file untouched rather than shortening it silently. */
     char out[4096] = "";
     size_t off = 0;
     char line[512];
@@ -508,7 +640,7 @@ int profile_set_note(const char *name, const char *note)
         }
         char *s = ut_trim(line);
         if (!strncmp(s, "# note:", 7))
-            continue; /* drop the old note */
+            continue;
         if (!inserted && s[0] && s[0] != '#') {
             if (!note_append(out, sizeof(out), &off, "# note: %s\n", note))
                 lost = true;
@@ -521,8 +653,7 @@ int profile_set_note(const char *name, const char *note)
     }
     fclose(f);
     if (lost) {
-        ut_log("snapshot note: %s not saved (file would not round-trip)",
-               name);
+        ut_log("snapshot note: %s not saved (file would not round-trip)", name);
         return -1;
     }
 
@@ -537,28 +668,32 @@ int profile_set_note(const char *name, const char *note)
     return 0;
 }
 
+/* ---- summary / metadata parse / live diff ------------------------------ */
+
 void profile_meta_summary(const profile_meta_t *m, char *out, size_t n)
 {
     char head[96] = "";
     if (m->note[0] || m->saved[0]) {
         char date[16] = "";
-        if (strlen(m->saved) >= 16) /* "2026-10-09 21:14" -> "10-09 21:14" */
+        if (strlen(m->saved) >= 16)
             snprintf(date, sizeof(date), "%.5s %.5s", m->saved + 5, m->saved + 11);
         snprintf(head, sizeof(head), "%s%s%s · ", date,
                  date[0] && m->note[0] ? " " : "", m->note);
     }
-    char hz[12], bat[12];
-    if (m->hz > 0)
-        snprintf(hz, sizeof(hz), "%d", m->hz);
-    else
-        snprintf(hz, sizeof(hz), "-");
-    if (m->bat > 0)
-        snprintf(bat, sizeof(bat), "%d", m->bat);
-    else
-        snprintf(bat, sizeof(bat), "-");
-    snprintf(out, n, "%s%s | %sHz | bat %s%% | kbd %s", head,
-             m->profile[0] ? m->profile : "?", hz, bat,
-             m->kbd[0] ? m->kbd : "-");
+    char hz[16], bat[16], ppt[28] = "";
+    if (m->hz > 0) snprintf(hz, sizeof(hz), "%dHz", m->hz);
+    else snprintf(hz, sizeof(hz), "-");
+    if (m->bat > 0) snprintf(bat, sizeof(bat), "bat %d%%", m->bat);
+    else snprintf(bat, sizeof(bat), "bat -");
+    if (m->ppt_off == 1)
+        snprintf(ppt, sizeof(ppt), " · ppt off");
+    else if (m->ppt_spl > 0)
+        snprintf(ppt, sizeof(ppt), " · %d/%d/%dW",
+                 m->ppt_spl, m->ppt_sppt, m->ppt_fppt);
+
+    snprintf(out, n, "%s%s · %s · %s · kbd %s%s", head,
+             m->profile[0] ? m->profile : "-", hz, bat,
+             m->kbd[0] ? m->kbd : "-", ppt);
 }
 
 int profile_summary(const char *name, char *out, size_t n)
@@ -570,7 +705,22 @@ int profile_summary(const char *name, char *out, size_t n)
     return 0;
 }
 
-/* ---- metadata parse + live diff --------------------------------------- */
+static void record_core_override(profile_meta_t *m, int id, int mhz)
+{
+    if (id < 0 || id >= HW_CPU_MAX || mhz <= 0)
+        return;
+    for (int i = 0; i < m->core_n; i++) {
+        if (m->core_ids[i] == id) {
+            m->core_mhz[i] = mhz;
+            return;
+        }
+    }
+    if (m->core_n < HW_CPU_MAX) {
+        m->core_ids[m->core_n] = id;
+        m->core_mhz[m->core_n] = mhz;
+        m->core_n++;
+    }
+}
 
 int profile_meta_parse(const char *name, profile_meta_t *m)
 {
@@ -580,30 +730,31 @@ int profile_meta_parse(const char *name, profile_meta_t *m)
     if (!f)
         return -1;
 
-    memset(m, 0, sizeof(*m));
-    m->panel_od = m->cpu_boost = m->gpu_clock = -1;
-    m->fan_cpu_on = m->fan_gpu_on = -1;
+    profile_meta_init(m);
     char line[512];
     int r;
     while ((r = ut_fgets_full(line, sizeof(line), f)) != 0) {
         if (r < 0) {
-            ut_log("profile '%s': overlong line skipped", name);
+            ut_log("snapshot '%s': overlong line skipped", name);
             continue;
         }
         char *s = ut_trim(line);
-        if (!strncmp(s, "# saved:", 8))
+        if (!strncmp(s, "# saved:", 8)) {
             snprintf(m->saved, sizeof(m->saved), "%.*s",
                      (int)sizeof(m->saved) - 1, ut_trim(s + 8));
-        else if (!strncmp(s, "# note:", 7))
+        } else if (!strncmp(s, "# device:", 9)) {
+            snprintf(m->device, sizeof(m->device), "%.*s",
+                     (int)sizeof(m->device) - 1, ut_trim(s + 9));
+        } else if (!strncmp(s, "# note:", 7)) {
             snprintf(m->note, sizeof(m->note), "%.*s",
                      (int)sizeof(m->note) - 1, ut_trim(s + 7));
-        else if (!strncasecmp(s, "freq core", 9)) {
-            continue; /* per-core lines: not part of the aggregate diff */
-        }
-        else if (!strncasecmp(s, "fan-curve", 9)) {
-            /* export format: "fan-curve cpu = temps pwms" */
-            char which[8] = {0}, t[48] = {0}, p[48] = {0};
-            if (sscanf(s + 9, " %7s = %47s %47s", which, t, p) != 3)
+        } else if (!strncasecmp(s, "freq core ", 10)) {
+            int cid = -1, cmhz = 0;
+            if (sscanf(s + 10, "%d %d", &cid, &cmhz) == 2)
+                record_core_override(m, cid, cmhz);
+        } else if (!strncasecmp(s, "fan-curve", 9)) {
+            char which[8] = {0}, t[64] = {0}, p[64] = {0};
+            if (sscanf(s + 9, " %7s = %63s %63s", which, t, p) != 3)
                 continue;
             if (!strcasecmp(which, "cpu")) {
                 snprintf(m->fan_cpu_t, sizeof(m->fan_cpu_t), "%s", t);
@@ -612,8 +763,7 @@ int profile_meta_parse(const char *name, profile_meta_t *m)
                 snprintf(m->fan_gpu_t, sizeof(m->fan_gpu_t), "%s", t);
                 snprintf(m->fan_gpu_p, sizeof(m->fan_gpu_p), "%s", p);
             }
-        }
-        else {
+        } else {
             char *eq = strchr(s, '=');
             if (!eq)
                 continue;
@@ -625,12 +775,14 @@ int profile_meta_parse(const char *name, profile_meta_t *m)
             else if (!strcasecmp(key, "epp"))
                 snprintf(m->epp, sizeof(m->epp), "%s", val);
             else if (!strcasecmp(key, "freq")) {
-                /* per-core/per-CCD lines must not overwrite the aggregate */
-                if (strncasecmp(val, "core", 4) != 0 &&
-                    strncasecmp(val, "ccd", 3) != 0)
+                int cid = -1, cmhz = 0;
+                if (!strncasecmp(val, "core ", 5) &&
+                    sscanf(val + 5, "%d %d", &cid, &cmhz) == 2)
+                    record_core_override(m, cid, cmhz);
+                else if (strncasecmp(val, "core", 4) != 0 &&
+                         strncasecmp(val, "ccd", 3) != 0)
                     m->freq = atoi(val);
-            }
-            else if (!strcasecmp(key, "hz"))
+            } else if (!strcasecmp(key, "hz"))
                 m->hz = atoi(val);
             else if (!strcasecmp(key, "battery"))
                 m->bat = atoi(val);
@@ -648,21 +800,24 @@ int profile_meta_parse(const char *name, profile_meta_t *m)
                     if (gc > 0)
                         m->gpu_clock = gc;
                 }
-            }
-            else if (!strcasecmp(key, "ppt")) {
+            } else if (!strcasecmp(key, "ppt")) {
                 int a, b, c;
-                if (!strcasecmp(val, "Q45")) { m->ppt_spl = 45; m->ppt_sppt = 55; m->ppt_fppt = 55; }
-                else if (!strcasecmp(val, "B60")) { m->ppt_spl = 60; m->ppt_sppt = 75; m->ppt_fppt = 75; }
-                else if (!strcasecmp(val, "P80")) { m->ppt_spl = 80; m->ppt_sppt = 80; m->ppt_fppt = 80; }
-                else if (sscanf(val, "%d,%d,%d", &a, &b, &c) == 3 &&
-                         a > 0 && b > 0 && c > 0) {
+                if (!strcasecmp(val, "off")) {
+                    m->ppt_off = 1;
+                } else if (!strcasecmp(val, "Q45")) {
+                    m->ppt_spl = 45; m->ppt_sppt = 55; m->ppt_fppt = 55;
+                } else if (!strcasecmp(val, "B60")) {
+                    m->ppt_spl = 60; m->ppt_sppt = 75; m->ppt_fppt = 75;
+                } else if (!strcasecmp(val, "P80")) {
+                    m->ppt_spl = 80; m->ppt_sppt = 80; m->ppt_fppt = 80;
+                } else if (sscanf(val, "%d,%d,%d", &a, &b, &c) == 3 &&
+                           a > 0 && b > 0 && c > 0) {
                     m->ppt_spl = a; m->ppt_sppt = b; m->ppt_fppt = c;
                 }
-            }
-            else if (!strcasecmp(key, "fan_cpu"))
-                m->fan_cpu_on = atoi(val);
+            } else if (!strcasecmp(key, "fan_cpu"))
+                m->fan_cpu_on = atoi(val) ? 1 : 0;
             else if (!strcasecmp(key, "fan_gpu"))
-                m->fan_gpu_on = atoi(val);
+                m->fan_gpu_on = atoi(val) ? 1 : 0;
         }
     }
     fclose(f);
@@ -673,9 +828,9 @@ static int curve_differs(const char *t, const char *p, const fan_curve_t *live)
 {
     fan_curve_t fc;
     if (!t[0] || !p[0])
-        return 0; /* absent in the snapshot: never a diff */
+        return 0;
     if (fan_from_csv(&fc, t, p) < 0)
-        return 1; /* unparsable: honest "differs" */
+        return 1;
     if (fc.n != live->n)
         return 1;
     for (int i = 0; i < fc.n && i < FAN_POINTS; i++)
@@ -684,32 +839,57 @@ static int curve_differs(const char *t, const char *p, const fan_curve_t *live)
     return 0;
 }
 
-void profile_meta_diff(const hw_state_t *hw, const profile_meta_t *m,
-                       char *out, size_t n)
+static bool cores_differ(const hw_state_t *hw, const profile_meta_t *m)
 {
-    char labels[128] = "";
+    for (int i = 0; i < m->core_n; i++) {
+        int id = m->core_ids[i];
+        if (id >= 0 && id < HW_CPU_MAX && hw->cpu_mhz_core[id] > 0 &&
+            abs(hw->cpu_mhz_core[id] - m->core_mhz[i]) > 2)
+            return true;
+    }
+    /* if snapshot sets an aggregate freq with no per-core caps, check if
+     * any live core is currently capped below the snapshot's ceiling */
+    if (m->freq > 0 && m->core_n == 0) {
+        for (int c = 0; c < hw->cpu_n && c < HW_CPU_MAX; c++) {
+            int id = hw->cpu_ids[c];
+            if (hw->cpu_mhz_core[id] > 0 &&
+                hw->cpu_mhz_core[id] + 2 < m->freq)
+                return true;
+        }
+    }
+    return false;
+}
+
+static int diff_collect(const hw_state_t *hw, const profile_meta_t *m,
+                        char *labels, size_t lcap)
+{
     size_t off = 0;
     int ndiff = 0;
+    if (labels && lcap > 0)
+        labels[0] = '\0';
 
-#define ADD_LABEL(lbl)                                                     \
-    do {                                                                   \
-        int w_lbl = snprintf(labels + off, sizeof(labels) - off, "%s%s",   \
-                             ndiff ? " · " : "", lbl);                     \
-        if (w_lbl < 0 || (size_t)w_lbl >= sizeof(labels) - off)            \
-            break; /* truncated: keep what fits, stop accumulating */      \
-        off += (size_t)w_lbl;                                              \
-        ndiff++;                                                           \
+#define ADD_LABEL(lbl)                                                       \
+    do {                                                                     \
+        if (labels && lcap > off) {                                          \
+            int wl = snprintf(labels + off, lcap - off, "%s%s",              \
+                              ndiff ? " · " : "", lbl);                      \
+            if (wl > 0 && (size_t)wl < lcap - off)                           \
+                off += (size_t)wl;                                           \
+        }                                                                    \
+        ndiff++;                                                             \
     } while (0)
 
     if (m->profile[0] && strcasecmp(m->profile, hw_profile_name(hw->profile)))
         ADD_LABEL("profile");
     if (m->epp[0] && strcasecmp(m->epp, hw_epp_name(hw->epp)))
         ADD_LABEL("epp");
-    if (m->freq > 0 && m->freq != hw->cpu_mhz_limit)
+    if (m->freq > 0 && hw->cpu_mhz_limit > 0 && abs(m->freq - hw->cpu_mhz_limit) > 2)
         ADD_LABEL("freq");
-    if (m->hz > 0 && m->hz != hw->hz_cur)
+    if (cores_differ(hw, m))
+        ADD_LABEL("cores");
+    if (m->hz > 0 && hw->hz_cur > 0 && m->hz != hw->hz_cur)
         ADD_LABEL("hz");
-    if (m->bat > 0 && m->bat != hw->bat_limit)
+    if (m->bat > 0 && hw->bat_limit > 0 && m->bat != hw->bat_limit)
         ADD_LABEL("battery");
     if (m->kbd[0] && strcasecmp(m->kbd, hw_kbd_name(hw->kbd)))
         ADD_LABEL("kbd");
@@ -719,9 +899,11 @@ void profile_meta_diff(const hw_state_t *hw, const profile_meta_t *m,
         ADD_LABEL("cpu-boost");
     if (m->gpu_clock >= 0 && m->gpu_clock != hw->gpu_clock_lock)
         ADD_LABEL("gpu-clock");
-    if (m->ppt_spl > 0 && hw->ppt_spl > 0 &&
-        (m->ppt_spl != hw->ppt_spl || m->ppt_sppt != hw->ppt_sppt ||
-         m->ppt_fppt != hw->ppt_fppt))
+    if (m->ppt_off == 1 && !hw->ppt_off)
+        ADD_LABEL("ppt");
+    else if (m->ppt_spl > 0 && hw->ppt_spl > 0 &&
+             (m->ppt_spl != hw->ppt_spl || m->ppt_sppt != hw->ppt_sppt ||
+              m->ppt_fppt != hw->ppt_fppt))
         ADD_LABEL("ppt");
     if (m->fan_cpu_on >= 0 && m->fan_cpu_on != (int)hw->fan_cpu_on)
         ADD_LABEL("fan-cpu");
@@ -733,7 +915,19 @@ void profile_meta_diff(const hw_state_t *hw, const profile_meta_t *m,
         ADD_LABEL("curve-gpu");
 
 #undef ADD_LABEL
+    return ndiff;
+}
 
+int profile_meta_diff_count(const hw_state_t *hw, const profile_meta_t *m)
+{
+    return diff_collect(hw, m, NULL, 0);
+}
+
+void profile_meta_diff(const hw_state_t *hw, const profile_meta_t *m,
+                       char *out, size_t n)
+{
+    char labels[160];
+    int ndiff = diff_collect(hw, m, labels, sizeof(labels));
     if (ndiff == 0)
         snprintf(out, n, "≡ live");
     else

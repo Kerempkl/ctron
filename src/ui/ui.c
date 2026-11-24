@@ -411,6 +411,10 @@ void ui_set_view(ui_view_t v)
     g_ui.fe_input = 0;
     g_ui.prof_input = 0;
     g_ui.prof_del_arm = -1;
+    g_ui.prof_upd_arm = -1;
+    g_ui.prof_in_edit = false;
+    g_ui.prof_val_typing = false;
+    g_ui.prof_edit_dirty = false;
     if (v == VIEW_TELEM)
         g_ui.prev_view = g_ui.view;
     g_ui.view = v;
@@ -423,10 +427,8 @@ void ui_set_view(ui_view_t v)
         hw_refresh_live(g_ui.hw);
         sys_sync_from_hw();
     } else if (v == VIEW_SNAPSHOTS) {
-        g_ui.prof_n = profile_list(g_ui.profs, MAX_PROFILES);
-        if (g_ui.prof_sel >= g_ui.prof_n && g_ui.prof_sel > 0)
-            g_ui.prof_sel = g_ui.prof_n - 1;
-        g_ui.prof_meta_sel = -1;
+        hw_refresh_live(g_ui.hw);
+        panel_profiles_reload();
     }
 }
 
@@ -511,8 +513,9 @@ static void draw_help_overlay(struct ncplane *n, const rect_t *r)
         "  o / w        toggle custom curve on/off · write curve to EC",
         "",
         "SNAPSHOTS (4)",
-        "  Enter        apply snapshot · s save current · n auto-name",
-        "  r / c / d d  rename · edit note · double-d delete confirmation",
+        "  Enter        apply snapshot · e / l edit fields · u u overwrite from live",
+        "  s / n        save live state · auto-name · r rename · c note · d d delete",
+        "  In editor:   h/l step · e exact · x skip (—) · f live curve · w/Enter save",
         "",
         "TELEMETRY (5)",
         "  h j k l      walk 8-section grid · Enter detail (1-8 jump inside detail)",
@@ -654,7 +657,8 @@ static void draw_header(struct ncplane *n, unsigned dimy, unsigned dimx)
 static int total_staged_edits(void)
 {
     return pw_staged_count() + sys_staged_count() +
-           (g_ui.hw->fan_staged ? 1 : 0);
+           (g_ui.hw->fan_staged ? 1 : 0) +
+           (g_ui.prof_in_edit && g_ui.prof_edit_dirty ? 1 : 0);
 }
 
 static void rail_kv(struct ncplane *n, int x, int y, int w,
@@ -683,7 +687,7 @@ static void draw_rail(struct ncplane *n, const rect_t *r)
         pw_staged_count() > 0,
         hw->fan_staged,
         sys_staged_count() > 0,
-        false,
+        g_ui.prof_in_edit && g_ui.prof_edit_dirty,
         false,
     };
 
@@ -895,13 +899,26 @@ static void draw_footer(struct ncplane *n, unsigned dimy, unsigned dimx)
             { ",", "prefs", false },      { "q", "quit", false },
         };
         ui_keybar(n, 1, ky, W - 2, h, (int)(sizeof(h) / sizeof(h[0])));
+    } else if (g_ui.view == VIEW_SNAPSHOTS && g_ui.prof_in_edit) {
+        const ui_hint_t h[] = {
+            { "Esc", "list", false },
+            { "j/k", "field", false },
+            { "h/l", "change", false },
+            { "e", "exact", false },
+            { "x", "skip", false },
+            { "f", "curve", false },
+            { "w/Enter", "save", g_ui.prof_edit_dirty },
+            { "L", "log", false },
+            { "q", "quit", false },
+        };
+        ui_keybar(n, 1, ky, W - 2, h, (int)(sizeof(h) / sizeof(h[0])));
     } else if (g_ui.view == VIEW_SNAPSHOTS) {
         const ui_hint_t h[] = {
             { "1-5/Tab", "view", false }, { "j/k", "row", false },
-            { "Enter", "apply", false },  { "s", "save", false },
-            { "n", "new", false },        { "r", "rename", false },
-            { "c", "note", false },       { "dd", "del", false },
-            { "L", "log", false },        { ",", "prefs", false },
+            { "Enter", "apply", false },  { "e", "edit", false },
+            { "s/n", "save", false },     { "uu", "update", false },
+            { "r", "rename", false },     { "c", "note", false },
+            { "dd", "del", false },       { "L", "log", false },
             { "q", "quit", false },
         };
         ui_keybar(n, 1, ky, W - 2, h, (int)(sizeof(h) / sizeof(h[0])));
@@ -990,8 +1007,10 @@ static void handle_mouse(struct ncplane *stdn, const struct ncinput *ni, uint32_
         return;
     int panel = (t >> 24) & 0x7f;
     int id = t & TGT_ID_MASK;
-    if (panel != TGT_PANEL_PROFILES)
+    if (panel != TGT_PANEL_PROFILES) {
         g_ui.prof_del_arm = -1;
+        g_ui.prof_upd_arm = -1;
+    }
 
     switch (panel) {
     case TGT_PANEL_RAIL:
@@ -1051,11 +1070,20 @@ static void *apply_worker(void *arg)
 
     switch (g_ui.apply_kind) {
     case APPLY_SNAPSHOT: {
+        hw->fan_staged = false;
         char err[192] = "";
         g_ui.apply_ok = profile_import(g_ui.apply_arg, hw, err, sizeof(err)) == 0;
         snprintf(g_ui.apply_sum, sizeof(g_ui.apply_sum), "%s", err);
-        ut_progress("snapshot: fan curves");
-        ctrl_fan_write(hw);
+        if (hw->fan_staged) {
+            ut_progress("snapshot: fan curves");
+            if (ctrl_fan_write(hw) != 0) {
+                g_ui.apply_ok = false;
+                if (!g_ui.apply_sum[0])
+                    snprintf(g_ui.apply_sum, sizeof(g_ui.apply_sum),
+                             "fan curve write failed (see log)");
+            }
+        }
+        hw_refresh_live(hw);
         break;
     }
     case APPLY_POWER: {
@@ -1143,12 +1171,16 @@ static void finalize_apply(void)
                    took / 10, took % 10);
         pw_sync_from_hw();
         sys_sync_from_hw();
+        cf_reset_staging();
+        panel_profiles_reload();
         break;
     case APPLY_POWER:
     case APPLY_SYSTEM: {
         const char *tag = g_ui.apply_kind == APPLY_POWER ? "power" : "system";
         pw_sync_from_hw();
         sys_sync_from_hw();
+        if (g_ui.apply_kind == APPLY_POWER)
+            cf_reset_staging();
         ut_log("%s apply: %s · %ld.%ld s", tag,
                g_ui.apply_fails ? "some fields FAILED (privilege?)" : "ok",
                took / 10, took % 10);
@@ -1178,6 +1210,8 @@ static void finalize_apply(void)
         }
         pw_sync_from_hw();
         sys_sync_from_hw();
+        cf_reset_staging();
+        panel_profiles_reload();
         break;
     }
     default:
@@ -1301,7 +1335,8 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
     }
 
     /* 2. Active inline text-input fields swallow printable keys */
-    if (g_ui.view == VIEW_SNAPSHOTS && g_ui.prof_input != 0) {
+    if (g_ui.view == VIEW_SNAPSHOTS &&
+        (g_ui.prof_input != 0 || g_ui.prof_val_typing)) {
         panel_profiles_key(key);
         return;
     }
@@ -1347,24 +1382,29 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
     case 'q':
     case 'Q':
         g_ui.prof_del_arm = -1;
+        g_ui.prof_upd_arm = -1;
         try_quit();
         return;
     case ',':
         g_ui.prof_del_arm = -1;
+        g_ui.prof_upd_arm = -1;
         settings_open();
         return;
     case 'L':
         g_ui.prof_del_arm = -1;
+        g_ui.prof_upd_arm = -1;
         g_ui.log_overlay = true;
         g_ui.log_scroll = 0;
         return;
     case '?':
         g_ui.prof_del_arm = -1;
+        g_ui.prof_upd_arm = -1;
         g_ui.help_overlay = true;
         return;
     case 't':
     case 'T':
         g_ui.prof_del_arm = -1;
+        g_ui.prof_upd_arm = -1;
         if (g_ui.view == VIEW_TELEM)
             ui_set_view(g_ui.prev_view != VIEW_TELEM ? g_ui.prev_view : VIEW_POWER);
         else
@@ -1379,11 +1419,14 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
     case '4': ui_set_view(VIEW_SNAPSHOTS); return;
     case '5': ui_set_view(VIEW_TELEM);     return;
     case NCKEY_ESC:
-        /* Esc NEVER opens a menu: exits inline cores, cancels delete arm, or leaves telem */
+        /* Esc NEVER opens a menu: exits inline cores/editor, cancels arms, or leaves telem */
         if (g_ui.view == VIEW_POWER && g_ui.pw_in_cores) {
             g_ui.pw_in_cores = false;
-        } else if (g_ui.prof_del_arm >= 0) {
+        } else if (g_ui.view == VIEW_SNAPSHOTS && g_ui.prof_in_edit) {
+            panel_profiles_key(NCKEY_ESC);
+        } else if (g_ui.prof_del_arm >= 0 || g_ui.prof_upd_arm >= 0) {
             g_ui.prof_del_arm = -1;
+            g_ui.prof_upd_arm = -1;
         } else if (g_ui.view == VIEW_TELEM && g_ui.prev_view != VIEW_TELEM) {
             ui_set_view(g_ui.prev_view);
         }
@@ -1451,14 +1494,15 @@ int ui_run(hw_state_t *hw)
     g_ui.md_field = -1;
     g_ui.telem_detail = -1;
     g_ui.prof_del_arm = -1;
+    g_ui.prof_upd_arm = -1;
     g_ui.set_del_arm = -1;
     g_ui.prof_meta_sel = -1;
-    g_ui.prof_n = profile_list(g_ui.profs, MAX_PROFILES);
     g_ui.mode_n = modes_load(g_ui.modes, MODES_MAX);
     tin_set(&g_ui.prof_name, "my-snapshot");
 
     hw_refresh_live(hw);
     settings_load(hw);
+    panel_profiles_reload();
     g_ui.view = (ui_view_t)ut_clamp_i(g_prefs.startup_view, 0, VIEW_COUNT - 1);
     g_ui.prev_view = VIEW_POWER;
 

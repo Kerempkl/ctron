@@ -11,6 +11,43 @@ see [docs/history/changelog-2026-09-11.md](docs/history/changelog-2026-09-11.md)
 
 ## [Unreleased]
 
+### Added
+- **Two-pane `4 Snapshots` Inspector & Interactive Field Editor (`panel_profiles.c`, `profile.{h,c}`):**
+  - Replaced the single-column snapshot list with a Konsept C two-pane workspace:
+    left pane lists snapshots with live diff count badges (`≡ live` / `Δ N`),
+    right pane shows a 12-field live Inspector & Interactive Editor (`e` / `l`
+    or click any field to edit).
+  - Supports **selective / partial `.ctr` snapshots** via `profile_save_meta()`:
+    pressing `x` / `Del` toggles any field to `— (skip)` so omitted hardware
+    domains stay completely untouched on apply; `h`/`l` step values, `e` types
+    exact values (`MHz`, `SPL,SPPT,FPPT` / `Q45`/`B60`/`P80`/`off`, `gpu-clock`,
+    `Hz`, `battery %`), `f` captures live CPU/GPU fan curves or per-core caps,
+    and `w`/`Enter` saves atomically.
+  - **Double-`u` (`uu`) live overwrite:** overwrites the selected snapshot from
+    fresh live hardware while preserving its `# note:` header.
+
+### Fixed
+- **Snapshot backend & apply bugs (`profile.c`, `ui.c`, `main.c`, `panel_profiles.c`):**
+  - **Fresh live reads before TUI save/inspect:** entering `4 Snapshots`,
+    opening Save (`s`/`n`), saving, and `uu` overwriting now call
+    `hw_refresh_live()` first instead of exporting stale startup values for
+    `bat_limit`, `panel_od`, `cpu_boost`, `epp`, `hz_cur`, and `ppt_*`.
+  - **No unconditional fan curve clobber on apply:** `profile_import()`,
+    `APPLY_SNAPSHOT`, and `ctron snapshot apply` no longer force
+    `fan_cpu_on = fan_gpu_on = true` or run `ctrl_fan_write()` when a `.ctr`
+    omits fan curves; `ctrl_fan_write()` errors are now surfaced instead of
+    silently ignored, and post-apply refreshes `hw_refresh_live()`,
+    `cf_reset_staging()`, and cached snapshot metadata.
+  - **Lossless per-core & `ppt = off` metadata + diff:** `profile_meta_parse()`
+    and `profile_meta_diff()` now track `freq = core <id> <mhz>` (plus legacy
+    `freq core`) and `ppt = off`, preserve `# note:` on `profile_export()`
+    overwrite, skip redundant `gpu-clock = reset` when unlocked, and clean up
+    empty 1-level group subdirectories on `profile_delete()` / `profile_rename()`.
+- **Inline `CORE LIMITS` background thermal ceiling oscillation (`editor_corefreq.c`):**
+  untouched cores now keep `cf_staged[id] == 0` and read live ceilings via
+  `cf_eff(id)` instead of seeding `cf_staged[]` on draw, preventing firmware
+  thermal ceiling shifts from staging phantom per-core writes on `w`.
+
 ---
 
 ## [0.12.0] — 2026-11-24

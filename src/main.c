@@ -826,10 +826,15 @@ static int cmd_profile(int argc, char **argv, hw_state_t *hw, bool dry_run)
             return rc == 0 ? 0 : 1;
         }
         ut_priv_denied_clear();
+        hw->fan_staged = false;
         int rc = profile_import(name, hw, err, sizeof(err));
-        if (rc == 0)
-            rc = ctrl_fan_write(hw);
-        else
+        if (rc == 0 && hw->fan_staged) {
+            if (ctrl_fan_write(hw) != 0) {
+                rc = -1;
+                snprintf(err, sizeof(err), "fan curve write failed");
+            }
+        }
+        if (rc != 0)
             fprintf(stderr, "%s\n", err[0] ? err : "apply failed");
         if (rc == 0)
             return 0;

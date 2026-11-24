@@ -87,11 +87,19 @@ typedef struct ui_ctx {
     int prof_top;
     int prof_input;             /* 0 none, 1 save, 2 rename, 3 note */
     int prof_del_arm;           /* double-d confirm: armed prof_sel, or -1 */
+    int prof_upd_arm;           /* double-u confirm: overwrite with live, or -1 */
     tinput_t prof_name;
     tinput_t prof_note;
     profile_meta_t prof_meta;
     int prof_meta_sel;
     bool prof_meta_ok;
+    bool prof_in_edit;          /* true when focus is in right-hand Snapshot Editor */
+    int prof_edit_sel;          /* 0..11 field row inside Snapshot Editor */
+    int prof_edit_top;          /* scroll offset for Snapshot Editor */
+    bool prof_edit_dirty;       /* unsaved edits in prof_edit */
+    profile_meta_t prof_edit;   /* editable working copy of selected snapshot */
+    tinput_t prof_val_in;       /* exact value input inside Snapshot Editor */
+    bool prof_val_typing;       /* true while typing exact field value */
 
     /* user shortcut modes (POWER Quick mode row + Settings CLI SHORTCUTS) */
     mode_def_t modes[MODES_MAX];
@@ -261,6 +269,7 @@ bool tin_key(tinput_t *t, uint32_t key);
 
 void ui_set_view(ui_view_t v);
 
+void panel_profiles_reload(void);
 void panel_profiles_draw(struct ncplane *n, const rect_t *r);
 void panel_profiles_key(uint32_t key);
 void panel_profiles_act(int id);

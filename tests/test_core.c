@@ -1836,6 +1836,74 @@ static void check_snapshots(void)
               strstr(sum, "oyun ayarlari") && strstr(sum, "Performance"),
           "summary carries note + fields");
 
+    /* overwriting an existing snapshot preserves its # note: header */
+    hw.bat_limit = 60;
+    CHECK(profile_export("grup/t1", &hw) == 0, "overwrite export ok");
+    CHECK(profile_meta_parse("grup/t1", &m) == 0 &&
+              !strcmp(m.note, "oyun ayarlari") && m.bat == 60,
+          "overwrite export preserves existing note");
+    hw.bat_limit = 80;
+
+    /* selective snapshot via profile_save_meta: omitted fields stay omitted,
+     * ppt=off, gpu-clock=reset, and per-core caps round-trip + diff cleanly */
+    {
+        profile_meta_t sel;
+        profile_meta_init(&sel);
+        snprintf(sel.note, sizeof(sel.note), "selective");
+        sel.ppt_off = 1;
+        sel.gpu_clock = 0; /* reset */
+        sel.core_n = 1;
+        sel.core_ids[0] = 4;
+        sel.core_mhz[0] = 2800;
+        CHECK(profile_save_meta("partial", &sel) == 0, "save_meta selective");
+
+        profile_meta_t pm;
+        CHECK(profile_meta_parse("partial", &pm) == 0, "parse selective");
+        CHECK(pm.profile[0] == '\0' && pm.epp[0] == '\0' &&
+                  pm.cpu_boost == -1 && pm.panel_od == -1 &&
+                  pm.hz == 0 && pm.bat == 0 &&
+                  pm.fan_cpu_on == -1 && pm.fan_gpu_on == -1 &&
+                  pm.fan_cpu_t[0] == '\0',
+              "omitted fields remain sentinel (-1/0/empty)");
+        CHECK(pm.ppt_off == 1 && pm.gpu_clock == 0 &&
+                  pm.core_n == 1 && pm.core_ids[0] == 4 &&
+                  pm.core_mhz[0] == 2800,
+              "ppt=off, gpu-clock=reset, and core_mhz round-trip");
+
+        hw.cpu_n = 1;
+        hw.cpu_ids[0] = 4;
+        hw.cpu_mhz_core[4] = 5000;
+        hw.ppt_off = false;
+        profile_meta_diff(&hw, &pm, diff, sizeof(diff));
+        CHECK(strstr(diff, "cores") != NULL && strstr(diff, "ppt") != NULL &&
+                  profile_meta_diff_count(&hw, &pm) == 2,
+              "diff detects per-core MHz and ppt=off");
+        hw.cpu_mhz_core[4] = 2800;
+        hw.ppt_off = true;
+        CHECK(profile_meta_diff_count(&hw, &pm) == 0,
+              "selective snapshot matches live when active fields match");
+        hw.ppt_off = false;
+        hw.cpu_n = 0;
+
+        /* selective import without fan lines must NOT clobber fan flags or
+         * stage fan curves, and gpu-clock=reset is skipped when unlocked */
+        profile_meta_t fanless;
+        profile_meta_init(&fanless);
+        fanless.gpu_clock = 0;
+        CHECK(profile_save_meta("fanless", &fanless) == 0, "save fanless");
+        hw.gpu_clock_lock = 0;
+        hw.fan_cpu_on = false;
+        hw.fan_gpu_on = false;
+        hw.fan_staged = false;
+        char ferr[128] = "";
+        CHECK(profile_import("fanless", &hw, ferr, sizeof(ferr)) == 0,
+              "import fanless selective snapshot");
+        CHECK(!hw.fan_cpu_on && !hw.fan_gpu_on && !hw.fan_staged,
+              "selective import leaves fan flags and fan_staged untouched");
+        CHECK(profile_delete("partial") == 0 && profile_delete("fanless") == 0,
+              "cleanup selective test files");
+    }
+
     CHECK(profile_rename("grup/t1", "grup/t2") == 0, "rename");
     n = profile_list(list, MAX_PROFILES);
     bool old_gone = true, new_seen = false;
@@ -1851,7 +1919,7 @@ static void check_snapshots(void)
     CHECK(profile_delete("grup/t2") == 0, "delete");
     char pdir[512];
     snprintf(pdir, sizeof(pdir), "%s/profiles/grup", tmp);
-    rmdir(pdir);
+    CHECK(!ut_path_exists(pdir), "empty group subdir cleaned up on last delete");
     snprintf(pdir, sizeof(pdir), "%s/profiles", tmp);
     rmdir(pdir);
     rmdir(tmp);
