@@ -14,6 +14,10 @@ Run from the repo root (BIN is ./build/ctron):
 
 The optional 4th arg is a key script: ';'-separated steps, each either
 'sleep' or a key string sent to the TUI.
+
+Set CTRON_SHOT_CONFIG=<dir> to run against a prepared config dir (e.g.
+one pre-seeded with `ctron snapshot export` profiles) instead of an
+empty throwaway config.
 """
 
 import os
@@ -478,8 +482,12 @@ def main():
     rows = int(sys.argv[3]) if len(sys.argv) > 3 else 50
     script = sys.argv[4] if len(sys.argv) > 4 else ""
 
-    tmpcfg = tempfile.mkdtemp(prefix="ctron-shot-")
-    os.environ["CTRON_CONFIG"] = tmpcfg
+    seed = os.environ.get("CTRON_SHOT_CONFIG")
+    if seed:
+        os.environ["CTRON_CONFIG"] = seed
+    else:
+        tmpcfg = tempfile.mkdtemp(prefix="ctron-shot-")
+        os.environ["CTRON_CONFIG"] = tmpcfg
     s = Session(cols, rows)
     try:
         s.quiet(window=0.5, timeout=15.0)

@@ -26,6 +26,14 @@ see [docs/history/changelog-2026-09-11.md](docs/history/changelog-2026-09-11.md)
   - **Double-`u` (`uu`) live overwrite:** overwrites the selected snapshot from
     fresh live hardware while preserving its `# note:` header.
 
+### Changed
+- **README visuals refreshed for the v0.12.0 Konsept C TUI:** re-shot
+  `docs/tui-{fan,power,telem}.png` (rail + workspace layout, inline
+  `CORE LIMITS`, 8-section Telemetry grid), added a `docs/tui-snap.png`
+  two-pane Snapshots inspector image to the README, and added an opt-in
+  `CTRON_SHOT_CONFIG=<dir>` to `scripts/tui_screenshot.py` for shooting
+  against a pre-seeded config.
+
 ### Fixed
 - **Snapshot backend & apply bugs (`profile.c`, `ui.c`, `main.c`, `panel_profiles.c`):**
   - **Fresh live reads before TUI save/inspect:** entering `4 Snapshots`,

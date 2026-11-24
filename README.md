@@ -104,11 +104,13 @@ Hyprland — see the [handoff notes](#display-backends-compositor-refresh-rate-c
 View `4` (`Snapshots`) shows saved `.ctr` states (`group/name` entries group
 into subdirectories) with live diff badges (`≡ live` / `Δ N`) on the left and a
 12-field **Inspector & Interactive Snapshot Editor** on the right: `Enter`
-applies, `s`/`n` saves a fresh live snapshot, `u u` overwrites the selected
+applies, `s`/`n` saves a fresh live snapshot, `uu` overwrites the selected
 snapshot from live hardware (preserving its `# note:`), and `e` focuses the
 field editor (`h`/`l` step, `e` exact value, `x` toggle `— (skip)` for
 selective/partial snapshots that leave omitted hardware untouched on apply,
 `f` capture live fan curves or per-core caps, `w`/`Enter` save).
+
+![ctron TUI — Snapshots inspector & field editor](docs/tui-snap.png)
 
 View `5` (`Telemetry`, or press `t` from anywhere) hosts the **8-section
 read-only telemetry workspace** (CPU / GPU / iGPU / RAM / storage / network /

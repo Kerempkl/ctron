@@ -5,7 +5,36 @@
 
 ---
 
-## Latest session — 2026-11-24 (Snapshot backend audit & two-pane interactive Snapshot Editor)
+## Latest session — 2026-11-24 (GitHub visual refresh: README screenshots for Konsept C)
+
+**GLM / Kerempkl / FA608PP** — the GitHub page still carried the pre-v0.12.0
+Bento screenshots (`docs/tui-*.png` dated 2026-11-19) even though `origin/main`
+was current through `d4fc51e`. Re-shot every README image against the shipped
+Konsept C TUI:
+
+- **Re-shot `docs/tui-{fan,power,telem}.png`** (views `2`/`1`/`5`, 160×50,
+  `Native` theme): left rail + full-height workspace, inline `CORE LIMITS`
+  pane inside `1 Power`, 8-section Telemetry grid with live numbers.
+- **Added `docs/tui-snap.png`** (view `4`): two-pane snapshot list + 12-field
+  inspector with a `Δ N` badge and `(live: …)` diffs. Seeded an isolated
+  config with `ctron snapshot export` (stock / hand-edited `gaming` /
+  `quiet/office` group entry) and added an opt-in `CTRON_SHOT_CONFIG=<dir>`
+  env to `scripts/tui_screenshot.py` so future shots can run against a
+  prepared config dir instead of an empty throwaway.
+- **README:** embedded the snapshot image in the view-`4` paragraph and fixed
+  `u u` → `uu` (matches code/CHANGELOG wording).
+- **Verified:** real `--help` byte-identical to the README flag block,
+  `--version` 0.12.0 = README badge, all 4 image refs resolve, each PNG
+  visually inspected (Konsept C rail + workspace confirmed), script
+  `py_compile` OK, `make test` green (no C changes).
+- **Field note:** tags `v0.10.0`, `v0.11.0`, `v0.12.0` are still local-only —
+  GitHub releases lag until they are pushed (user's call).
+
+Signed: **GLM 5.3** — README + screenshot refresh for v0.12.0.
+
+---
+
+## Previous session — 2026-11-24 (Snapshot backend audit & two-pane interactive Snapshot Editor)
 
 **Antigravity / Kerempkl / FA608PP** — audited the entire `.ctr` snapshot
 pipeline (`src/profile.{h,c}`, `src/main.c`, `src/ui/ui.c`,
