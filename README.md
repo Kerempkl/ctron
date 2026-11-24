@@ -25,11 +25,11 @@ piped output never opens the TUI.
 | Area | What you get |
 | --- | --- |
 | **Fans** | Dual 8-point CPU/GPU curves with a live graph editor, built-in Quiet / Balanced / Performance presets, per-fan on/off, EC write with read-back verification |
-| **Power** | Platform profiles, EPP, PPT watt limits (asus-armoury or ryzenadj), per-core / per-CCD / all-thread frequency ceilings, GPU core-clock lock, NVIDIA dynamic boost & temp target |
+| **Power** | Platform profiles, EPP, PPT watt limits (asus-armoury or ryzenadj), per-core / per-CCD / all-thread frequency ceilings, GPU core-clock lock, NVIDIA dynamic boost & temp target, asusd AC/battery profile takeover |
 | **Battery** | Charge limit (20–100 %), one-shot charge-to-full |
 | **Display** | Refresh-rate control via compositor backends (KDE, Hyprland), panel overdrive |
-| **Lighting** | Keyboard backlight, AURA effects, optional daeboard LED daemon control + binds editor |
-| **Automation** | Shortcut modes (`modes.ini`), hardware snapshots (save / rename / note / apply / export) |
+| **Lighting** | Keyboard backlight, keyboard colour and the effects the keyboard actually offers (read from asusd — the FA608PP has `static` only), optional daeboard LED daemon control + binds editor |
+| **Automation** | Shortcut modes (`modes.ini`), hardware snapshots (save / rename / note / apply / export; every Power, Display & Light, keyboard and fan setting, per-core ceilings included) |
 | **Telemetry** | Temps, fan RPM, frequencies, watts, per-core load, memory/IO pressure (PSI), network rx/tx + wifi signal, battery — live in the TUI, one line under `--watch`, CSV log under `--csv` |
 
 Working principles, enforced in code:
@@ -103,14 +103,25 @@ Hyprland — see the [handoff notes](#display-backends-compositor-refresh-rate-c
 
 View `4` (`Snapshots`) shows saved `.ctr` states (`group/name` entries group
 into subdirectories) with live diff badges (`≡ live` / `Δ N`) on the left and a
-12-field **Inspector & Interactive Snapshot Editor** on the right: `Enter`
+15-field **Inspector & Interactive Snapshot Editor** on the right: `Enter`
 applies, `s`/`n` saves a fresh live snapshot, `uu` overwrites the selected
 snapshot from live hardware (preserving its `# note:`), and `e` focuses the
 field editor (`h`/`l` step, `e` exact value, `x` toggle `— (skip)` for
 selective/partial snapshots that leave omitted hardware untouched on apply,
-`f` capture live fan curves or per-core caps, `w`/`Enter` save).
+`f` capture the live value, `w`/`Enter` save). A snapshot carries platform
+profile, EPP, CPU boost, the all-core and per-core CPU ceilings, PPT, GPU clock
+lock, the asusd AC/battery profiles, refresh rate, panel overdrive, charge
+limit, keyboard backlight and colour, and both fan curves.
 
 ![ctron TUI — Snapshots inspector & field editor](docs/tui-snap.png)
+
+On the `CPU ceiling` row, `c` opens the **per-core grid in snapshot mode**:
+the same cells and keys as Power's `CORE LIMITS` (`h`/`l` ±100, `e` exact,
+`a`/`A` a CCD / every core, `o` max, `r` undo), but it only edits what the
+`.ctr` will replay — nothing is written to hardware until the snapshot is
+applied. `e` on that row also takes rules joined by commas, validated as a
+whole: `3500`, `core 8 3000` (the SMT sibling too), `ccd 1 2800`, `max`,
+`clear`.
 
 View `5` (`Telemetry`, or press `t` from anywhere) hosts the **8-section
 read-only telemetry workspace** (CPU / GPU / iGPU / RAM / storage / network /
@@ -335,6 +346,8 @@ Intentionally parked: Waybar color sync · MUX / dGPU switch (needs a
 reboot flow) · `throttle_thermal_policy` (overlaps platform profiles) ·
 wlr-randr / xrandr backends · UI language table (EN/TR) · polkit helper
 (SECURITY.md Phase 3) · per-key keyboard color (single-zone keyboard) ·
+replaying non-static AURA effects in snapshots (asusd does not document
+their mode numbers) · AURA boot/sleep LED power states ·
 daeboard daemon-side work (lives in the daeboard repo).
 
 ## Documentation

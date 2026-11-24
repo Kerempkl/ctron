@@ -51,11 +51,23 @@ Ayrıntılı teknik gerekçeler ve kod referansları için bkz. [REVIEW.md](REVI
    `README.md` Display backends → Hyprland handoff state).
 4. **FA608PP kalan saha testleri:** Post-OCCT kernel clamp → reboot → yeniden
    test; fırsat çıkarsa harici monitör takılıyken KDE çok-ekran listesi.
+5. **FA507NVR aura doğrulaması (Arcioth):** TUF aura arayüzü asusctl 6.x
+   şemasıyla okunuyor (`/xyz/ljones/aura/tuf`, D-Bus; yedek
+   `/etc/asusd/aura_tuf.ron` — NixOS'ta yol aynı mı?). `aura_support.ron` FA507
+   için 5 efekt listeliyor: `ctron --doctor` → `aura effects`, çok-efektli
+   klavyede `--aura breathe red` geri okuması ve daeboard açıkken aura'nın
+   `--` kalması canlı görülmedi.
 5. **Aday mikro sensör ekleri (karar kullanıcıda, kod değişikliği yok):**
    - PD port-başına sözleşme detayı (V/A + `USB_TYPES` + online; şimdi yalnız
      toplam mW var).
    - `TIME_TO_EMPTY_NOW` / `TIME_TO_FULL_NOW` — pil bölümüne kalan süre satırı.
    - NVIDIA `power.max_limit` / `min_limit` — POWER GPU satırına tavan bağlamı.
+6. **Aday snapshot alanları (karar kullanıcıda, kod değişikliği yok):**
+   - `nv-boost` / `nv-temp` komut tablosunda var, POWER'dan bilinçli
+     çıkarıldılar (tek "GPU clock limit" satırı) — snapshot'a girsin mi?
+   - `fan = stock|silent|cool|full` hazır ayarları (eğri satırları zaten
+     aynı bilgiyi taşıyor).
+   - `battery-oneshot` bir eylem, durum değil — snapshot'a girmez.
 
 ## Bilinçli park (tek liste — `README.md` Roadmap ile eş güncellenir)
 
@@ -66,6 +78,11 @@ Ayrıntılı teknik gerekçeler ve kod referansları için bkz. [REVIEW.md](REVI
 - UI dil tablosu (EN/TR)
 - Polkit helper (`SECURITY.md` Phase 3 — koşul: çok-kullanıcılı kurulum ihtiyacı)
 - Per-key klavye rengi (bu klavye tek bölgeli)
+- Snapshot'ta static DIŞI AURA efektlerini yeniden oynatma (asusd mod
+  numaralarını belgelemiyor; yalnız `static = 0` kanıtlı — bugün yalnız renk
+  ve static yazılıyor; FA608PP'de zaten tek efekt var)
+- AURA güç durumları (açılış/uyku/kapanış LED animasyonları —
+  `asusctl aura power-tuf`)
 - `daeboard` daemon-taraflı işler (soket efekt komutları, NixOS unit, AUR) —
   daemon repo'sunda yaşar, ctron'da değil
 
@@ -84,6 +101,16 @@ Ayrıntılı teknik gerekçeler ve kod referansları için bkz. [REVIEW.md](REVI
 - `sudo -n` parolasız değilse temiz hata verir, asla parola sormaz/asılmaz.
 - PTY smoke testlerinde terminal yanıtlayıcısını ~1 s sonra sustur (geç yanıt
   ESC olarak ayrışır).
+- `asusctl aura effect <desteklenmeyen efekt>` `NotSupported` basıp **0 ile
+  çıkar** (6.5.0, FA608PP): aura yazması yalnız geri okumayla "ok" olur.
+- AURA mod indeksi→ad eşlemesi yalnız `0 = static` için kanıtlı (dosya adı +
+  D-Bus aynı anda); diğer indeksleri `AURA_EFFECTS` sırasıyla eşleme.
+- Snapshot ve POWER çekirdek ızgaraları ayrı havuz kullanır
+  (`prof_cf_staged` / `cf_staged`); ortak havuz ray'de sahte `Power ●` /
+  `N pending` üretti.
+- Smoke: terminal yalnız değişen hücreleri yeniler — `wait_for` yeni DEĞERİ
+  aramalı, yerinde duran metni değil; `.ctr` kontrolünde `"profile ="`
+  alt dizgisi `ac-profile =`'e takılır → `"\nprofile = "` (satır bazlı).
 
 ## Hızlı komutlar
 

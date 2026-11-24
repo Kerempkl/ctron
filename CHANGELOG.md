@@ -15,7 +15,7 @@ see [docs/history/changelog-2026-09-11.md](docs/history/changelog-2026-09-11.md)
 - **Two-pane `4 Snapshots` Inspector & Interactive Field Editor (`panel_profiles.c`, `profile.{h,c}`):**
   - Replaced the single-column snapshot list with a Konsept C two-pane workspace:
     left pane lists snapshots with live diff count badges (`≡ live` / `Δ N`),
-    right pane shows a 12-field live Inspector & Interactive Editor (`e` / `l`
+    right pane shows a 15-field live Inspector & Interactive Editor (`e` / `l`
     or click any field to edit).
   - Supports **selective / partial `.ctr` snapshots** via `profile_save_meta()`:
     pressing `x` / `Del` toggles any field to `— (skip)` so omitted hardware
@@ -25,16 +25,63 @@ see [docs/history/changelog-2026-09-11.md](docs/history/changelog-2026-09-11.md)
     and `w`/`Enter` saves atomically.
   - **Double-`u` (`uu`) live overwrite:** overwrites the selected snapshot from
     fresh live hardware while preserving its `# note:` header.
+- **Snapshot scope widened to everything the Power and Display & Light views
+  can write (`profile.{h,c}`, `panel_profiles.c`, `editor_corefreq.c`):**
+  - **Keyboard colour (`aura = static <hex>` in `[light]`)**: captured from the
+    live keyboard, diffed against it, stepped (`h`/`l` walk the 8 preset
+    colours), typed (`static 1a2b3c`, `breathe red`), or captured with `f`.
+  - **asusd power-source profiles (`ac-profile` / `battery-profile`)**: the
+    two POWER rows that snapshots could not carry; `off|Quiet|Balanced|
+    Performance` each, omitted (`—`) unless the snapshot names them.
+  - **Per-core ceilings can now be assigned from the Snapshot Editor**, not
+    only captured from live hardware: `c` on the `CPU ceiling` row opens the
+    CORE LIMITS grid in snapshot mode (`h`/`l`, `e`, `a`/`A`, `o`, `x` to drop
+    a thread, `r` undo) over its own `prof_cf_staged[]` pool, so a snapshot
+    edit is never a pending POWER write; `e` accepts joined rules —
+    `5386`, `core <cpu-id> <mhz>` (SMT sibling included), `ccd <n> <mhz>`,
+    `max`, `clear` — validated as a whole by the new pure
+    `profile_core_rule()`.
+- **Keyboard LED state is now read (`hw.c`, `hw.h`):** asusd's TUF aura
+  interface (`LedModeData`, `SupportedBasicModes` over D-Bus, with
+  `/etc/asusd/aura_tuf.ron` as the daemon-down fallback) fills
+  `hw->aura_mode` / `aura_rgb` / `aura_modes`; `--status` prints an `Aura`
+  line, `--status --json` a `keyboard.aura` object, `--doctor` the interface
+  and its effect list. While daeboard is up nothing is read (it owns the
+  keyboard). Pure parsers `hw_aura_dbus_parse()`, `hw_aura_modes_parse()`,
+  `hw_aura_ron_parse()` are unit-tested against the exact asusctl 6.5.0
+  output of the FA608PP.
 
 ### Changed
+- **`3 Display & Light` AURA rows show the real keyboard (`panel_workspace.c`):**
+  the colour rows start from what the keyboard shows (an untouched custom
+  colour is displayed as `#rrggbb (live)`), and on a keyboard whose effect
+  list is just `static` the `Aura effect` row says so instead of cycling
+  through 11 effects the hardware will reject.
+- **`aura` command semantics (`cmds.c`, `control.c`):** `aura = <effect> <hex>`
+  now applies that effect with that hex (it used to force `static` for any
+  hex value); `--dry-run` and the real write share one verdict, so an effect
+  the keyboard does not offer fails both without touching asusctl.
 - **README visuals refreshed for the v0.12.0 Konsept C TUI:** re-shot
   `docs/tui-{fan,power,telem}.png` (rail + workspace layout, inline
   `CORE LIMITS`, 8-section Telemetry grid), added a `docs/tui-snap.png`
   two-pane Snapshots inspector image to the README, and added an opt-in
   `CTRON_SHOT_CONFIG=<dir>` to `scripts/tui_screenshot.py` for shooting
   against a pre-seeded config.
+- `docs/tui-snap.png` re-shot for the 15-field inspector.
 
 ### Fixed
+- **Aura writes reported success when the keyboard did not change
+  (`control.c`):** asusctl 6.5.0 prints
+  `org.freedesktop.DBus.Error.NotSupported` for an effect the keyboard lacks
+  and still **exits 0**, so `--aura breathe red` and the `Aura effect` row
+  logged `ok` on the FA608PP (which only has `static`) while nothing changed.
+  `ctrl_set_aura_ex()` now reads the LEDs back through asusd and fails unless
+  the mode and colour match; proven live with an invisible 1-unit colour
+  change (`00fffe` read back, then restored to `00ffff`).
+- **`"ice"` never matched the `Ice` colour under a Turkish locale:** colour
+  names were compared with `strcasecmp()`, which folds `I`/`i` differently
+  under `tr_TR` (the TUI's locale). New locale-independent
+  `ut_ascii_ieq()` is used for colour, mode and asusd-profile names.
 - **Duplicated board name in the device model string (`hw.c`):** some ASUS
   firmware repeats the board name in DMI `product_name`
   (`ASUS TUF Gaming A16 FA608PP_FA608PP`), which leaked into the TUI header,

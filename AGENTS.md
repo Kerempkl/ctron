@@ -34,19 +34,24 @@ src/main.c     CLI parsing + VERSION; any arg = headless, none = TUI
 src/util.c     sysfs/exec/log/atomic-write helpers; ut_priv_write /
                ut_write_via_argv = the write doors (fork+execve argv)
 src/hw.c       read layer: hw_refresh_fast (poll) / hw_refresh_live
-               (snapshot); telemetry sources (gpu_metrics retired)
+               (snapshot); telemetry sources (gpu_metrics retired); TUF
+               keyboard colour from asusd (D-Bus, aura_tuf.ron fallback)
 src/control.c  write layer (asusctl -> direct sysfs -> sudo -n)
 src/cmds.c     key/value command table shared by CLI, modes and .ctr profiles
 src/fan.c      8-point fan curve model + asusd RON preset parser (unit-tested)
 src/modes.c    user shortcut bundles (~/.config/ctron/modes.ini)
-src/profile.c  .ctr snapshots (free-form names, metadata, live diff)
+src/profile.c  .ctr snapshots (free-form names, metadata, live diff,
+               CPU-ceiling rules)
 src/settings.c prefs + hardware persistence (~/.config/ctron/settings.ini)
 src/telem.c    pure sample rings + window/since-reset stats (unit-tested)
 src/daeboard.c optional LED daemon client (AF_UNIX seqpacket socket)
 src/display/   compositor backends behind display_ops_t (kde done,
                hyprland handed to Arcioth); add one = one file + registry line
 src/ui/        Konsept C layout + views; panel_telem_full.c = 5 Telemetry view
-               (SECTIONS[] registry: section add/move = one line there)
+               (SECTIONS[] registry: section add/move = one line there);
+               editor_corefreq.c = the CORE LIMITS grid, shared by 1 Power
+               (stages writes) and the 4 Snapshots editor (edits the .ctr
+               only, through its own prof_cf_staged[] pool)
 tests/         make test; scripts/tui_smoke.py = make tuitest
 ```
 
@@ -62,7 +67,9 @@ tests/         make test; scripts/tui_smoke.py = make tuitest
    never fabricate fallback data.
 4. **Verify writes by reading back.** kscreen-doctor and Hyprland's
    `keyword monitor` both exit 0 without applying. kscreen-doctor needs
-   **integer** refresh (`@60`, not `@60.00`).
+   **integer** refresh (`@60`, not `@60.00`). `asusctl aura effect` also
+   exits 0 when asusd rejects an effect as unsupported, so aura writes are
+   judged only by `hw_aura_read_live()`.
 5. Quit key is `q`/`Q` only (not ESC — Kitty focus-out sends CSI).
 
 ## Build & verify

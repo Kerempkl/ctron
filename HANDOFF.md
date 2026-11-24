@@ -5,7 +5,97 @@
 
 ---
 
-## Latest session — 2026-11-24 (GitHub visual refresh: README screenshots for Konsept C)
+## Latest session — 2026-11-24 (Snapshot scope: keyboard colour, asusd profiles, per-core grid)
+
+**GLM 5.4 / Kerempkl / FA608PP** — user asked to widen what `4 Snapshots`
+can carry ("keyboard light modes, colours, per-core frequency limits, and
+the like"). Three things landed, all on existing write doors (no new
+privilege):
+
+- **What the machine really offers, measured first (asusctl 6.5.0):**
+  - asusd's TUF aura interface (`xyz.ljones.Aura` on
+    `/xyz/ljones/aura/tuf`) reports `SupportedBasicModes = [0]`: this
+    keyboard has **one effect, `static`** — only the colour changes.
+  - `asusctl aura effect breathe …` is rejected with
+    `org.freedesktop.DBus.Error.NotSupported` **and still exits 0**.
+    ctron trusted that status and logged `aura: breathe … ok` while the
+    LEDs never changed.
+  - Only `static = 0` has a proven mode number (the daemon's file names
+    it while the bus reports 0). The other effects' indices are not
+    documented, so nothing maps them by position.
+
+- **Keyboard colour (`hw.{h,c}`, `control.{h,c}`, `cmds.c`, `util.{h,c}`):**
+  - New read layer: `hw_aura_dbus_parse()` / `hw_aura_modes_parse()` /
+    `hw_aura_ron_parse()` (pure, tested against the exact daemon output),
+    `hw_aura_read()` (D-Bus first, `/etc/asusd/aura_tuf.ron` when the
+    daemon is down, nothing while daeboard is up — it owns the keyboard),
+    `hw_aura_mode_label()` / `hw_aura_static_only()` /
+    `hw_aura_effects_label()`.
+  - `ctrl_set_aura_ex()` applies effect + hex and **fails unless the
+    LEDs read back** in mode and colour (3 tries, 60 ms apart);
+    `ctrl_set_aura()` / `ctrl_set_aura_hex()` are its two shapes.
+    `ctrl_aura_supported()` is the pure verdict shared by `--dry-run` and
+    the real write, so an unsupported effect is refused without touching
+    asusctl. `aura = <effect> <hex>` no longer forces `static`.
+  - `ut_ascii_ieq()`: `strcasecmp()` folds `I`/`i` differently under the
+    TUI's `tr_TR`, so the colour name `Ice` never matched `"ice"`.
+  - `--status` gained an `Aura` line, `--status --json` a
+    `keyboard.aura` object, `--doctor` the interface and effect list.
+
+- **Snapshot model (`profile.{h,c}`):** `profile_meta_t` carries `aura`
+  (`"static 00ffff"`) and `asusd_ac` / `asusd_bat` → `.ctr` lines
+  `aura = …` in `[light]`, `ac-profile = …` / `battery-profile = …` in
+  `[perf]`. A non-static live effect is never captured (it could not be
+  replayed honestly); `profile_aura_differs()` counts only a proven mode
+  change or a colour change. New pure `profile_core_rule()` applies
+  CPU-ceiling rules (`<mhz>`, `core <cpu-id> <mhz>` with the SMT sibling,
+  `ccd <n> <mhz>`, `max`, `clear`, joined by `,`/`;`) all-or-nothing.
+
+- **Snapshot Editor (`panel_profiles.c`, `editor_corefreq.c`, `ui.c`,
+  `ui_internal.h`):** 12 → 15 fields (Keyboard colour, Asusd AC profile,
+  Asusd battery profile). On the `CPU ceiling` row, `c` opens the CORE
+  LIMITS grid **in snapshot mode**: same cells and keys, `x` drops a
+  thread from the file, `r` undoes to the saved list, leaving folds the
+  staged threads back into `prof_edit`. It writes through its own
+  `prof_cf_staged[]` pool — the first version shared `cf_staged[]` and a
+  screenshot caught the rail showing `Power ● / Edit: 1 pending` for a
+  snapshot edit. `e` on that row takes the joined rules above.
+
+- **`3 Display & Light` (`panel_workspace.c`):** colour rows start from
+  the live keyboard (a custom colour shows as `#rrggbb (live)` until
+  touched) and a static-only keyboard says so on the `Aura effect` row
+  instead of cycling through 11 effects the hardware rejects.
+
+- **Verification:** `make clean && make HARDEN=1 && make test` and the
+  standard build 0 warnings; 81 new CHECKs in `check_snapshot_scope()`
+  (parsers, normalise/split, `.ctr` round-trip, diff cases, every rule
+  shape incl. atomic failure); UBSan + LSan builds clean for the tests
+  and the live CLI; `clang --analyze` 0 findings on the 10 changed units;
+  `nm -u` 0 `popen`/`pclose`/`system`; `make tuitest` **13/13 flows (52/52
+  assertions) PASS** with the extended snapshot flow (grid open, CCD staged, rule saved as 16
+  per-core lines, colour stepped). Live: `--aura static 00fffe` read back
+  `00fffe`, restored to `00ffff`; `--aura breathe red` refused before and
+  after `--dry-run` with the LEDs unchanged. `docs/tui-snap.png` re-shot
+  (15 fields) against a seeded `CTRON_SHOT_CONFIG`.
+
+- **Notes for the next session:**
+  - Every snapshot exported from live hardware now carries
+    `ac-profile` / `battery-profile` (whatever asusd currently enforces,
+    `off` on this machine). Applying it re-asserts that value — a
+    `busctl set-property` of the same value plus the read-back, no change
+    to the active profile (`-1` takes the bus path only).
+  - Not added on purpose: `nv-boost` / `nv-temp` (dropped from POWER by a
+    user decision), `battery-oneshot` (an action, not a state), non-static
+    AURA effects (no proven mode numbers). Listed under `NEXT.md`.
+  - No version cut: this sits in `[Unreleased]`; `NEXT.md` still plans
+    `v0.13.0` as the packaging release, so whether this ships as its own
+    MINOR is the user's call.
+
+Signed: **GLM 5.4** — snapshot scope widening, aura read layer + verified writes.
+
+---
+
+## Previous session — 2026-11-24 (GitHub visual refresh: README screenshots for Konsept C)
 
 **GLM / Kerempkl / FA608PP** — the GitHub page still carried the pre-v0.12.0
 Bento screenshots (`docs/tui-*.png` dated 2026-11-19) even though `origin/main`
