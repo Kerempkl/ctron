@@ -332,7 +332,7 @@ daeboard daemon-side work (lives in the daeboard repo).
 | [SECURITY.md](SECURITY.md) | privilege model, sudoers rules, hardening roadmap |
 | [CHANGELOG.md](CHANGELOG.md) | release-level changelog (detailed log in `docs/history/`) |
 | [NEXT.md](NEXT.md) | open field work, version policy, parked list |
-| [REVIEW.md](REVIEW.md) | code-verified critique & `v0.10.0` → `v1.0.0` roadmap |
+| [REVIEW.md](REVIEW.md) | code-verified critique & `0.x` engineering roadmap |
 | [AUDIT.md](AUDIT.md) | A–L error-class audit checklist |
 | [HANDOFF.md](HANDOFF.md) / [AGENTS.md](AGENTS.md) | recent session handoffs & agent guidelines |
 | `docs/history/` | archived plans (`PLAN.md`, `PLANS.md`) & older session/change logs |

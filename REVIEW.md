@@ -144,9 +144,9 @@ Kodun uzun ömürlü, başkalarının katkı verebileceği ve güvenle denetlene
 
 ---
 
-## 3. Ürün ve UX Profesyonelliği (P1–P2) — **[TAMAMLANDI: `v0.11.0`, `e77622f` + `2241130`]**
+## 3. Ürün ve UX Profesyonelliği (P1–P2)
 
-*3.1, 3.2, 3.3, 3.4 ve 3.5 (çift-`d` onay + dürüst desteklenmeyen POWER satırları) `v0.11.0` içinde kapatıldı. 3.5'teki FAN `'w'` senkron kararı `AUDIT.md E5` uyarınca bilinçli korundu (`v0.12.0` udev kuralları `sudo` gecikmesini doğrudan ortadan kaldırıyor).*
+*3.1, 3.2, 3.3, 3.4 ve 3.5 (`e77622f` + `2241130`) **`v0.11.0`** içinde tamamlandı (3.5'teki FAN `'w'` senkron kararı `AUDIT.md E5` uyarınca korundu; `v0.13.0` udev kuralları `sudo` gecikmesini doğrudan ortadan kaldırıyor). **3.6** ise sıradaki **`v0.12.0`** sürümünün ana hedefidir.*
 
 ### 3.1. Makinece okunabilir CLI (`--json`), `--dry-run`, `snapshot diff` ve çıkış kodu sözleşmesi
 - **`ctron --status --json` ve `ctron --doctor --json`:** Modern Linux ekosisteminde (`jq`, Waybar custom module, Polybar, Eww, AGS, shell betikleri, monitoring agent'ları) altın standart. Waybar desteğini doğrudan kodlamadan Waybar kullanıcılarına temiz entegrasyon sunar. Sıfır ekstra bağımlılıkla ~120 satır temiz JSON serializer yeterli.
@@ -170,6 +170,25 @@ Kodun uzun ömürlü, başkalarının katkı verebileceği ve güvenle denetlene
 - **Silme onayı:** Snapshot silme (`d`, `panel_profiles.c:247`) ve mode silme (`d`, `panel_settings.c:334`) tek tuşta geri dönüşsüz dosya/kayıt siliyor. İlk basışta `"press d again to delete '<name>'"` (ikinci `d` siler, başka herhangi bir tuş iptal eder) yaklaşımı TUI akışını bozmadan kazaları önler. *(Not: `scripts/tui_smoke.py:782` `flow_snapshots` tek `d` bekliyor — aynı commit'te güncellenmeli.)*
 - **FAN `'w'` akıcılığı (bilinçli karar değişimi):** `AUDIT.md` E5'te FAN `'w'` şu an bilinçli olarak senkron kayıtlı; ancak 2.2'deki `udev` kuralı kurulu olmayan makinelerde `ctrl_fan_write()` UI thread'ini 2–4 s donduruyor. `APPLY_FAN` türüyle arka plan işçisine (`ui_spawn_apply`) alınacaksa yalnızca FAN `'w'` değil `panel_controls.c:102-106` (CONTROLS Fan satırı) ve `editor_fan.c:365-368,468-471` (`o` toggle) de birlikte taşınmalı ve `AUDIT.md` E5 güncellenmeli.
 - **Desteklenmeyen satırların dürüst etkileşimi:** `asusd_ac == -2` (asusd yok) iken `pw_nudge_row` yine de gizli staging değerini döndürüyor ama ekran `--` gösteriyor; bu satırlar destek yoksa etkileşimsiz (veya gri + kısa neden) olmalı.
+
+### 3.6. Yeni TUI Tasarımı & Kısayol Mimarisi (`v0.12.0` Ana Hedefi)
+Mevcut TUI fonksiyonel olarak çalışsa da görsel dil olarak tipik "AI üretimi neon dashboard" (AI slop) hissi veriyor ve kısayol haritası zamanla yamalanarak karmaşıklaşmış durumda:
+
+- **Görsel & Yerleşim Sorunları (Koddan Tespitler):**
+  1. **Zorla boyanan neon tema & opak arka plan (`src/ui/ui.c:40-48`):** `0x00E5FF` camgöbeği / `0x00FF66` neon yeşil / `0xFF3366` pembe vurgu renkleri ve tüm ekranı `0x050A0E` ile boyayan opak dolgu, kullanıcının terminal temasını ve şeffaflığını/bulanıklığını eziyor. Gerçek Linux TUI araçları (`htop`, `nvtop`, `lazygit`, `impala`) varsayılan terminal arka planına (`default bg`) saygı duyar ve ölçülü vurgu renkleri kullanır.
+  2. **4 kutulu Bento sıkışıklığı, sahte GUI butonları ve işlev tekrarı:** Aynı ekranda 4 ağır çerçeve (`SNAPSHOTS`, `CONTROLS`, `WORKSPACE`, `LIVE`) + gölgeli çift çerçeve modal (`╔══╗`), her kutunun ilk satırında tekrar eden `j/k · h/l · Enter ...` açıklama kalabalığı ve terminal içinde `[ Apply ] [ Save ] [ Del ]` sahte buton şeritleri var. Üstelik `Profile`, `Fan`, `Kbd` hem `CONTROLS` kutusunda hem `POWER`/`FAN`/`LIGHT` görünümlerinde tekrarlanıyor; `Fan curve: open editor >` ve `Settings: open >` satırları gereksiz yönlendirme dolgusundan ibaret.
+  3. **İkili yazma modeli kafa karışıklığı:** `CONTROLS` ve `LIGHT` üzerinde `Enter` donanıma anında yazarken, `POWER` üzerinde stage edip toplu yazıyor, `FAN` editöründe ise `Enter` hiçbir şey yazmayıp yalnızca `w` EC'ye yazıyor.
+- **Kısayol / Tuş Ataması Sorunları:**
+  1. **`1..8` bölünmüş kişiliği (`src/ui/ui.c:965-990`):** `1..4` panel odağını değiştirirken `5..8` birdenbire 3. panelin iç sekmesini değiştiriyor (`6` = Power, `2` = Controls — zihinsel haritası yok).
+  2. **`ESC` tuşunun Ayarlar'ı açması (`src/ui/ui.c:958`):** Her terminal kullanıcısı `ESC` tuşundan "iptal / geri / kapat" bekler; ana ekranda `ESC`'in `SETTINGS` penceresini açması ters köşe yaratıyor.
+  3. **Bağlama göre anlam değiştiren tek-harf tuşları:** `s` (genelde Settings, Snapshots'ta Save, Telemetry detayda pencere/since-reset), `t` (genelde Telemetry, Fan/Power/Corefreq'te değer yazma), `c` (Snapshots'ta not, Fan'da CPU, Power'da Core limits).
+- **Yapılacak (`v0.12.0`):**
+  - **Sade, karakterli UNIX TUI düzeni:** Üstte tek satır temiz başlık + görünüm sekmeleri + anlık özet (`CPU/GPU °C · RPM · W · Profil`), ortada seçili görünümün ferah tam çalışma alanı (4'e bölünmüş kutu karmaşası yerine net görünümler), en altta **tek birleşik durum + bağlamsal kısayol çubuğu** (`key` vurgulu, açıklaması sade; kutu içi yardım satırları ve sahte butonlar kaldırılır).
+  - **Terminal-dostu tema sistemi:** Varsayılan olarak terminal arka planını koruyan (`default` bg + ANSI/ölçülü RGB vurgular) tema + isteğe bağlı yüksek kontrast profiller.
+  - **Tek ve öngörülebilir kısayol sözlüğü (`keymap`):**
+    - `1..N` ve `Tab` / `Shift+Tab` (`[` / `]`): doğrudan ana görünümler arasında geçiş (odak vs sekme ayrımı kalkar).
+    - `ESC`: her yerde **yalnızca** geri / iptal / modal kapatma (asla menü açmaz; Ayarlar `,` tuşuna veya kendi sekmesine taşınır).
+    - Tekil, çakışmasız eylem tuşları (örn. değer düzenleme için `e` veya `Enter`, donanıma uygulama için tutarlı tek tuş, tam ekran/detay telemetri ve log için sabit tuşlar) — tek bir merkezi `keymap` tablosundan okunur ve alt çubuk otomatik olarak oradan üretilir.
 
 ---
 
@@ -207,21 +226,22 @@ Bir projeyi GitHub'da dışarıdan bakan bir mühendisin gözünde "profesyonel"
 - **[TAMAMLANDI 2026-11-23]:**
   - Tarihi kayıtlar (`PLAN.md`, `PLANS.md`), 2026-09/10 `HANDOFF.md` oturumları (`docs/history/handoff-2026-09-10.md`) ve 2860 satırlık ayrıntılı günlük `CHANGELOG.md` (`docs/history/changelog-2026-09-11.md`, eksik 3 başlık onarılarak) veri kayıpsız `docs/history/` altına arşivlendi.
   - Kök `CHANGELOG.md` kullanıcı-odaklı Keep a Changelog biçimine, kök `HANDOFF.md` güncel oturumlara, `NEXT.md` yalnızca açık işlere indirgendi; `README.md` (kırık anchor'lar dahil), `AGENTS.md`, `SECURITY.md`, `HARDWARE.md` ve `AUDIT.md` (çift `F4` + bayat `[x]` kayıtları) kodla hizalandı.
-- **Kalan (`v0.12.0` paketinde):**
+- **Kalan (`v0.13.0` paketinde):**
   - `CONTRIBUTING.md` ve `.github/ISSUE_TEMPLATE/hardware_report.yml` (`--doctor` çıktısı, kernel sürümü, laptop modeli isteyen şablon) ekle.
 
 ---
 
-## 5. Önerilen Uygulama Sırası (`v0.10.0` → `v1.0.0`)
+## 5. Uygulama Sırası (`0.x` Yol Haritası — `v1` Hedefi Şimdilik Yok)
 
-Her aşama kendi içinde derlenir, test edilir ve bağımsız sürümlenebilir:
+Her aşama kendi içinde derlenir, test edilir ve bağımsız sürümlenir (`v1.0.0` baskısı olmadan `0.x` olarak ilerler):
 
 | Hedef | Odak | Kapsam |
 |---|---|---|
 | **`v0.10.0`** | **Doğruluk & Hata Kapanışı (P0)** — **[TAMAMLANDI]** | Bölüm 1'in tamamı (1.1–1.11) + `cpufreq_write_all` direct-first + `tui_smoke.py` `flow_telem_full` cleanup (`8a70b77`..`b1eabe3`). |
-| **`v0.11.0`** | **UX, CLI & Sıfır-Shell (P1)** — **[TAMAMLANDI]** | `--status --json` / `--doctor --json`, `snapshot diff`, `--dry-run`, çıkış kodları (`0/1/2/3`); TUI log viewer (`L`, 24 satır), imleçli `tinput_t`, çift-`d` silme onayı, dürüst POWER satırları, `.ctr` kapsam tamamlama; kalan tüm `popen`/`ut_exec` noktalarının kaldırılması (`143d2f7`, `e77622f`, `2241130`). |
-| **`v0.12.0`** | **Paketleme, CI/CD & Mimari Temizlik (P1)** | `Makefile` `PREFIX`/`DESTDIR` + `VERSION`, `man/ctron.1`, shell completions, `contrib/` (`99-ctron.rules` + `ctron.tmpfiles.conf`, `ctron-ppt`, `sudoers`, `.desktop`, `PKGBUILD`), `cpufreq_write_all` direct-first, `.github/workflows/ci.yml`, `CONTRIBUTING.md` + issue şablonu, `.clang-format`/`.editorconfig`, `hw.c`/`panel_workspace.c` modül bölünmesi, `CTRON_SYSFS_ROOT` mock testleri + `tui_smoke.py --offline`. |
-| **`v1.0.0`** | **Saha Kapanışı & Kararlı Sürüm** | FA507NVR (Arcioth / NixOS / Hyprland) açık saha maddeleri (`AUDIT.md I2` / `NEXT.md`: `flake.lock`, çok monitör canlı kanıt, Hyprland mouse, Rembrandt sensör kontrolü), tam sanitizers + uzun koşu doğrulaması, kararlı CLI/config format garantisi. |
+| **`v0.11.0`** | **CLI, JSON & Sıfır-Shell (P1)** — **[TAMAMLANDI]** | `--status --json` / `--doctor --json`, `snapshot diff`, `--dry-run`, çıkış kodları (`0/1/2/3`); TUI log viewer (`L`, 24 satır), imleçli `tinput_t`, çift-`d` silme onayı, dürüst POWER satırları, `.ctr` kapsam tamamlama; kalan tüm `popen`/`ut_exec` noktalarının kaldırılması (`143d2f7`, `e77622f`, `2241130`). |
+| **`v0.12.0`** | **Yeni TUI Tasarımı & Kısayol Mimarisi** | Bölüm 3.6: "AI slop" neon/4-kutu/sahte-buton düzeninin kaldırılması; terminal `default bg` uyumlu sade tipografik tasarım; üst sekme/durum + orta çalışma alanı + alt birleşik keybar/log mimarisi; `CONTROLS` tekrarlarının temizlenmesi; `ESC` = yalnız geri/iptal, düz `1..N`/`Tab` görünüm geçişi ve merkezi çakışmasız `keymap`. |
+| **`v0.13.0`** | **Paketleme, `udev` & CLI/Masaüstü Artefaktları** | Bölüm 2.2, 4.1, 4.2, 4.4: `Makefile` `PREFIX`/`DESTDIR` + tek `VERSION` (`make check-version`), `flake.nix` uyumu, `contrib/` (`99-ctron.rules` + `ctron.tmpfiles.conf`, `ctron-ppt`, `sudoers.ctron.example`, `ctron.desktop`, `PKGBUILD`), `man/ctron.1`, shell completions (`bash`/`zsh`/`fish`), `CONTRIBUTING.md` + issue şablonu. |
+| **`v0.14.0`** | **Offline Test Kalkanı, CI/CD & Modüler Temizlik** | Bölüm 2.3, 2.4, 4.3: Yeni TUI ve kısayol şeması üzerine `CTRON_SYSFS_ROOT` mock `/sys`+`/proc` testleri + `tui_smoke.py --offline`, `.github/workflows/ci.yml` (`gcc`+`clang`, `HARDEN=1`, UBSan/LSan, `clang --analyze`, `shellcheck`, offline smoke), `src/hw.c` ve UI modül bölünmesi + gizli `static` önbelleklerin `hw_state_t` içine alınması. |
 
 ---
 

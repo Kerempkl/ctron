@@ -45,11 +45,13 @@ commits plus release bump:
   `0.11.0`, synced `README.md` CLI help & TUI table, updated `CHANGELOG.md`/
   `NEXT.md`/`REVIEW.md`, tagged `v0.11.0` (local commits & tag ready for user
   to push).
-- **Next:** Phase 3 — **`v0.12.0`** (Packaging, CI/CD & Architecture: `Makefile`
-  `PREFIX`/`DESTDIR` + `VERSION`, `man/ctron.1`, completions, `contrib/` udev +
-  tmpfiles + `ctron-ppt` + sudoers + `.desktop` + `PKGBUILD`, GitHub Actions CI,
-  `CONTRIBUTING.md`, `.clang-format`/`.editorconfig`, `hw.c`/`panel_workspace.c`
-  split, `CTRON_SYSFS_ROOT` mock tests + `tui_smoke.py --offline`).
+- **Next (updated 2026-11-24):** `v1.0` milestone dropped (`0.x` continuous
+  releases). Next up is **`v0.12.0` — TUI redesign & keymap overhaul**
+  (`REVIEW.md §3.6`: replace the 4-box neon/faux-button "AI slop" layout with
+  a clean terminal-native tab/workspace/unified-keybar TUI, `ESC` = back/cancel
+  only, flat `1..N`/`Tab` navigation, conflict-free keymap), followed by
+  **`v0.13.0`** (Packaging + `udev`/`tmpfiles` + `man`/completions) and
+  **`v0.14.0`** (`CTRON_SYSFS_ROOT` + `--offline` smoke + CI + module split).
 
 Signed: **Antigravity** — `v0.11.0` UX, CLI & zero-shell release.
 
