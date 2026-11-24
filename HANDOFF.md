@@ -5,7 +5,62 @@
 
 ---
 
-## Latest session — 2026-11-24 (`v0.11.0` UX, CLI & zero-shell release)
+## Latest session — 2026-11-24 (`v0.12.0` Konsept C TUI redesign & unified keymap)
+
+**Antigravity / Kerempkl / FA608PP** — dropped the `v1.0` milestone (`dde0ceb`),
+designed interactive TUI concepts with the user, and implemented, verified, and
+released **`v0.12.0`** (`REVIEW.md §3.6`) with **Konsept C (Left Rail + Full
+Workspace)**, `5 Telemetry` as a first-class view, and configurable
+`startup_view`:
+
+- **`7baf997` (Konsept C TUI redesign, native themes, `startup_view`, unified keymap):**
+  - Deleted duplicate `src/ui/panel_controls.c` and `src/ui/panel_telemetry.c`
+    (net `-155` LOC overall). Replaced the 4-box neon Bento screen with thin
+    top live summary header, slim 22-col left rail (`VIEWS 1–5` + compact `LIVE`
+    metrics, auto-collapsing to inline top tabs below 96 cols), full-height
+    workspace (`1 Power`, `2 Fans`, `3 Display & Light`, `4 Snapshots`,
+    `5 Telemetry`), and unified 2-row status/progress/log + contextual keybar.
+  - Added 5 restrained terminal-native palettes (`Native` default-bg transparent,
+    `Slate`, `Gruvbox`, `Mono` default-bg, `Light`), unified `ui_ch()` channel
+    helper (respects `default_bg` outside modals and solid `pal->bg` inside
+    single-line `ui_window` modals), and full-width `ui_row()` selection bars.
+  - Added `startup_view` (`0..4`) to `settings.{h,c}` (persisted in
+    `settings.ini`, unit-tested in `check_settings_roundtrip()`, legacy layout
+    keys tolerated silently), integrated `Quick mode` into `1 Power`, unified
+    Display/Battery/Lighting + `ctrl_battery_oneshot()` into `3 Display & Light`
+    (`APPLY_SYSTEM` worker), and mounted `panel_telem_full.c` directly in
+    `rc_ws` as View `5`.
+  - Unified keymap: `1`–`5` / `Tab` / `Shift+Tab` switch views, `t` toggles
+    Telemetry, `Esc` strictly backs out / closes modals (never opens Settings),
+    `,` opens Preferences, `L` Event Log, `?` floating Help modal, `e` edits
+    exact values everywhere, `w`/`r` apply/revert staged edits. Also fixed
+    `editor_fan_act()` leaving `fe_input` active on non-field button clicks.
+- **`76f01dd` (TUI smoke suite updated for Konsept C):**
+  - Rewrote `scripts/tui_smoke.py` covering 13 interactive flows (43/43
+    assertions passing inside sandbox, exit 0), including `Esc` silent on main
+    screen, `,` Preferences + `startup_view=4` direct boot into Telemetry,
+    `1..5`/`Tab`, Power/System/Fan staging & presets, Fan clicks, Telemetry
+    workspace + `1..8` detail jumps + reset/since, Snapshots cursor rename +
+    double-`d` confirm, `L` Log + `?` Help, and 80-col rail auto-collapse.
+- **Verification:** `make clean && make HARDEN=1 && make test` and standard
+  `make clean && make && make test` 0 warnings; UBSan + LSan clean;
+  `clang --analyze` 0 findings on all 9 modified C files; `nm -u build/ctron`
+  0 `popen`/`pclose`/`system` symbols; `make tuitest` **13/13 flows (43/43
+  assertions) PASS** (exit 0).
+- **Release:** bumped `VERSION` (`src/main.c`, `README.md`, `flake.nix`) to
+  `0.12.0`, synced `README.md`, `AGENTS.md`, `CHANGELOG.md`, `NEXT.md`,
+  `REVIEW.md`, tagged `v0.12.0` (local commits & tag ready for user to push).
+- **Next:** **`v0.13.0`** — Packaging, `udev` privilege reduction & desktop/CLI
+  artifacts (`Makefile` `PREFIX`/`DESTDIR` + single `VERSION` +
+  `make check-version`, `contrib/` `99-ctron.rules` + `ctron.tmpfiles.conf` +
+  `ctron-ppt` + `sudoers` + `.desktop` + `PKGBUILD`, `man/ctron.1`, shell
+  completions, `CONTRIBUTING.md`).
+
+Signed: **Antigravity** — `v0.12.0` Konsept C TUI redesign & release.
+
+---
+
+## Previous session — 2026-11-24 (`v0.11.0` UX, CLI & zero-shell release)
 
 **Antigravity / Kerempkl / FA608PP** — implemented, verified, and released
 **`v0.11.0`** covering `REVIEW.md §2.1` and `§3.1–3.5` across 3 focused

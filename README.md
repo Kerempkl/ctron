@@ -6,7 +6,7 @@
 
 One C binary. One dependency ([notcurses](https://github.com/dankamongmen/notcurses)). No daemon.
 
-![version](https://img.shields.io/badge/version-v0.11.0-0072c6)
+![version](https://img.shields.io/badge/version-v0.12.0-0072c6)
 ![license](https://img.shields.io/badge/license-MIT-0072c6)
 ![language](https://img.shields.io/badge/language-C-659ad2)
 ![deps](https://img.shields.io/badge/dependency-notcurses%20only-2ea043)
@@ -82,43 +82,45 @@ ctron --battery 80
 
 | Key | Action |
 | --- | --- |
-| `1`–`4` | focus a panel — snapshots · controls · workspace · telemetry |
-| `5`–`8` | workspace view from anywhere — fan · power · light · help |
-| `j` / `k` | navigate · `h` / `l` change the value |
-| `Enter` | apply · `w` write staged values · `r` revert staging |
-| `t` / `T` | fullscreen read-only telemetry (`T` works everywhere) |
-| `L` | event log overlay (last 24 entries; or click the LIVE log line) |
-| `ESC` | settings overlay — panel layout is adjustable live |
-| `?` | help · `q` quit |
+| `1`–`5` / `Tab` | switch view — `1 Power` · `2 Fans` · `3 Display & Light` · `4 Snapshots` · `5 Telemetry` |
+| `t` | jump directly to Telemetry (press again to return to previous view) |
+| `j` / `k` | select row · `h` / `l` step / stage value |
+| `e` | edit exact numeric or hex value (cursor-aware) |
+| `w` / `r` | apply all staged edits · revert staged edits to live |
+| `Enter` | apply / open detail (`c` Core Limits in Power, `b` daeboard in Display & Light) |
+| `,` | Preferences & CLI shortcuts (`modes.ini`, startup view, terminal-native themes) |
+| `L` / `?` | Event Log overlay (last 24 entries; or click bottom log) · Keymap Help overlay |
+| `Esc` | strictly back / cancel / close modal (never opens a menu) |
+| `q` | quit (asks twice when staged edits are pending) |
 
-Rows are clickable (mouse is a known gap under Hyprland — see the
-[handoff notes](#display-backends-compositor-refresh-rate-control)).
-Per-view keys (fan point editing, presets modal, core-limit overlay)
-are listed in the HELP view and the footer while you use them.
+Layout uses a thin top status bar, a slim left navigation + live summary rail
+(auto-collapsing to inline top tabs below 96 columns), a full-height workspace,
+and a unified bottom status + contextual keybar. Default theme (`Native`)
+preserves your terminal's own background/transparency (`Slate`, `Gruvbox`,
+`Mono`, and `Light` are selectable under `,` Preferences, along with your
+preferred **startup view**). Rows are clickable (mouse is a known gap under
+Hyprland — see the [handoff notes](#display-backends-compositor-refresh-rate-control)).
 
-`t` opens a **fullscreen read-only telemetry screen**: eight live
-sections (CPU / GPU / iGPU / RAM / storage / network / fans / power),
-each showing live numbers with zone colouring — CPU & GPU
+View `5` (`Telemetry`, or press `t` from anywhere) hosts the **8-section
+read-only telemetry workspace** (CPU / GPU / iGPU / RAM / storage / network /
+fans / power), each showing live numbers with zone colouring — CPU & GPU
 temperatures, clocks, load, mean + busiest core utilisation,
 CPU/memory/IO pressure (PSI stall %), APU package power, fan RPMs,
 dGPU power/utilisation/VRAM, iGPU temp/clock/power/activity,
 RAM use + swap + module temps, NVMe temps + disk I/O, per-mount
 disk usage, per-interface network rx/tx, wifi signal quality,
 battery draw/charge.
-`j`/`k` walk the section grid and `Enter` (or `1`–`8`) opens a
-section's **detail page**: a numeric now/min/avg/max table over the
+`h`/`j`/`k`/`l` walk the section grid and `Enter` opens a section's **detail
+page** (inside a detail page `1`–`8` jump directly between sections and
+`h`/`l` flip prev/next): a numeric now/min/avg/max table over the
 ~60 s window plus info lines from a fresh live snapshot (PPT/EPP,
 per-core ceilings, GPU pstate & throttle reasons, VRAM/clock lock,
 battery health, load 1/5/15 min …); the CPU page adds a per-core
 `now` grid (util% + live clock per physical core, SMT merged) plus
-`busiest`/`avg` series — the only per-core stats kept over time, so
-the grid stays a snapshot instead of a wall of numbers; `h`/`l` flips
-sections, `esc` backs out to the grid, `r` (or the footer button)
-clears every window and the lifetime stats — a fresh measurement
-then starts from zero history — and `s` flips the MIN/AVG/MAX
-columns between the rolling 60 s window and everything since the
-last reset. Unknown sensors stay `--`; the screen never writes
-hardware.
+`busiest`/`avg` series; `Esc` backs out to the grid, `r` (or `[r] reset stats`)
+clears every window and the lifetime stats, and `s` flips the MIN/AVG/MAX
+columns between the rolling 60 s window and everything since the last reset.
+Unknown sensors stay `--`; Telemetry never writes hardware.
 
 ![ctron TUI — POWER view](docs/tui-power.png)
 ![ctron TUI — fullscreen telemetry](docs/tui-telem.png)
@@ -195,7 +197,7 @@ Exit codes: 0 ok · 1 runtime/verify error · 2 usage error · 3 permission/sudo
 </details>
 
 Modes ("CLI shortcuts") live in `~/.config/ctron/modes.ini` and can be
-edited from the TUI (**ESC → CLI SHORTCUTS**) or with `ctron mode add`:
+edited from the TUI (**`,` → CLI SHORTCUTS**) or with `ctron mode add`:
 
 ```ini
 [turbo]

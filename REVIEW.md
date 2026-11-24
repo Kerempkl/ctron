@@ -171,7 +171,7 @@ Kodun uzun ömürlü, başkalarının katkı verebileceği ve güvenle denetlene
 - **FAN `'w'` akıcılığı (bilinçli karar değişimi):** `AUDIT.md` E5'te FAN `'w'` şu an bilinçli olarak senkron kayıtlı; ancak 2.2'deki `udev` kuralı kurulu olmayan makinelerde `ctrl_fan_write()` UI thread'ini 2–4 s donduruyor. `APPLY_FAN` türüyle arka plan işçisine (`ui_spawn_apply`) alınacaksa yalnızca FAN `'w'` değil `panel_controls.c:102-106` (CONTROLS Fan satırı) ve `editor_fan.c:365-368,468-471` (`o` toggle) de birlikte taşınmalı ve `AUDIT.md` E5 güncellenmeli.
 - **Desteklenmeyen satırların dürüst etkileşimi:** `asusd_ac == -2` (asusd yok) iken `pw_nudge_row` yine de gizli staging değerini döndürüyor ama ekran `--` gösteriyor; bu satırlar destek yoksa etkileşimsiz (veya gri + kısa neden) olmalı.
 
-### 3.6. Yeni TUI Tasarımı & Kısayol Mimarisi (`v0.12.0` Ana Hedefi)
+### 3.6. Yeni TUI Tasarımı & Kısayol Mimarisi — **[TAMAMLANDI: `v0.12.0`, `7baf997` + `76f01dd`]**
 Mevcut TUI fonksiyonel olarak çalışsa da görsel dil olarak tipik "AI üretimi neon dashboard" (AI slop) hissi veriyor ve kısayol haritası zamanla yamalanarak karmaşıklaşmış durumda:
 
 - **Görsel & Yerleşim Sorunları (Koddan Tespitler):**
@@ -239,7 +239,7 @@ Her aşama kendi içinde derlenir, test edilir ve bağımsız sürümlenir (`v1.
 |---|---|---|
 | **`v0.10.0`** | **Doğruluk & Hata Kapanışı (P0)** — **[TAMAMLANDI]** | Bölüm 1'in tamamı (1.1–1.11) + `cpufreq_write_all` direct-first + `tui_smoke.py` `flow_telem_full` cleanup (`8a70b77`..`b1eabe3`). |
 | **`v0.11.0`** | **CLI, JSON & Sıfır-Shell (P1)** — **[TAMAMLANDI]** | `--status --json` / `--doctor --json`, `snapshot diff`, `--dry-run`, çıkış kodları (`0/1/2/3`); TUI log viewer (`L`, 24 satır), imleçli `tinput_t`, çift-`d` silme onayı, dürüst POWER satırları, `.ctr` kapsam tamamlama; kalan tüm `popen`/`ut_exec` noktalarının kaldırılması (`143d2f7`, `e77622f`, `2241130`). |
-| **`v0.12.0`** | **Yeni TUI Tasarımı & Kısayol Mimarisi** | Bölüm 3.6: "AI slop" neon/4-kutu/sahte-buton düzeninin kaldırılması; terminal `default bg` uyumlu sade tipografik tasarım; üst sekme/durum + orta çalışma alanı + alt birleşik keybar/log mimarisi; `CONTROLS` tekrarlarının temizlenmesi; `ESC` = yalnız geri/iptal, düz `1..N`/`Tab` görünüm geçişi ve merkezi çakışmasız `keymap`. |
+| **`v0.12.0`** | **Yeni TUI Tasarımı & Kısayol Mimarisi** — **[TAMAMLANDI]** | Bölüm 3.6: Konsept C (ince sol ray + tam boy sağ çalışma alanı, `< 96` kolonda otomatik üst sekme), terminal-doğal `Native`/`Mono` şeffaf + `Slate`/`Gruvbox`/`Light` temalar, `5 Telemetry` ana sekmesi + `startup_view` tercihi, tekil `Display & Light` (`APPLY_SYSTEM`), `ESC` yalnız geri/iptal, `,` Preferences, `?` Help, düz `1..5`/`Tab` (`7baf997`, `76f01dd`). |
 | **`v0.13.0`** | **Paketleme, `udev` & CLI/Masaüstü Artefaktları** | Bölüm 2.2, 4.1, 4.2, 4.4: `Makefile` `PREFIX`/`DESTDIR` + tek `VERSION` (`make check-version`), `flake.nix` uyumu, `contrib/` (`99-ctron.rules` + `ctron.tmpfiles.conf`, `ctron-ppt`, `sudoers.ctron.example`, `ctron.desktop`, `PKGBUILD`), `man/ctron.1`, shell completions (`bash`/`zsh`/`fish`), `CONTRIBUTING.md` + issue şablonu. |
 | **`v0.14.0`** | **Offline Test Kalkanı, CI/CD & Modüler Temizlik** | Bölüm 2.3, 2.4, 4.3: Yeni TUI ve kısayol şeması üzerine `CTRON_SYSFS_ROOT` mock `/sys`+`/proc` testleri + `tui_smoke.py --offline`, `.github/workflows/ci.yml` (`gcc`+`clang`, `HARDEN=1`, UBSan/LSan, `clang --analyze`, `shellcheck`, offline smoke), `src/hw.c` ve UI modül bölünmesi + gizli `static` önbelleklerin `hw_state_t` içine alınması. |
 

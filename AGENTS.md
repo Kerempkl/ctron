@@ -17,12 +17,15 @@ audit state lives in `AUDIT.md`. Append to `HANDOFF.md` (signed) and
 - No-args `ctron` → fullscreen notcurses TUI in the current terminal.
 - Any argument → headless CLI (`--status`, `--hz 60`, `--mode turbo`, ...);
   piped output never opens the TUI.
-- Layout: left column snapshots + quick controls, right-top workspace
-  (fan curve editor / power / light / help), right-bottom live telemetry.
-  Settings + mode editor, fullscreen telemetry (`t`), core limits (`c`),
-  fan presets (`m`) and daeboard editor (`b`) run as floating overlays.
-  Panels are independent widgets; `ui_layout()` in `src/ui/ui.c` is the
-  only place that places them.
+- Layout (Konsept C): thin top live summary header, slim 22-col left rail
+  (`VIEWS` 1–5 + compact `LIVE` summary, auto-collapsing to inline top tabs
+  below 96 cols), full-height right workspace (`1 Power`, `2 Fans`,
+  `3 Display & Light`, `4 Snapshots`, `5 Telemetry`; startup tab selectable
+  in `,` Preferences), and unified 2-row status/log + contextual keybar.
+  Preferences (`,`), Event Log (`L`), Help (`?`), Core Limits (`c`), Fan
+  Presets (`m`), and daeboard editor (`b`) run as clean single-line modals
+  (`Esc` strictly backs out/closes). `ui_layout()` in `src/ui/ui.c` is the
+  only place that places regions.
 
 ## Architecture map
 
@@ -42,7 +45,7 @@ src/telem.c    pure sample rings + window/since-reset stats (unit-tested)
 src/daeboard.c optional LED daemon client (AF_UNIX seqpacket socket)
 src/display/   compositor backends behind display_ops_t (kde done,
                hyprland handed to Arcioth); add one = one file + registry line
-src/ui/        panels + editors; panel_telem_full.c = the 't' overlay
+src/ui/        Konsept C layout + views; panel_telem_full.c = 5 Telemetry view
                (SECTIONS[] registry: section add/move = one line there)
 tests/         make test; scripts/tui_smoke.py = make tuitest
 ```

@@ -13,42 +13,22 @@
 - `src/main.c` `VERSION`, `README.md` sürüm rozeti ve `flake.nix` `version`
   aynı release commit'inde birlikte güncellenir (`vX.Y.Z` annotated tag o
   commit'i gösterir; push kullanıcı tarafındadır).
-- Güncel sürüm: **`v0.11.0`** (geçmiş kesimler: `CHANGELOG.md`).
+- Güncel sürüm: **`v0.12.0`** (geçmiş kesimler: `CHANGELOG.md`).
 
 ## Planlanan sürümler (`0.x` evrimi — `v1` hedefi şimdilik yok)
 
 Ayrıntılı teknik gerekçeler ve kod referansları için bkz. [REVIEW.md](REVIEW.md)
-(`v0.10.0` P0 doğruluk/hata kapanışı ve `v0.11.0` CLI/JSON/sıfır-shell paketi
-tamamlandı):
+(`v0.10.0` P0 doğruluk/hata kapanışı, `v0.11.0` CLI/JSON/sıfır-shell ve
+`v0.12.0` Konsept C TUI + birleşik kısayol yenilemesi tamamlandı):
 
-- **`v0.12.0` (Yeni TUI Tasarımı & Kısayol Mimarisi):**
-  - **Görsel & yerleşim yenilemesi ("AI slop" görünümünden çıkış):**
-    - Zorla boyanan opak neon/cyberpunk kutular (`s_themes`) yerine terminalin
-      doğal arka planına (`default bg` / şeffaflık) saygılı, sade ve yüksek
-      kontrastlı tipografik tema sistemi.
-    - 4 kutulu sıkışık panel + sahte `[ Buton ]` kalabalığı ve `CONTROLS` ↔
-      `POWER`/`FAN`/`LIGHT` tekrarının kaldırılması; net sekme/görünüm tabanlı
-      düzen (üstte tek satır sekme + özet durum, ortada temiz çalışma alanı,
-      altta tek birleşik kısayol + durum/log çubuğu; panel içi tekrar eden
-      `j/k · h/l · ...` metin şeritlerinin temizlenmesi).
-    - Tutarlı yazma/etkileşim dili (bir panelde anında yazıp diğerinde stage
-      eden kafa karıştırıcı ikili modelin sadeleştirilmesi).
-  - **Tuş atamaları & kısayol düzenlemesi:**
-    - `1..4` odak / `5..8` sekme bölünmüşlüğünün kaldırılması; doğrudan `1..N`
-      ve `Tab` / `Shift+Tab` (`[` / `]`) ile ana görünümler arasında düz geçiş.
-    - `ESC` tuşunun **yalnızca geri / iptal / kapat** yapması (`ESC` ile
-      Ayarlar açma davranışının kaldırılması; Ayarlar için `,` veya kendi sekmesi).
-    - Çakışan tek-harf kısayollarının (`s` save/settings/stats, `t` telem/type,
-      `c` note/cpu/cores, `Enter` vs `w`) ekrandan ekrana anlam değiştirmeyen
-      tek bir kısayol tablosuna (`keymap`) oturtulması.
 - **`v0.13.0` (Paketleme, `udev` Ayrıcalık Azaltma & Masaüstü/CLI Artefaktları):**
   `Makefile` (`PREFIX`/`DESTDIR`, tek `VERSION`, `make check-version`) +
   `flake.nix` uyumu, `contrib/` (`99-ctron.rules` + `ctron.tmpfiles.conf`,
   `ctron-ppt`, `sudoers.ctron.example`, `ctron.desktop`, `PKGBUILD`),
   `man/ctron.1`, shell completions (`bash`, `zsh`, `fish`), `CONTRIBUTING.md`.
 - **`v0.14.0` (Offline Test Kalkanı, CI/CD & Modüler Temizlik):**
-  Yeni TUI/kısayol şeması oturduktan sonra `CTRON_SYSFS_ROOT` sahte `/sys`+`/proc`
-  testleri + `scripts/tui_smoke.py --offline`, `.github/workflows/ci.yml`
+  `CTRON_SYSFS_ROOT` sahte `/sys`+`/proc` testleri +
+  `scripts/tui_smoke.py --offline`, `.github/workflows/ci.yml`
   (`gcc`+`clang`, `HARDEN=1`, UBSan/LSan, `clang --analyze`, `shellcheck`,
   offline smoke), `src/hw.c` ve UI modül bölünmesi + gizli `static` önbellek
   temizliği.

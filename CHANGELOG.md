@@ -13,6 +13,49 @@ see [docs/history/changelog-2026-09-11.md](docs/history/changelog-2026-09-11.md)
 
 ---
 
+## [0.12.0] — 2026-11-24
+
+### Changed
+- **Complete TUI redesign (Konsept C — Left Rail + Full-Height Workspace):**
+  - Replaced the 4-box neon Bento layout, faux GUI button clutter, and
+    duplicate `CONTROLS`/`LIVE` panels (deleted `panel_controls.c` and
+    `panel_telemetry.c`) with a clean UNIX layout: thin top summary header,
+    slim 22-col left rail (`VIEWS 1–5` + compact `LIVE` metrics, auto-collapsing
+    to inline top tabs below 96 cols), full-height right workspace, and a
+    unified 2-row status/progress + contextual keybar footer.
+  - **Terminal-native themes:** new `Native` (default) and `Mono` themes
+    preserve the terminal's default background/transparency (`default_bg`),
+    joined by restrained `Slate`, `Gruvbox`, and `Light` palettes; clean
+    single-line modals (`ui_window`) without double-line drop shadows, and
+    full-width selection bars (`ui_row`).
+  - **Unified conflict-free keymap:** flat `1`–`5` / `Tab` / `Shift+Tab` view
+    switching (`1 Power`, `2 Fans`, `3 Display & Light`, `4 Snapshots`,
+    `5 Telemetry`), `t` toggles Telemetry, `Esc` strictly backs out / cancels /
+    closes modals (never opens a menu), `,` opens Preferences & CLI shortcuts,
+    `?` opens a floating Help modal, `e` edits exact values consistently, and
+    `w`/`r` apply/revert staged edits across Power & Display/Light.
+
+### Added
+- **5th View `Telemetry` + configurable `startup_view`:** the 8-section
+  read-only telemetry screen now runs directly as View `5` (preserving detail
+  pages, `1`–`8` jumps inside detail, `r` reset, and `s` window/since-reset),
+  and `,` Preferences lets you choose which of the 5 views `ctron` opens on
+  (`startup_view = 0..4` persisted in `settings.ini`, backward-compatible with
+  older configs).
+- **Unified `Display & Light` view (`3`):** brings Refresh rate, Panel
+  overdrive, Battery charge limit (`e` exact), one-shot 100% charge
+  (`ctrl_battery_oneshot()`), Keyboard backlight, Aura, Custom hex swatch, and
+  daeboard controls under one clean staged view backed by the `APPLY_SYSTEM`
+  background worker.
+- **GPU live temp marker (`▲`)** on the Fan Curve x-axis when editing GPU curve.
+
+### Fixed
+- **`editor_fan_act()` stale `fe_input` state:** clicking non-field buttons
+  (`CPU`/`GPU`/`-`/`Write`/`Toggle`) now clears inline typing mode so `q` and
+  shortcuts work immediately afterward.
+
+---
+
 ## [0.11.0] — 2026-11-24
 
 ### Added
