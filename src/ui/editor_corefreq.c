@@ -380,11 +380,11 @@ void editor_corefreq_draw(struct ncplane *n, const rect_t *r)
         ui_putln(n, x, r->y + 1, w, line, pal->accent, true);
     } else if (cf_core_mode()) {
         ui_putln(n, x, r->y + 1, w,
-                 "h/l ±100 · j/k select · t value · a CCD · A all · o max · w apply · r revert · Esc close",
+                 "h/l ±100 · j/k select · e value · a CCD · A all · o max · w apply · r revert · Esc close",
                  pal->muted, false);
     } else {
         ui_putln(n, x, r->y + 1, w,
-                 "h/l ±100 · j/k select · t value · a all · o max · w apply · r revert · Esc close",
+                 "h/l ±100 · j/k select · e value · a all · o max · w apply · r revert · Esc close",
                  pal->muted, false);
     }
 
@@ -541,6 +541,7 @@ void editor_corefreq_key(uint32_t key)
         case 'l': case NCKEY_RIGHT:
             cf_sel_apply(cf_clamp(cf_sel_base() + 100));
             return;
+        case 'e': case 'E':
         case 't': case 'T':
             g_ui.cf_input_active = 1;
             tin_clear(&g_ui.cf_input);
@@ -595,6 +596,7 @@ void editor_corefreq_key(uint32_t key)
     case 'l': case NCKEY_RIGHT:
         g_ui.cf_staged[id] = cf_clamp(g_ui.cf_staged[id] + 100);
         return;
+    case 'e': case 'E':
     case 't': case 'T':
         g_ui.cf_input_active = 1;
         tin_clear(&g_ui.cf_input);

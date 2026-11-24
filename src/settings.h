@@ -18,12 +18,13 @@ typedef struct {
     int write_pref;    /* enum above */
     int theme;         /* palette index, 0..4 */
     bool gpu_temp;     /* query nvidia-smi */
-    /* layout (Settings overlay → LAYOUT; applied live by ui_layout) */
-    bool swap_left;    /* CONTROLS above PROFILES in the left column */
-    bool telem_top;    /* telemetry strip at the top instead of bottom */
-    int left_pct;      /* left column width, 25..50 % */
-    int split_pct;     /* upper left panel's share, 25..75 % */
-    int telem_h;       /* telemetry height, 3..10 rows */
+    int startup_view;  /* initial TUI view, 0..4 (Power..Telemetry) */
+    /* legacy layout fields kept for backward-compatible settings.ini */
+    bool swap_left;
+    bool telem_top;
+    int left_pct;
+    int split_pct;
+    int telem_h;
 } prefs_t;
 
 /* Global preferences, loaded at startup. */

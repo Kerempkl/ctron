@@ -1135,23 +1135,6 @@ static void telem_stats_reset(void)
     g_ui.telem_ack_ms = ut_mono_ms();
 }
 
-/* overlay footer: key hints left, a clickable "[r] reset stats" button
- * right (drawn only when the two cannot collide; the 'r' key works on
- * every width) */
-static void telem_footer(struct ncplane *n, const rect_t *r, const char *hint)
-{
-    const palette_t *pal = ui_palette(g_prefs.theme);
-    int y = r->y + r->h - 2;
-    ui_putln(n, r->x + 2, y, r->w - 4, hint, pal->muted, false);
-    static const char btn[] = "[r] reset stats";
-    int bw = (int)strlen(btn);
-    int bx = r->x + r->w - 2 - bw;
-    if (bx > r->x + 4 + utf_cells(hint)) {
-        ui_putln(n, bx, y, bw + 1, btn, pal->accent, false);
-        tgt_register(bx, y, bw, 1, TGT(TGT_PANEL_TELEM, TELEM_TGT_RESET));
-    }
-}
-
 /* ---- the registry: order here is order on screen -------------------- */
 
 static const telem_section_t SECTIONS[] = {
@@ -1167,39 +1150,47 @@ static const telem_section_t SECTIONS[] = {
 
 void panel_telem_full_draw(struct ncplane *n, const rect_t *r)
 {
+    const palette_t *pal = ui_palette(g_prefs.theme);
     int nsec = TELEM_SEC_N;
     int det = g_ui.telem_detail;
     if (det < 0 || det >= nsec)
         det = -1;
+    if (r->w < 14 || r->h < 5)
+        return;
 
+    /* clean Konsept C view header + clickable [r] reset stats right-aligned */
     char title[64];
     if (det < 0)
         snprintf(title, sizeof title, "TELEMETRY");
     else
         snprintf(title, sizeof title, "TELEMETRY · %s", SECTIONS[det].title);
-    /* reset acknowledgement rides BESIDE the section name (time-based:
-     * no draw-count clock, so a closed overlay can never carry a stale
-     * flash into a reopen) */
     if (g_ui.telem_ack_ms > 0 &&
         ut_mono_ms() - g_ui.telem_ack_ms < 3000)
         snprintf(title + strlen(title), sizeof(title) - strlen(title),
                  " · cleared");
-    ui_window(n, r, title);
+    ui_putln(n, r->x, r->y, r->w - 18, title, pal->accent, true);
+    {
+        static const char btn[] = "[r] reset stats";
+        int bw = (int)strlen(btn);
+        int bx = r->x + r->w - bw;
+        if (bx > r->x + ut_cells(title) + 2) {
+            ui_putln(n, bx, r->y, bw + 1, btn, pal->muted, false);
+            tgt_register(bx, r->y, bw, 1, TGT(TGT_PANEL_TELEM, TELEM_TGT_RESET));
+        }
+    }
 
     if (det >= 0) {
-        rect_t ir = { r->x + 1, r->y + 1, r->w - 2, r->h - 3 };
+        rect_t ir = { r->x, r->y + 1, r->w, r->h - 1 };
         if (ir.w > 4 && ir.h > 2)
             SECTIONS[det].detail(n, &ir);
-        telem_footer(n, r,
-                     " esc grid · h/l section · 1-8 · r reset · s stats · t close · q quit");
         return;
     }
 
     int sel = g_ui.telem_sel;
     if (sel < 0 || sel >= nsec)
         sel = 0;
-    int ix = r->x + 1, iy = r->y + 1;
-    int iw = r->w - 2, ih = r->h - 3; /* last row: the footer hint */
+    int ix = r->x, iy = r->y + 1;
+    int iw = r->w, ih = r->h - 1;
     int cols = iw >= 76 ? 2 : 1;
     int rows = (nsec + cols - 1) / cols;
 
@@ -1212,18 +1203,14 @@ void panel_telem_full_draw(struct ncplane *n, const rect_t *r)
         int sh = (row == rows - 1) ? ih - (rows - 1) * (ih / rows)
                                    : ih / rows;
         if (sw < 14 || sh < 2)
-            continue; /* too tiny: skip rather than cram */
+            continue;
         rect_t sr = { sx, sy, sw, sh };
-        /* title carries the digit shortcut (btop convention) */
         char t[40];
         snprintf(t, sizeof t, "%s %d", SECTIONS[i].title, i + 1);
         ui_box(n, &sr, t, i == sel);
         tgt_register(sr.x, sr.y, sr.w, sr.h, TGT(TGT_PANEL_TELEM, i));
         SECTIONS[i].draw(n, &sr);
     }
-
-    telem_footer(n, r,
-                 " j/k select · enter detail · 1-8 · r reset · s stats · t close · q quit");
 }
 
 /* ---- input: grid navigation + detail pages ---------------------------- */
@@ -1240,7 +1227,7 @@ static void telem_detail_open(int idx)
     if (g_ui.telem_detail != idx)
         hw_refresh_live(g_ui.hw);
     g_ui.telem_detail = idx;
-    g_ui.telem_sel = idx; /* grid cursor follows: esc lands you there */
+    g_ui.telem_sel = idx;
 }
 
 void panel_telem_full_key(uint32_t key)
@@ -1249,26 +1236,21 @@ void panel_telem_full_key(uint32_t key)
     if (n == 0)
         return;
 
-    if (key >= '1' && (int)key < '1' + n) {
-        telem_detail_open((int)(key - '1'));
-        return;
-    }
-
-    /* works on the grid AND every detail page: the stats tables are
-     * the thing being reset */
+    /* works on the grid AND every detail page */
     if (key == 'r' || key == 'R') {
         telem_stats_reset();
         return;
     }
-
-    /* stats source of the detail tables: the rolling 60 s window or
-     * everything since the last reset (long measurement runs) */
     if (key == 's' || key == 'S') {
         g_ui.telem_since = !g_ui.telem_since;
         return;
     }
 
     if (g_ui.telem_detail >= 0) {
+        if (key >= '1' && (int)key < '1' + n) {
+            telem_detail_open((int)(key - '1'));
+            return;
+        }
         switch (key) {
         case 'h':
         case NCKEY_LEFT:
@@ -1282,20 +1264,16 @@ void panel_telem_full_key(uint32_t key)
         case NCKEY_BACKSPACE:
         case 127:
         case 8:
-            g_ui.telem_detail = -1; /* back to the grid */
+            g_ui.telem_detail = -1;
             return;
         default:
-            return; /* read-only page: everything else is swallowed */
+            return;
         }
     }
 
-    /* grid navigation is spatial, matching the boxes on screen: the
-     * same 2-column/1-column rule the draw pass uses. Left/right
-     * step inside a row, up/down step between rows; edges clamp —
-     * no wraparound, "down" from the bottom row stays put */
     if (g_ui.telem_sel < 0 || g_ui.telem_sel >= n)
         g_ui.telem_sel = 0;
-    int cols = (g_ui.rc_overlay.w - 2) >= 76 ? 2 : 1;
+    int cols = g_ui.rc_ws.w >= 76 ? 2 : 1;
     int sel = g_ui.telem_sel;
     int rows_n = (n + cols - 1) / cols;
     int col = sel % cols, row = sel / cols;
@@ -1326,9 +1304,6 @@ void panel_telem_full_key(uint32_t key)
     case '\n':
     case ' ':
         telem_detail_open(g_ui.telem_sel);
-        return;
-    case NCKEY_ESC:
-        g_ui.telem_full = false; /* grid esc closes the overlay */
         return;
     default:
         return;

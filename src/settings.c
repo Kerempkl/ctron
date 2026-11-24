@@ -16,15 +16,16 @@ int ut_sudo_fallback_allowed(void)
 }
 
 prefs_t g_prefs = {
-    .poll_ms   = 250,
-    .write_pref = PREF_ASUSCTL_FIRST,
-    .theme     = 0,
-    .gpu_temp  = true,
-    .swap_left  = false,
-    .telem_top  = false,
-    .left_pct   = 33,
-    .split_pct  = 55,
-    .telem_h    = 5,
+    .poll_ms      = 250,
+    .write_pref   = PREF_ASUSCTL_FIRST,
+    .theme        = 0,
+    .gpu_temp     = true,
+    .startup_view = 0,
+    .swap_left    = false,
+    .telem_top    = false,
+    .left_pct     = 33,
+    .split_pct    = 55,
+    .telem_h      = 5,
 };
 
 /* ---- paths ------------------------------------------------------------ */
@@ -114,6 +115,8 @@ int settings_load(hw_state_t *hw)
             g_prefs.theme = ut_clamp_i(atoi(val), 0, 4);
         } else if (!strcmp(key, "gpu_temp")) {
             g_prefs.gpu_temp = (atoi(val) != 0);
+        } else if (!strcmp(key, "startup_view")) {
+            g_prefs.startup_view = ut_clamp_i(atoi(val), 0, 4);
         } else if (!strcmp(key, "swap_left")) {
             g_prefs.swap_left = (atoi(val) != 0);
         } else if (!strcmp(key, "telem_top")) {
@@ -172,11 +175,7 @@ int settings_save(const hw_state_t *hw)
     fprintf(f, "write_pref = %d\n", g_prefs.write_pref);
     fprintf(f, "theme = %d\n", g_prefs.theme);
     fprintf(f, "gpu_temp = %d\n", g_prefs.gpu_temp ? 1 : 0);
-    fprintf(f, "swap_left = %d\n", g_prefs.swap_left ? 1 : 0);
-    fprintf(f, "telem_top = %d\n", g_prefs.telem_top ? 1 : 0);
-    fprintf(f, "left_pct = %d\n", g_prefs.left_pct);
-    fprintf(f, "split_pct = %d\n", g_prefs.split_pct);
-    fprintf(f, "telem_h = %d\n", g_prefs.telem_h);
+    fprintf(f, "startup_view = %d\n", ut_clamp_i(g_prefs.startup_view, 0, 4));
     fprintf(f, "cpu_mhz_limit = %d\n", hw->cpu_mhz_limit);
     fprintf(f, "fan_cpu_on = %d\n", hw->fan_cpu_on ? 1 : 0);
     fprintf(f, "fan_gpu_on = %d\n", hw->fan_gpu_on ? 1 : 0);

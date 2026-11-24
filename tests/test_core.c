@@ -127,12 +127,16 @@ static void check_settings_roundtrip(void)
     hw.fan_cpu_on = true;
     hw.fan_gpu_on = false;
     hw.cpu_mhz_limit = 4500;
+    g_prefs.startup_view = 4; /* Telemetry */
     CHECK(settings_save(&hw) == 0, "settings save");
 
+    g_prefs.startup_view = 0;
     hw_state_t loaded;
     memset(&loaded, 0, sizeof(loaded));
     fan_default(&loaded.fan_cpu);
     CHECK(settings_load(&loaded) == 0, "settings load");
+    CHECK(g_prefs.startup_view == 4, "startup_view roundtrip");
+    g_prefs.startup_view = 0;
     CHECK(loaded.fan_cpu.n == 3, "fan cpu n");
     CHECK(loaded.fan_cpu.temp_c[0] == 40, "fan cpu t0");
     CHECK(loaded.fan_cpu.pwm[2] == 220, "fan cpu p2");

@@ -15,36 +15,75 @@
 
 ui_ctx_t g_ui;
 
+const char *const VIEW_NAMES[VIEW_COUNT] = {
+    "Power", "Fans", "Display & Light", "Snapshots", "Telemetry"
+};
+
 /* ---- footer flash -------------------------------------------------------- */
 
-/* Immediate feedback for long operations (fan writes, mode bundles):
- * draws over the telemetry log row and renders synchronously, so the
- * user sees "applying..." before the blocking call freezes the loop.
- * The next main-loop frame redraws normally. No-op outside the TUI. */
 static struct notcurses *s_nc;
 static struct ncplane *s_stdn;
+static bool s_in_modal;
 
 void ui_flash(const char *msg)
 {
     if (!s_nc || !s_stdn)
         return;
+    unsigned dimy = 0, dimx = 0;
+    ncplane_dim_yx(s_stdn, &dimy, &dimx);
+    if (dimy < 4 || dimx < 12)
+        return;
     const palette_t *pal = ui_palette(g_prefs.theme);
-    const rect_t *r = &g_ui.rc_telem;
-    if (r->w >= 10 && r->h >= 4)
-        ui_putln(s_stdn, r->x + 2, r->y + 3, r->w - 4, msg, pal->accent, true);
+    s_in_modal = false;
+    ui_putln(s_stdn, 1, (int)dimy - 2, (int)dimx - 2, msg, pal->accent, true);
     notcurses_render(s_nc);
 }
 
 /* ---- palette ----------------------------------------------------------- */
 
-const char *const THEME_NAMES[] = { "Ice", "Amber", "Emerald", "Crimson", "Stealth" };
+const char *const THEME_NAMES[] = { "Native", "Slate", "Gruvbox", "Mono", "Light" };
 
 static const palette_t s_themes[THEME_COUNT] = {
-    [0] = { 0x00E5FF, 0x00C5E6, 0x050A0E, 0x0D1924, 0x153040, 0xC5E6F2, 0x4D7A94 },
-    [1] = { 0xFF8800, 0xFF5500, 0x0C0805, 0x1E140A, 0x442810, 0xF0E0D0, 0x907860 },
-    [2] = { 0x00FF66, 0x00CC44, 0x040E06, 0x0C1E10, 0x164420, 0xD0F8D8, 0x60A070 },
-    [3] = { 0xFF3366, 0xFF6688, 0x10050A, 0x220C16, 0x481628, 0xFFE0E8, 0xA06078 },
-    [4] = { 0xD0D8E0, 0x8090A0, 0x080808, 0x14161A, 0x2C3038, 0xE0E4E8, 0x788088 },
+    /* 0: Native — respects terminal default background / transparency */
+    [0] = {
+        .default_bg = true,  .light = false,
+        .accent = 0x88C0D0,  .accent2 = 0x81A1C1,
+        .warn   = 0xEBCB8B,  .ok = 0xA3BE8C,  .err = 0xBF616A,
+        .bg     = 0x161A20,  .card = 0x242A34, .border = 0x3B4252,
+        .text   = 0xD8DEE9,  .muted = 0x7B8898,
+    },
+    /* 1: Slate — restrained matte dark */
+    [1] = {
+        .default_bg = false, .light = false,
+        .accent = 0x9CC2CF,  .accent2 = 0x7FA4B8,
+        .warn   = 0xD9A85C,  .ok = 0x88B378,  .err = 0xD46A6A,
+        .bg     = 0x141619,  .card = 0x22262D, .border = 0x30363F,
+        .text   = 0xD4D7DC,  .muted = 0x747C87,
+    },
+    /* 2: Gruvbox — warm dark */
+    [2] = {
+        .default_bg = false, .light = false,
+        .accent = 0xD79921,  .accent2 = 0x83A598,
+        .warn   = 0xFE8019,  .ok = 0xB8BB26,  .err = 0xFB4934,
+        .bg     = 0x1D2021,  .card = 0x32302F, .border = 0x504945,
+        .text   = 0xEBDBB2,  .muted = 0x928374,
+    },
+    /* 3: Mono — transparent terminal + monochrome typography */
+    [3] = {
+        .default_bg = true,  .light = false,
+        .accent = 0xEAEAEA,  .accent2 = 0xA8A8A8,
+        .warn   = 0xD9A85C,  .ok = 0xB0B0B0,  .err = 0xD46A6A,
+        .bg     = 0x141414,  .card = 0x262626, .border = 0x444444,
+        .text   = 0xD4D4D4,  .muted = 0x767676,
+    },
+    /* 4: Light — clean paper tone */
+    [4] = {
+        .default_bg = false, .light = true,
+        .accent = 0x0969DA,  .accent2 = 0x1F6FEB,
+        .warn   = 0x9A6700,  .ok = 0x1A7F37,  .err = 0xCF222E,
+        .bg     = 0xF6F5F2,  .card = 0xE4E1DA, .border = 0xC8C3B9,
+        .text   = 0x1F2328,  .muted = 0x666C75,
+    },
 };
 
 const palette_t *ui_palette(int theme)
@@ -52,13 +91,29 @@ const palette_t *ui_palette(int theme)
     return &s_themes[ut_clamp_i(theme, 0, THEME_COUNT - 1)];
 }
 
+uint64_t ui_ch(uint32_t fg, bool sel_bg)
+{
+    const palette_t *pal = ui_palette(g_prefs.theme);
+    uint64_t ch = 0;
+    ncchannels_set_fg_rgb(&ch, fg);
+    if (sel_bg)
+        ncchannels_set_bg_rgb(&ch, pal->card);
+    else if (!s_in_modal && pal->default_bg)
+        ncchannels_set_bg_default(&ch);
+    else
+        ncchannels_set_bg_rgb(&ch, pal->bg);
+    return ch;
+}
+
+void ui_modal_end(void)
+{
+    s_in_modal = false;
+}
+
 /* ---- draw helpers ------------------------------------------------------- */
 
 void ui_trunc(char *s, int maxlen_chars)
 {
-    /* counts display cells (UTF-8 lead bytes), not bytes: cutting a
-     * multibyte glyph by bytes showed "538" for "5386" when a ▸/●
-     * prefix ate the byte budget */
     if (maxlen_chars <= 0) {
         s[0] = '\0';
         return;
@@ -77,15 +132,34 @@ void ui_trunc(char *s, int maxlen_chars)
 void ui_putln(struct ncplane *n, int x, int y, int w,
               const char *s, uint32_t fg, bool bold)
 {
+    if (w <= 0)
+        return;
     char buf[256];
     snprintf(buf, sizeof(buf), "%s", s ? s : "");
-    ui_trunc(buf, w > 0 ? w - 1 : 0);
-    uint64_t ch = 0;
-    ncchannels_set_fg_rgb(&ch, fg);
-    ncplane_set_channels(n, ch);
+    ui_trunc(buf, w);
+    ncplane_set_channels(n, ui_ch(fg, false));
     ncplane_set_styles(n, bold ? NCSTYLE_BOLD : NCSTYLE_NONE);
     ncplane_putstr_yx(n, y, x, buf);
     ncplane_set_styles(n, NCSTYLE_NONE);
+}
+
+void ui_hline(struct ncplane *n, int x, int y, int w, uint32_t fg)
+{
+    if (w <= 0)
+        return;
+    ncplane_set_channels(n, ui_ch(fg, false));
+    ncplane_cursor_move_yx(n, y, x);
+    for (int i = 0; i < w; i++)
+        ncplane_putstr(n, "─");
+}
+
+void ui_vline(struct ncplane *n, int x, int y, int h, uint32_t fg)
+{
+    if (h <= 0)
+        return;
+    ncplane_set_channels(n, ui_ch(fg, false));
+    for (int i = 0; i < h; i++)
+        ncplane_putstr_yx(n, y + i, x, "│");
 }
 
 void ui_box(struct ncplane *n, const rect_t *r, const char *title, bool focused)
@@ -94,21 +168,9 @@ void ui_box(struct ncplane *n, const rect_t *r, const char *title, bool focused)
         return;
     const palette_t *pal = ui_palette(g_prefs.theme);
 
-    uint64_t chb = 0, cht = 0;
-    ncchannels_set_fg_rgb(&chb, focused ? pal->accent : pal->border);
-    ncchannels_set_bg_rgb(&chb, pal->bg);
-    ncchannels_set_fg_rgb(&cht, focused ? pal->accent : pal->muted);
-    ncchannels_set_bg_rgb(&cht, pal->bg);
+    uint64_t chb = ui_ch(focused ? pal->accent : pal->border, false);
+    uint64_t cht = ui_ch(focused ? pal->accent : pal->muted, false);
 
-    /* interior */
-    ncplane_set_channels(n, chb);
-    for (int y = 1; y < r->h - 1; y++) {
-        ncplane_cursor_move_yx(n, r->y + y, r->x + 1);
-        for (int x = 1; x < r->w - 1; x++)
-            ncplane_putchar(n, ' ');
-    }
-
-    /* border */
     ncplane_set_channels(n, chb);
     ncplane_putstr_yx(n, r->y, r->x, "┌");
     for (int x = 1; x < r->w - 1; x++)
@@ -125,59 +187,45 @@ void ui_box(struct ncplane *n, const rect_t *r, const char *title, bool focused)
 
     if (title) {
         ncplane_set_channels(n, cht);
-        ncplane_set_styles(n, NCSTYLE_BOLD);
+        ncplane_set_styles(n, focused ? NCSTYLE_BOLD : NCSTYLE_NONE);
         char t[64];
         snprintf(t, sizeof(t), " %s ", title);
-        ui_trunc(t, r->w - 6);
-        ncplane_putstr_yx(n, r->y, r->x + 3, t);
+        ui_trunc(t, r->w - 4);
+        ncplane_putstr_yx(n, r->y, r->x + 2, t);
         ncplane_set_styles(n, NCSTYLE_NONE);
     }
 }
 
-/* btop-style floating window: drop shadow one cell right/below, double
- * frame, filled interior (wipes ghost text every frame), centred title. */
+/* Clean single-line floating modal (solid pal->bg interior so background
+ * text never bleeds through, no neon double-lines or muddy shadows). */
 void ui_window(struct ncplane *n, const rect_t *r, const char *title)
 {
     if (r->w < 8 || r->h < 4)
         return;
 
+    s_in_modal = true;
     const palette_t *pal = ui_palette(g_prefs.theme);
+    uint64_t chb = ui_ch(pal->accent, false);
+    uint64_t cht = ui_ch(pal->accent, false);
 
-    /* shadow first (under the frame's right/bottom edge) */
-    uint64_t sh = 0;
-    ncchannels_set_bg_rgb(&sh, 0x05070a);
-    ncplane_set_channels(n, sh);
-    ncplane_cursor_move_yx(n, r->y + r->h, r->x + 2);
-    for (int x = 2; x < r->w + 1; x++)
-        ncplane_putchar(n, ' ');
-    for (int y = 1; y < r->h + 1; y++)
-        ncplane_putstr_yx(n, r->y + y, r->x + r->w, " ");
-
-    /* double frame */
-    uint64_t chb = 0, cht = 0;
-    ncchannels_set_fg_rgb(&chb, pal->accent);
-    ncchannels_set_bg_rgb(&chb, pal->bg);
-    ncchannels_set_fg_rgb(&cht, pal->accent);
-    ncchannels_set_bg_rgb(&cht, pal->bg);
     ncplane_set_channels(n, chb);
-
     for (int y = 1; y < r->h - 1; y++) {
         ncplane_cursor_move_yx(n, r->y + y, r->x + 1);
         for (int x = 1; x < r->w - 1; x++)
             ncplane_putchar(n, ' ');
     }
-    ncplane_putstr_yx(n, r->y, r->x, "╔");
+    ncplane_putstr_yx(n, r->y, r->x, "┌");
     for (int x = 1; x < r->w - 1; x++)
-        ncplane_putstr(n, "═");
-    ncplane_putstr(n, "╗");
+        ncplane_putstr(n, "─");
+    ncplane_putstr(n, "┐");
     for (int y = 1; y < r->h - 1; y++) {
-        ncplane_putstr_yx(n, r->y + y, r->x, "║");
-        ncplane_putstr_yx(n, r->y + y, r->x + r->w - 1, "║");
+        ncplane_putstr_yx(n, r->y + y, r->x, "│");
+        ncplane_putstr_yx(n, r->y + y, r->x + r->w - 1, "│");
     }
-    ncplane_putstr_yx(n, r->y + r->h - 1, r->x, "╚");
+    ncplane_putstr_yx(n, r->y + r->h - 1, r->x, "└");
     for (int x = 1; x < r->w - 1; x++)
-        ncplane_putstr(n, "═");
-    ncplane_putstr(n, "╝");
+        ncplane_putstr(n, "─");
+    ncplane_putstr(n, "┘");
 
     if (title) {
         char t[64];
@@ -185,7 +233,7 @@ void ui_window(struct ncplane *n, const rect_t *r, const char *title)
         ui_trunc(t, r->w - 4);
         ncplane_set_channels(n, cht);
         ncplane_set_styles(n, NCSTYLE_BOLD);
-        ncplane_putstr_yx(n, r->y, r->x + (r->w - (int)strlen(t)) / 2, t);
+        ncplane_putstr_yx(n, r->y, r->x + 2, t);
         ncplane_set_styles(n, NCSTYLE_NONE);
     }
 }
@@ -195,27 +243,26 @@ void ui_btn(struct ncplane *n, int x, int y, const char *label,
 {
     const palette_t *pal = ui_palette(g_prefs.theme);
     uint64_t ch = 0;
+    uint32_t inv_fg = pal->light ? 0xFFFFFF : 0x101418;
     if (focused && active) {
-        ncchannels_set_fg_rgb(&ch, 0x000000);
+        ncchannels_set_fg_rgb(&ch, inv_fg);
         ncchannels_set_bg_rgb(&ch, pal->accent);
         ncplane_set_styles(n, NCSTYLE_BOLD | NCSTYLE_UNDERLINE);
     } else if (active) {
-        ncchannels_set_fg_rgb(&ch, 0x000000);
+        ncchannels_set_fg_rgb(&ch, inv_fg);
         ncchannels_set_bg_rgb(&ch, pal->accent);
         ncplane_set_styles(n, NCSTYLE_BOLD);
     } else if (focused) {
-        ncchannels_set_fg_rgb(&ch, pal->accent);
-        ncchannels_set_bg_rgb(&ch, pal->card);
+        ch = ui_ch(pal->accent, true);
         ncplane_set_styles(n, NCSTYLE_BOLD | NCSTYLE_UNDERLINE);
     } else {
-        ncchannels_set_fg_rgb(&ch, pal->text);
-        ncchannels_set_bg_rgb(&ch, pal->card);
+        ch = ui_ch(pal->muted, true);
         ncplane_set_styles(n, NCSTYLE_NONE);
     }
     ncplane_set_channels(n, ch);
     ncplane_putstr_yx(n, y, x, label);
     ncplane_set_styles(n, NCSTYLE_NONE);
-    tgt_register(x, y, (int)strlen(label), 1, id);
+    tgt_register(x, y, ut_cells(label), 1, id);
 }
 
 int ui_btn_row(struct ncplane *n, int y, int x, int w,
@@ -223,9 +270,9 @@ int ui_btn_row(struct ncplane *n, int y, int x, int w,
 {
     int cx = x;
     for (int i = 0; i < count; i++) {
-        int len = (int)strlen(btns[i].label);
+        int len = ut_cells(btns[i].label);
         if (cx + len > x + w)
-            break; /* does not fit: skip the rest */
+            break;
         ui_btn(n, cx, y, btns[i].label, btns[i].active, false, btns[i].id);
         cx += len + 1;
     }
@@ -235,30 +282,63 @@ int ui_btn_row(struct ncplane *n, int y, int x, int w,
 void ui_row(struct ncplane *n, int x, int y, int w,
             const char *label, const char *value, bool selected)
 {
+    if (w <= 2)
+        return;
     const palette_t *pal = ui_palette(g_prefs.theme);
-    uint64_t ch = 0;
-    if (selected) {
-        ncchannels_set_fg_rgb(&ch, pal->accent);
-        ncchannels_set_bg_rgb(&ch, pal->card);
-    } else {
-        ncchannels_set_fg_rgb(&ch, pal->text);
-        ncchannels_set_bg_rgb(&ch, pal->bg);
-    }
+    uint64_t ch = ui_ch(selected ? pal->accent : pal->text, selected);
     ncplane_set_channels(n, ch);
+    ncplane_set_styles(n, selected ? NCSTYLE_BOLD : NCSTYLE_NONE);
+
+    /* paint full-width selection bar so rows look clean and cohesive */
+    if (selected) {
+        ncplane_cursor_move_yx(n, y, x);
+        for (int i = 0; i < w; i++)
+            ncplane_putchar(n, ' ');
+    }
 
     char lb[128], vb[128];
     snprintf(lb, sizeof(lb), "%s%s ", selected ? "▸ " : "  ", label);
     snprintf(vb, sizeof(vb), "%s", value ? value : "");
-    int lw = w / 2 - 2;
+    int lw = w * 42 / 100;
+    if (lw < 18)
+        lw = 18;
     if (lw > 28)
         lw = 28;
+    if (lw > w - 4)
+        lw = w / 2;
     ui_trunc(lb, lw);
-    /* %-Ns pads bytes. "▸ " is 2 cells and 4 bytes, so the value
-     * column used to shift right by 2 cells on the selected row. */
+
     char line[256];
     ut_cell_join(line, sizeof(line), lb, lw, vb);
-    ui_trunc(line, w - 2);
+    ui_trunc(line, w);
     ncplane_putstr_yx(n, y, x, line);
+    ncplane_set_styles(n, NCSTYLE_NONE);
+}
+
+void ui_keybar(struct ncplane *n, int x, int y, int w,
+               const ui_hint_t *hints, int count)
+{
+    const palette_t *pal = ui_palette(g_prefs.theme);
+    int cx = x;
+    int end = x + w;
+    for (int i = 0; i < count; i++) {
+        int kw = ut_cells(hints[i].key);
+        int lw = ut_cells(hints[i].label);
+        int need = kw + 1 + lw + (i > 0 ? 2 : 0);
+        if (cx + need > end)
+            break;
+        if (i > 0)
+            cx += 2;
+        uint32_t kfg = hints[i].hi ? pal->warn : pal->text;
+        ncplane_set_channels(n, ui_ch(kfg, false));
+        ncplane_set_styles(n, NCSTYLE_BOLD);
+        ncplane_putstr_yx(n, y, cx, hints[i].key);
+        cx += kw + 1;
+        ncplane_set_channels(n, ui_ch(pal->muted, false));
+        ncplane_set_styles(n, NCSTYLE_NONE);
+        ncplane_putstr_yx(n, y, cx, hints[i].label);
+        cx += lw;
+    }
 }
 
 /* ---- mouse targets ------------------------------------------------------ */
@@ -271,7 +351,7 @@ void tgt_clear(void) { s_tg_n = 0; }
 
 void tgt_register(int x, int y, int w, int h, int encoded)
 {
-    if (s_tg_n >= MAX_TARGETS)
+    if (s_tg_n >= MAX_TARGETS || w <= 0 || h <= 0)
         return;
     s_tg[s_tg_n].x1 = x;
     s_tg[s_tg_n].y1 = y;
@@ -283,10 +363,9 @@ void tgt_register(int x, int y, int w, int h, int encoded)
 
 int tgt_find(int x, int y)
 {
-    /* search newest-first: the window drawn last (e.g. the settings
-     * overlay) wins over the panels underneath it */
     for (int i = s_tg_n - 1; i >= 0; i--)
-        if (x >= s_tg[i].x1 && x <= s_tg[i].x2 && y >= s_tg[i].y1 && y <= s_tg[i].y2)
+        if (x >= s_tg[i].x1 && x <= s_tg[i].x2 &&
+            y >= s_tg[i].y1 && y <= s_tg[i].y2)
             return s_tg[i].id;
     return 0;
 }
@@ -316,7 +395,40 @@ bool tin_key(tinput_t *t, uint32_t key)
     return tin_op(t, nc_to_tin_op(key));
 }
 
-/* ---- event log overlay ('L') -------------------------------------------- */
+/* ---- view switching ----------------------------------------------------- */
+
+void ui_set_view(ui_view_t v)
+{
+    if (v >= VIEW_COUNT)
+        return;
+    if (g_ui.view == v)
+        return;
+    g_ui.pw_typing = false;
+    g_ui.sys_bat_typing = false;
+    g_ui.lt_hex_active = 0;
+    g_ui.fe_input = 0;
+    g_ui.prof_input = 0;
+    g_ui.prof_del_arm = -1;
+    if (v == VIEW_TELEM)
+        g_ui.prev_view = g_ui.view;
+    g_ui.view = v;
+
+    /* entering POWER or SYSTEM: pick up external changes unless dirty */
+    if (v == VIEW_POWER && !g_ui.pw_dirty) {
+        hw_refresh_live(g_ui.hw);
+        pw_sync_from_hw();
+    } else if (v == VIEW_SYSTEM && !g_ui.sys_dirty) {
+        hw_refresh_live(g_ui.hw);
+        sys_sync_from_hw();
+    } else if (v == VIEW_SNAPSHOTS) {
+        g_ui.prof_n = profile_list(g_ui.profs, MAX_PROFILES);
+        if (g_ui.prof_sel >= g_ui.prof_n && g_ui.prof_sel > 0)
+            g_ui.prof_sel = g_ui.prof_n - 1;
+        g_ui.prof_meta_sel = -1;
+    }
+}
+
+/* ---- event log & help overlays ----------------------------------------- */
 
 static bool log_is_err(const char *s)
 {
@@ -354,6 +466,7 @@ static void draw_log_overlay(struct ncplane *n, const rect_t *r)
 
     if (count == 0) {
         ui_putln(n, x, y0, w, "(no events logged yet)", pal->muted, false);
+        ui_modal_end();
         return;
     }
 
@@ -361,252 +474,508 @@ static void draw_log_overlay(struct ncplane *n, const rect_t *r)
         int idx = g_ui.log_scroll + i;
         const char *msg = ut_log_get(idx);
         bool err = log_is_err(msg);
-        uint32_t fg = err ? 0xFF4D5E : (idx == 0 ? pal->accent : pal->text);
+        uint32_t fg = err ? pal->err : (idx == 0 ? pal->accent : pal->text);
         ui_putln(n, x, y0 + i, w, msg, fg, err || idx == 0);
     }
+    ui_modal_end();
 }
 
-/* ---- layout -------------------------------------------------------------- */
+static void draw_help_overlay(struct ncplane *n, const rect_t *r)
+{
+    const palette_t *pal = ui_palette(g_prefs.theme);
+    int x = r->x + 2, w = r->w - 4;
+    if (w < 16 || r->h < 8)
+        return;
 
-/* Placement is data-driven from g_prefs (Settings overlay → LAYOUT);
- * re-evaluated every frame, so changes apply instantly. */
+    ui_window(n, r, "HELP · KEYMAP");
+    static const char *const lines[] = {
+        "GLOBAL",
+        "  1..5 / Tab   switch view: Power · Fans · Display & Light · Snapshots · Telemetry",
+        "  t            jump to Telemetry (again returns to previous view)",
+        "  Esc          back / cancel / close overlay (never opens a menu)",
+        "  ,            Preferences & CLI shortcuts (modes.ini, startup tab, theme)",
+        "  L            Event log overlay (last 24 entries; or click bottom log)",
+        "  ?            this keymap help · q quit (asks twice if edits staged)",
+        "",
+        "POWER (1) & DISPLAY/LIGHT (3)",
+        "  j / k        select row · h / l step value (staged, nothing writes yet)",
+        "  e            type exact value (watts, MHz, battery %, hex color)",
+        "  w / Enter    apply all staged edits · r revert to live values",
+        "  c / b        Core Limits overlay (Power) · daeboard editor (Display & Light)",
+        "",
+        "FANS (2)",
+        "  c / g        CPU / GPU curve · < > select point · h/l/j/k nudge",
+        "  e / p        exact Temp / PWM · + / - add/remove · i guides · m presets",
+        "  o / w        toggle custom curve on/off · write curve to EC",
+        "",
+        "SNAPSHOTS (4)",
+        "  Enter        apply snapshot · s save current · n auto-name",
+        "  r / c / d d  rename · edit note · double-d delete confirmation",
+        "",
+        "TELEMETRY (5)",
+        "  h j k l      walk 8-section grid · Enter detail (1-8 jump inside detail)",
+        "  r / s        reset stats · toggle 60 s window vs since-reset",
+    };
+    int y = r->y + 1;
+    int ymax = r->y + r->h - 1;
+    for (size_t i = 0; i < sizeof(lines) / sizeof(lines[0]) && y < ymax; i++, y++) {
+        bool head = lines[i][0] && lines[i][1] != ' ';
+        ui_putln(n, x, y, w, lines[i], head ? pal->accent : pal->text, head);
+    }
+    ui_modal_end();
+}
+
+/* ---- Konsept C layout & chrome ----------------------------------------- */
+
 static void ui_layout(unsigned dimy, unsigned dimx)
 {
     int W = (int)dimx, H = (int)dimy;
-
-    int top = 1; /* top bar */
-    int telem_h = ut_clamp_i(g_prefs.telem_h, 3, 10);
-    int body_h = H - top - telem_h;
-    if (body_h < 10) {
-        body_h = H - top; /* tiny terminal: telemetry collapses away */
-        telem_h = 0;
+    int top = 2; /* row 0 header + row 1 hairline */
+    int bot = 3; /* H-3 hairline + H-2 status/log + H-1 keybar */
+    int body_h = H - top - bot;
+    if (body_h < 4) {
+        top = 1;
+        bot = 1;
+        body_h = H - top - bot;
+        if (body_h < 1)
+            body_h = 1;
     }
 
-    int lw = W * ut_clamp_i(g_prefs.left_pct, 25, 50) / 100;
-    if (lw < 30)
-        lw = 30;
-    if (lw > W - 20)
-        lw = W / 2;
-
-    int split = ut_clamp_i(g_prefs.split_pct, 25, 75);
-    int up_h = body_h * split / 100;
-    int body_y = g_prefs.telem_top ? top + telem_h : top;
-    int telem_y = g_prefs.telem_top ? top : top + body_h;
-
-    rect_t left_top = { 0, body_y, lw, up_h };
-    rect_t left_bot = { 0, body_y + up_h, lw, body_h - up_h };
-    if (g_prefs.swap_left) {
-        g_ui.rc_ctl  = left_top;
-        g_ui.rc_prof = left_bot;
+    if (W >= 96) {
+        int rw = 22;
+        g_ui.rc_rail = (rect_t){ 0, top, rw, body_h };
+        g_ui.rc_ws   = (rect_t){ rw + 2, top, W - (rw + 2) - 1, body_h };
     } else {
-        g_ui.rc_prof = left_top;
-        g_ui.rc_ctl  = left_bot;
+        g_ui.rc_rail = (rect_t){ 0, top, 0, 0 };
+        g_ui.rc_ws   = (rect_t){ 1, top, W > 2 ? W - 2 : W, body_h };
     }
 
-    g_ui.rc_ws     = (rect_t){ lw, body_y, W - lw, body_h };
-    g_ui.rc_telem  = (rect_t){ 0, telem_y, W, telem_h };
-    if (!g_prefs.telem_top && telem_y + telem_h < H)
-        g_ui.rc_telem.h = H - telem_y; /* absorb rounding at the bottom */
-
-    /* settings overlay: centred floating window, not the whole screen.
-     * the daeboard editor uses the same slot but nearly the full frame.
-     * fullscreen telemetry takes the whole frame (same geometry rules
-     * as the daeboard editor). */
-    if (g_ui.telem_full || g_ui.db_overlay) {
-        int ow = W - 4;
-        int oh = H - top - 2;
-        if (ow < 20)
-            ow = W;
-        if (oh < 8)
-            oh = H - top;
-        g_ui.rc_overlay = (rect_t){ (W - ow) / 2, top, ow, oh };
+    if (g_ui.db_overlay) {
+        int ow = W - 4, oh = H - 3;
+        if (ow < 20) ow = W;
+        if (oh < 8)  oh = H - 1;
+        g_ui.rc_overlay = (rect_t){ (W - ow) / 2, 1, ow, oh };
     } else if (g_ui.fe_presets_overlay) {
-        int ow = 66;
-        int oh = 15;
-        if (ow > W - 4)
-            ow = W - 4;
-        if (ow < 20)
-            ow = W;
-        if (oh > H - top - 2)
-            oh = H - top - 2;
-        if (oh < 8)
-            oh = H - top;
-        g_ui.rc_overlay = (rect_t){ (W - ow) / 2, top + (H - top - oh) / 2, ow, oh };
+        int ow = 68, oh = 15;
+        if (ow > W - 4) ow = W - 4;
+        if (ow < 20)    ow = W;
+        if (oh > H - 4) oh = H - 4;
+        if (oh < 8)     oh = H - 1;
+        g_ui.rc_overlay = (rect_t){ (W - ow) / 2, (H - oh) / 2, ow, oh };
     } else {
-
-        int ow = W - 6;
-        if (ow > 96)
-            ow = 96;
-        if (ow < 20)
-            ow = W;
-        int oh = H - 4;
-        if (oh > 30)
-            oh = 30;
-        if (oh < 8)
-            oh = H;
-        g_ui.rc_overlay = (rect_t){ (W - ow) / 2, top + (H - top - oh) / 2, ow, oh };
+        int ow = W - 8;
+        if (ow > 94) ow = 94;
+        if (ow < 20) ow = W;
+        int oh = H - 6;
+        if (oh > 30) oh = 30;
+        if (oh < 8)  oh = H - 2;
+        if (oh < 4)  oh = H;
+        g_ui.rc_overlay = (rect_t){ (W - ow) / 2, (H - oh) / 2, ow, oh };
     }
 }
 
-static void draw_topbar(struct ncplane *n, unsigned dimy, unsigned dimx)
+static void fmt_opt_i(char *out, size_t n, const char *fmt, int v)
 {
-    (void)dimy;
+    if (v < 0)
+        snprintf(out, n, "--");
+    else
+        snprintf(out, n, fmt, v);
+}
+
+static void draw_header(struct ncplane *n, unsigned dimy, unsigned dimx)
+{
+    const palette_t *pal = ui_palette(g_prefs.theme);
+    const hw_state_t *hw = g_ui.hw;
+    int W = (int)dimx;
+
+    if (g_ui.rc_rail.w > 0) {
+        /* wide Konsept C header: brand + model left, live summary right */
+        char right[128], ct[16], gt[16], rc[16], bp[16], hz[16];
+        fmt_opt_i(ct, sizeof(ct), "%d°", hw->cpu_temp);
+        fmt_opt_i(gt, sizeof(gt), "%d°", hw->gpu_temp);
+        fmt_opt_i(rc, sizeof(rc), "%d", hw->rpm_cpu);
+        fmt_opt_i(bp, sizeof(bp), "%d%%", hw->bat_pct);
+        if (hw->hz_cur > 0)
+            snprintf(hz, sizeof(hz), "%d Hz", hw->hz_cur);
+        else
+            snprintf(hz, sizeof(hz), "-- Hz");
+        snprintf(right, sizeof(right), "%s · %s · %s/%s · %s rpm · %s%s",
+                 hw_profile_name(hw->profile), hz, ct, gt, rc, bp,
+                 hw->ac_online ? " AC" : "");
+
+        int rw = ut_cells(right);
+        int left_max = W - rw - 4;
+        if (left_max < 10)
+            left_max = W - 2;
+
+        ncplane_set_channels(n, ui_ch(pal->accent, false));
+        ncplane_set_styles(n, NCSTYLE_BOLD);
+        ncplane_putstr_yx(n, 0, 1, "ctron");
+        ncplane_set_styles(n, NCSTYLE_NONE);
+
+        if (left_max > 8) {
+            char mdl[96];
+            snprintf(mdl, sizeof(mdl), " · %s", hw->model);
+            ui_putln(n, 6, 0, left_max - 6, mdl, pal->muted, false);
+        }
+        if (W - rw - 1 > 8)
+            ui_putln(n, W - rw - 1, 0, rw + 1, right, pal->muted, false);
+    } else {
+        /* narrow fallback: inline clickable tabs across row 0 */
+        static const char *const SHORT_N[VIEW_COUNT] = {
+            "1 Power", "2 Fans", "3 System", "4 Snaps", "5 Telem"
+        };
+        int cx = 1;
+        for (int i = 0; i < VIEW_COUNT; i++) {
+            bool act = (int)g_ui.view == i;
+            int len = ut_cells(SHORT_N[i]);
+            if (cx + len >= W)
+                break;
+            ncplane_set_channels(n, ui_ch(act ? pal->accent : pal->muted, act));
+            ncplane_set_styles(n, act ? NCSTYLE_BOLD : NCSTYLE_NONE);
+            ncplane_putstr_yx(n, 0, cx, SHORT_N[i]);
+            ncplane_set_styles(n, NCSTYLE_NONE);
+            tgt_register(cx, 0, len, 1, TGT(TGT_PANEL_RAIL, i));
+            cx += len + 2;
+        }
+    }
+
+    if (dimy >= 6) {
+        ui_hline(n, 0, 1, W, pal->border);
+        if (g_ui.rc_rail.w > 0) {
+            ncplane_set_channels(n, ui_ch(pal->border, false));
+            ncplane_putstr_yx(n, 1, g_ui.rc_rail.w, "┬");
+        }
+    }
+}
+
+static int total_staged_edits(void)
+{
+    return pw_staged_count() + sys_staged_count() +
+           (g_ui.hw->fan_staged ? 1 : 0);
+}
+
+static void rail_kv(struct ncplane *n, int x, int y, int w,
+                    const char *k, const char *v, uint32_t vfg)
+{
+    const palette_t *pal = ui_palette(g_prefs.theme);
+    ui_putln(n, x, y, 6, k, pal->muted, false);
+    int vw = ut_cells(v);
+    int vx = x + w - vw;
+    if (vx < x + 6)
+        vx = x + 6;
+    ui_putln(n, vx, y, x + w - vx, v, vfg, false);
+}
+
+static void draw_rail(struct ncplane *n, const rect_t *r)
+{
+    if (r->w <= 0 || r->h < 6)
+        return;
+    const palette_t *pal = ui_palette(g_prefs.theme);
+    const hw_state_t *hw = g_ui.hw;
+    int x = r->x + 1, w = r->w - 2;
+
+    ui_putln(n, x, r->y, w, "VIEWS", pal->muted, true);
+
+    bool dirty_v[VIEW_COUNT] = {
+        pw_staged_count() > 0,
+        hw->fan_staged,
+        sys_staged_count() > 0,
+        false,
+        false,
+    };
+
+    for (int i = 0; i < VIEW_COUNT && r->y + 1 + i < r->y + r->h; i++) {
+        int y = r->y + 1 + i;
+        bool act = (int)g_ui.view == i;
+        ncplane_set_channels(n, ui_ch(act ? pal->accent : pal->text, act));
+        ncplane_set_styles(n, act ? NCSTYLE_BOLD : NCSTYLE_NONE);
+        if (act) {
+            ncplane_cursor_move_yx(n, y, x);
+            for (int c = 0; c < w; c++)
+                ncplane_putchar(n, ' ');
+        }
+        char lab[32];
+        snprintf(lab, sizeof(lab), "%s%s", act ? "▸ " : "  ", VIEW_NAMES[i]);
+        ui_trunc(lab, w - 3);
+        ncplane_putstr_yx(n, y, x, lab);
+        ncplane_set_styles(n, NCSTYLE_NONE);
+
+        if (dirty_v[i]) {
+            ncplane_set_channels(n, ui_ch(pal->warn, act));
+            ncplane_putstr_yx(n, y, x + w - 3, "●");
+        }
+        char num[4];
+        snprintf(num, sizeof(num), "%d", i + 1);
+        ncplane_set_channels(n, ui_ch(pal->muted, act));
+        ncplane_putstr_yx(n, y, x + w - 1, num);
+        tgt_register(x, y, w, 1, TGT(TGT_PANEL_RAIL, i));
+    }
+
+    int sep_y = r->y + 1 + VIEW_COUNT + 1;
+    if (sep_y + 2 < r->y + r->h) {
+        ui_hline(n, x, sep_y, w, pal->border);
+        int y = sep_y + 1;
+        ui_putln(n, x, y++, w, "LIVE", pal->muted, true);
+
+        char v[48], ct[16], gt[16];
+        if (y < r->y + r->h) {
+            fmt_opt_i(ct, sizeof(ct), "%d°C", hw->cpu_temp);
+            if (hw->cpu_mhz_cur > 0)
+                snprintf(v, sizeof(v), "%s · %.1fG", ct, hw->cpu_mhz_cur / 1000.0);
+            else
+                snprintf(v, sizeof(v), "%s", ct);
+            rail_kv(n, x, y++, w, "CPU", v, pal->text);
+        }
+        if (y < r->y + r->h) {
+            fmt_opt_i(gt, sizeof(gt), "%d°C", hw->gpu_temp);
+            if (hw->gpu_mw > 0)
+                snprintf(v, sizeof(v), "%s · %dW", gt, hw->gpu_mw / 1000);
+            else
+                snprintf(v, sizeof(v), "%s", gt);
+            rail_kv(n, x, y++, w, "GPU", v, pal->text);
+        }
+        if (y < r->y + r->h) {
+            char r1[16], r2[16];
+            fmt_opt_i(r1, sizeof(r1), "%d", hw->rpm_cpu);
+            fmt_opt_i(r2, sizeof(r2), "%d", hw->rpm_gpu);
+            snprintf(v, sizeof(v), "%s/%s", r1, r2);
+            rail_kv(n, x, y++, w, "Fan", v, pal->text);
+        }
+        if (y < r->y + r->h) {
+            char bp[16], pwr[24];
+            fmt_opt_i(bp, sizeof(bp), "%d%%", hw->bat_pct);
+            if (hw->ac_online) {
+                snprintf(v, sizeof(v), "%s AC", bp);
+            } else if (hw->bat_mw_known) {
+                hw_fmt_power(pwr, sizeof(pwr), true, hw->bat_mw);
+                snprintf(v, sizeof(v), "%s %s", bp, pwr);
+            } else {
+                snprintf(v, sizeof(v), "%s", bp);
+            }
+            rail_kv(n, x, y++, w, "Bat", v, hw->ac_online ? pal->ok : pal->text);
+        }
+        if (y < r->y + r->h) {
+            if (hw->hz_cur > 0)
+                snprintf(v, sizeof(v), "%d Hz", hw->hz_cur);
+            else
+                snprintf(v, sizeof(v), "--");
+            rail_kv(n, x, y++, w, "Hz", v, pal->text);
+        }
+        if (y < r->y + r->h)
+            rail_kv(n, x, y++, w, "Prof", hw_profile_name(hw->profile), pal->text);
+        if (y < r->y + r->h) {
+            int st = total_staged_edits();
+            if (st > 0)
+                snprintf(v, sizeof(v), "%d pending", st);
+            else
+                snprintf(v, sizeof(v), "synced");
+            rail_kv(n, x, y++, w, "Edit", v, st > 0 ? pal->warn : pal->muted);
+        }
+    }
+
+    /* vertical hairline divider between rail and workspace */
+    ui_vline(n, r->x + r->w, r->y, r->h, pal->border);
+}
+
+static void draw_footer(struct ncplane *n, unsigned dimy, unsigned dimx)
+{
+    int H = (int)dimy, W = (int)dimx;
+    if (H < 6 || W < 12)
+        return;
     const palette_t *pal = ui_palette(g_prefs.theme);
 
-    uint64_t ch = 0;
-    ncchannels_set_fg_rgb(&ch, pal->accent);
-    ncchannels_set_bg_rgb(&ch, pal->bg);
-    ncplane_set_channels(n, ch);
-
-    static const char *names[FOC_COUNT] = {
-        "1:snapshots", "2:controls", "3:workspace", "4:telemetry"
-    };
-    /* lay the chips out right-aligned from their real widths: a fixed
-     * dimx-44 stride pushed "4:telemetry" past the last column and
-     * the terminal clipped it away entirely */
-    int total = 0, xs[FOC_COUNT];
-    for (int i = 0; i < FOC_COUNT; i++)
-        total += (int)strlen(names[i]) + (i > 0 ? 2 : 0);
-    int x = (int)dimx - total;
-    for (int i = 0; i < FOC_COUNT; i++) {
-        xs[i] = x;
-        x += (int)strlen(names[i]) + 2;
+    ui_hline(n, 0, H - 3, W, pal->border);
+    if (g_ui.rc_rail.w > 0) {
+        ncplane_set_channels(n, ui_ch(pal->border, false));
+        ncplane_putstr_yx(n, H - 3, g_ui.rc_rail.w, "┴");
     }
 
-    char bar[256];
-    snprintf(bar, sizeof(bar), " ctron — %s ", g_ui.hw->model);
-    ui_trunc(bar, xs[0] > 1 ? xs[0] - 1 : 1);
-    ncplane_set_styles(n, NCSTYLE_BOLD);
-    ncplane_putstr_yx(n, 0, 0, bar);
-    ncplane_set_styles(n, NCSTYLE_NONE);
-
-    for (int i = 0; i < FOC_COUNT; i++) {
-        uint64_t chf = 0;
-        if (i == (int)g_ui.focus) {
-            ncchannels_set_fg_rgb(&chf, 0x000000);
-            ncchannels_set_bg_rgb(&chf, pal->accent);
-            ncplane_set_styles(n, NCSTYLE_BOLD);
+    /* row H-2: live apply progress / toast / staged summary / desc + last log */
+    int sy = H - 2;
+    if (atomic_load(&g_ui.apply_busy)) {
+        static const char spin[] = "|/-\\";
+        static int frame;
+        char ptxt[96], line[160];
+        int pct;
+        ut_progress_get(ptxt, sizeof(ptxt), &pct);
+        long el = (ut_mono_ms() - g_ui.apply_start_ms) / 100;
+        if (pct >= 0)
+            snprintf(line, sizeof(line),
+                     "%c %.20s: %.60s · %d%% · %ld.%ld s · reads paused · q waits",
+                     spin[frame++ % 4], g_ui.apply_what,
+                     ptxt[0] ? ptxt : "working", pct, el / 10, el % 10);
+        else
+            snprintf(line, sizeof(line),
+                     "%c %.20s: %.80s · %ld.%ld s · reads paused · q waits",
+                     spin[frame++ % 4], g_ui.apply_what,
+                     ptxt[0] ? ptxt : "working", el / 10, el % 10);
+        ui_putln(n, 1, sy, W - 2, line, pal->accent, true);
+    } else {
+        bool toast = g_ui.pw_msg_ms > 0 && ut_mono_ms() - g_ui.pw_msg_ms < 5000;
+        const char *lg = ut_log_get(0);
+        if (toast) {
+            ui_putln(n, 1, sy, W - 2, g_ui.pw_msg,
+                     g_ui.pw_msg_fail ? pal->err : pal->ok, true);
         } else {
-            /* muted proved too dim to read — unfocused chips use the
-             * plain text colour, only the focused one inverts */
-            ncchannels_set_fg_rgb(&chf, pal->text);
-            ncchannels_set_bg_rgb(&chf, pal->bg);
-            ncplane_set_styles(n, NCSTYLE_NONE);
+            const char *left = NULL;
+            uint32_t lfg = pal->muted;
+            char stbuf[96];
+            int st = total_staged_edits();
+            if (st > 0 && (g_ui.view == VIEW_POWER || g_ui.view == VIEW_SYSTEM ||
+                           g_ui.view == VIEW_FANS)) {
+                snprintf(stbuf, sizeof(stbuf),
+                         "● %d staged — w apply · r revert", st);
+                left = stbuf;
+                lfg = pal->warn;
+            } else if (g_ui.view == VIEW_POWER) {
+                left = pw_selected_desc();
+            } else if (g_ui.view == VIEW_SYSTEM) {
+                left = sys_selected_desc();
+            }
+            if (left && left[0]) {
+                int lw = W > 80 ? W / 2 : W - 2;
+                ui_putln(n, 1, sy, lw, left, lfg, lfg == pal->warn);
+                if (W > 80 && lg[0]) {
+                    int rw = ut_cells(lg);
+                    int maxr = W - lw - 4;
+                    if (rw > maxr) rw = maxr;
+                    if (rw > 8)
+                        ui_putln(n, W - rw - 1, sy, rw, lg, pal->muted, false);
+                }
+            } else if (lg[0]) {
+                ui_putln(n, 1, sy, W - 2, lg, pal->muted, false);
+            }
         }
-        ncplane_set_channels(n, chf);
-        ncplane_putstr_yx(n, 0, xs[i], names[i]);
+        tgt_register(0, sy, W, 1, TGT(TGT_PANEL_LOG, 1));
     }
-    ncplane_set_styles(n, NCSTYLE_NONE);
+
+    /* row H-1: contextual keybar */
+    int ky = H - 1;
+    bool dirty_here = (g_ui.view == VIEW_POWER && pw_staged_count() > 0) ||
+                      (g_ui.view == VIEW_SYSTEM && sys_staged_count() > 0) ||
+                      (g_ui.view == VIEW_FANS && g_ui.hw->fan_staged);
+    if (g_ui.view == VIEW_POWER) {
+        const ui_hint_t h[] = {
+            { "1-5/Tab", "view", false }, { "j/k", "row", false },
+            { "h/l", "step", false },     { "e", "edit", false },
+            { "w", "apply", dirty_here }, { "r", "revert", false },
+            { "c", "cores", false },      { "L", "log", false },
+            { ",", "prefs", false },      { "?", "help", false },
+            { "q", "quit", false },
+        };
+        ui_keybar(n, 1, ky, W - 2, h, (int)(sizeof(h) / sizeof(h[0])));
+    } else if (g_ui.view == VIEW_FANS) {
+        const ui_hint_t h[] = {
+            { "1-5/Tab", "view", false }, { "c/g", "cpu·gpu", false },
+            { "</>", "pt", false },       { "hjkl", "nudge", false },
+            { "e/p", "T/P", false },      { "m", "presets", false },
+            { "+/-", "add·del", false },  { "i", "grid", false },
+            { "o", "on/off", false },     { "w", "write", dirty_here },
+            { "L", "log", false },        { "q", "quit", false },
+        };
+        ui_keybar(n, 1, ky, W - 2, h, (int)(sizeof(h) / sizeof(h[0])));
+    } else if (g_ui.view == VIEW_SYSTEM) {
+        const ui_hint_t h[] = {
+            { "1-5/Tab", "view", false }, { "j/k", "row", false },
+            { "h/l", "step", false },     { "e", "edit", false },
+            { "w/Enter", "apply", dirty_here }, { "r", "revert", false },
+            { "b", "daeboard", false },   { "L", "log", false },
+            { ",", "prefs", false },      { "q", "quit", false },
+        };
+        ui_keybar(n, 1, ky, W - 2, h, (int)(sizeof(h) / sizeof(h[0])));
+    } else if (g_ui.view == VIEW_SNAPSHOTS) {
+        const ui_hint_t h[] = {
+            { "1-5/Tab", "view", false }, { "j/k", "row", false },
+            { "Enter", "apply", false },  { "s", "save", false },
+            { "n", "new", false },        { "r", "rename", false },
+            { "c", "note", false },       { "dd", "del", false },
+            { "L", "log", false },        { ",", "prefs", false },
+            { "q", "quit", false },
+        };
+        ui_keybar(n, 1, ky, W - 2, h, (int)(sizeof(h) / sizeof(h[0])));
+    } else if (g_ui.telem_detail >= 0) {
+        const ui_hint_t h[] = {
+            { "Esc", "grid", false },     { "h/l", "section", false },
+            { "1-8", "jump", false },     { "r", "reset", false },
+            { "s", "win/since", false },  { "L", "log", false },
+            { ",", "prefs", false },      { "q", "quit", false },
+        };
+        ui_keybar(n, 1, ky, W - 2, h, (int)(sizeof(h) / sizeof(h[0])));
+    } else {
+        const ui_hint_t h[] = {
+            { "1-5/Tab", "view", false }, { "hjkl", "grid", false },
+            { "Enter", "detail", false }, { "r", "reset", false },
+            { "s", "win/since", false },  { "L", "log", false },
+            { ",", "prefs", false },      { "q", "quit", false },
+        };
+        ui_keybar(n, 1, ky, W - 2, h, (int)(sizeof(h) / sizeof(h[0])));
+    }
 }
 
 /* ---- mouse --------------------------------------------------------------- */
 
-/* v1 lesson: pixel-capable terminals report pixel coords; map back to cells
- * and clamp. Only BUTTON1 press acts; drags/releases/edges are ignored. */
 static void handle_mouse(struct ncplane *stdn, const struct ncinput *ni, uint32_t key)
 {
-    /* a running apply owns the write path: dispatch_key locks keys for
-     * that reason and mouse clicks must not jump the queue */
     if (atomic_load(&g_ui.apply_busy))
         return;
     int mx = ni->x, my = ni->y;
     unsigned dimy = 0, dimx = 0, cdy = 0, cdx = 0;
     ncplane_dim_yx(stdn, &dimy, &dimx);
     ncplane_pixel_geom(stdn, NULL, NULL, &cdy, &cdx, NULL, NULL);
-    if (cdx > 1 && mx >= (int)dimx * 2)
-        mx = mx / (int)cdx;
-    if (cdy > 1 && my >= (int)dimy * 2)
-        my = my / (int)cdy;
+    if (cdx > 1 && mx >= (int)dimx * 2) mx /= (int)cdx;
+    if (cdy > 1 && my >= (int)dimy * 2) my /= (int)cdy;
     if (mx < 0 || my < 0)
         return;
-    if (dimx > 0 && mx >= (int)dimx)
-        mx = (int)dimx - 1;
-    if (dimy > 0 && my >= (int)dimy)
-        my = (int)dimy - 1;
+    if (dimx > 0 && mx >= (int)dimx) mx = (int)dimx - 1;
+    if (dimy > 0 && my >= (int)dimy) my = (int)dimy - 1;
 
     if (key != NCKEY_BUTTON1)
         return;
 
-    /* the fullscreen telemetry overlay is the top layer while open
-     * (it draws first, so it eats clicks first): a section-box click
-     * selects it / second click opens the detail; a click outside
-     * closes, like every other overlay (btop habit) */
-    if (g_ui.telem_full) {
-        const rect_t *w = &g_ui.rc_overlay;
-        if (mx < w->x || mx >= w->x + w->w || my < w->y || my >= w->y + w->h) {
-            g_ui.telem_full = false;
-            g_ui.telem_detail = -1;
-            return;
-        }
-        int t = tgt_find(mx, my);
-        if (((t >> 24) & 0x7f) == TGT_PANEL_TELEM)
-            panel_telem_full_act(t & TGT_ID_MASK);
+    const rect_t *w = &g_ui.rc_overlay;
+    bool outside = (mx < w->x || mx >= w->x + w->w || my < w->y || my >= w->y + w->h);
+
+    if (g_ui.help_overlay) {
+        if (outside) g_ui.help_overlay = false;
         return;
     }
-
     if (g_ui.log_overlay) {
-        const rect_t *w = &g_ui.rc_overlay;
-        if (mx < w->x || mx >= w->x + w->w || my < w->y || my >= w->y + w->h)
-            g_ui.log_overlay = false;
+        if (outside) g_ui.log_overlay = false;
         return;
     }
-
-    /* while the settings window is open, it is the only clickable layer:
-     * a click outside closes it (btop habit), inside only its rows act */
     if (g_ui.db_overlay) {
-        const rect_t *w = &g_ui.rc_overlay;
-        int t;
-        if (mx < w->x || mx >= w->x + w->w || my < w->y || my >= w->y + w->h) {
-            editor_daeboard_close();
-            return;
-        }
-        t = tgt_find(mx, my);
+        if (outside) { editor_daeboard_close(); return; }
+        int t = tgt_find(mx, my);
         if (((t >> 24) & 0x7f) == TGT_PANEL_DAEBOARD)
             editor_daeboard_act(t & TGT_ID_MASK);
         return;
     }
     if (g_ui.cf_overlay) {
-        const rect_t *w = &g_ui.rc_overlay;
-        if (mx < w->x || mx >= w->x + w->w || my < w->y || my >= w->y + w->h) {
-            g_ui.cf_overlay = false;
-            return;
-        }
+        if (outside) { g_ui.cf_overlay = false; return; }
         int t = tgt_find(mx, my);
         if (((t >> 24) & 0x7f) == TGT_PANEL_COREFREQ)
             editor_corefreq_act(t & TGT_ID_MASK);
         return;
     }
     if (g_ui.fe_presets_overlay) {
-        const rect_t *w = &g_ui.rc_overlay;
-        if (mx < w->x || mx >= w->x + w->w || my < w->y || my >= w->y + w->h) {
-            g_ui.fe_presets_overlay = false;
-            return;
-        }
+        if (outside) { g_ui.fe_presets_overlay = false; return; }
         int t = tgt_find(mx, my);
         if (((t >> 24) & 0x7f) == TGT_PANEL_FAN_PRESETS)
             editor_fan_presets_act(t & TGT_ID_MASK);
         return;
     }
     if (g_ui.settings_overlay) {
-
-        const rect_t *w = &g_ui.rc_overlay;
-        if (mx < w->x || mx >= w->x + w->w || my < w->y || my >= w->y + w->h) {
-            g_ui.settings_overlay = false;
-            g_ui.set_del_arm = -1;
-            return;
-        }
+        if (outside) { g_ui.settings_overlay = false; g_ui.set_del_arm = -1; return; }
         int t = tgt_find(mx, my);
         if (((t >> 24) & 0x7f) == TGT_PANEL_SETTINGS)
             panel_settings_act(t & TGT_ID_MASK);
         return;
     }
 
-    /* fan graph hit test first (registered rect from last draw);
-     * meaningless while the settings overlay covers everything */
-    if (g_ui.ws_view == WSV_FAN && g_ui.focus == FOC_WORKSPACE) {
+    if (g_ui.view == VIEW_FANS) {
         const rect_t *g = editor_fan_graph();
         if (g->w > 0 && mx >= g->x && mx < g->x + g->w && my >= g->y && my < g->y + g->h) {
-            g_ui.prof_del_arm = -1;
             editor_fan_act(0, mx - g->x, my - g->y);
             return;
         }
@@ -621,20 +990,17 @@ static void handle_mouse(struct ncplane *stdn, const struct ncinput *ni, uint32_
         g_ui.prof_del_arm = -1;
 
     switch (panel) {
-    case TGT_PANEL_TOPBAR:
-        g_ui.focus = (focus_t)ut_clamp_i(id, 0, FOC_COUNT - 1);
+    case TGT_PANEL_RAIL:
+        ui_set_view((ui_view_t)ut_clamp_i(id, 0, VIEW_COUNT - 1));
         break;
     case TGT_PANEL_PROFILES:
-        g_ui.focus = FOC_PROFILES;
         panel_profiles_act(id);
         break;
-    case TGT_PANEL_CONTROLS:
-        g_ui.focus = FOC_CONTROLS;
-        panel_controls_act(id);
-        break;
     case TGT_PANEL_WORKSPACE:
-        g_ui.focus = FOC_WORKSPACE;
         panel_workspace_act(id);
+        break;
+    case TGT_PANEL_TELEM:
+        panel_telem_full_act(id);
         break;
     case TGT_PANEL_SETTINGS:
         panel_settings_act(id);
@@ -650,14 +1016,6 @@ static void handle_mouse(struct ncplane *stdn, const struct ncinput *ni, uint32_
 
 /* ---- background apply worker ------------------------------------------- */
 
-/* Post-key refresh rate limit: every keypress used to run a full
- * hw_refresh_fast (~70 file reads) plus telem sampling; navigation
- * keys don't need data that fresh, and a held key ran it at the
- * keyboard repeat rate. Timeout ticks, resizes and apply completion
- * always refresh; a key-driven refresh is dropped when the last one
- * is less than KEY_REFRESH_MIN_MS old. Writes are unaffected: applies
- * refresh in the worker (reads paused anyway), POWER entry runs
- * hw_refresh_live, kbd/battery rows update hw in place. */
 #define KEY_REFRESH_MIN_MS 120
 static long s_last_refresh_ms;
 
@@ -674,18 +1032,8 @@ static void maybe_refresh(hw_state_t *hw, bool force)
     s_last_refresh_ms = now;
 }
 
-/* Draw-side snapshot: while the worker runs, g_ui.hw points here so
- * every panel draw reads a frozen, self-consistent frame instead of
- * racing the worker's writes to the real hw (BULGU 5, 2026-11-17).
- * Swapped in at spawn (before the thread exists) and back in
- * finalize/quit — both UI-thread, single-writer. */
 static hw_state_t s_hw_frozen;
 
-/* the worker: WRITE phase only — the REAL hw + write layer +
- * ut_log/ut_progress. No notcurses, no g_ui mutation (reads of
- * immutable-during-busy staging/modes are fine). Results go to the
- * plain fields the UI thread consumes in finalize_apply() AFTER
- * apply_busy drops. */
 static void *apply_worker(void *arg)
 {
     (void)arg;
@@ -693,7 +1041,7 @@ static void *apply_worker(void *arg)
 
     switch (g_ui.apply_kind) {
     case APPLY_SNAPSHOT: {
-        char err[192] = ""; /* profile_import writes it only on failure */
+        char err[192] = "";
         g_ui.apply_ok = profile_import(g_ui.apply_arg, hw, err, sizeof(err)) == 0;
         snprintf(g_ui.apply_sum, sizeof(g_ui.apply_sum), "%s", err);
         ut_progress("snapshot: fan curves");
@@ -708,6 +1056,14 @@ static void *apply_worker(void *arg)
         g_ui.apply_fails = fails;
         break;
     }
+    case APPLY_SYSTEM: {
+        int fails = 0;
+        g_ui.apply_sum[0] = '\0';
+        g_ui.apply_ok = true;
+        sys_apply_writes(hw, &fails, g_ui.apply_sum, sizeof(g_ui.apply_sum));
+        g_ui.apply_fails = fails;
+        break;
+    }
     case APPLY_MODE: {
         int idx = mode_find(g_ui.modes, g_ui.mode_n, g_ui.apply_arg);
         if (idx < 0) {
@@ -715,7 +1071,7 @@ static void *apply_worker(void *arg)
             snprintf(g_ui.apply_sum, sizeof(g_ui.apply_sum), "no such mode");
             break;
         }
-        char err[128] = ""; /* mode_apply writes it only on failure */
+        char err[128] = "";
         g_ui.apply_ok = mode_apply(hw, g_ui.modes[idx].steps, err, sizeof(err)) == 0;
         snprintf(g_ui.apply_sum, sizeof(g_ui.apply_sum), "%s", err);
         hw_refresh_live(hw);
@@ -725,7 +1081,6 @@ static void *apply_worker(void *arg)
         break;
     }
 
-    /* the UI thread finalizes AFTER observing this drop */
     atomic_store(&g_ui.apply_busy, false);
     return NULL;
 }
@@ -749,13 +1104,11 @@ void ui_spawn_apply(int kind, const char *what, const char *arg)
     ut_progress_clear();
     ut_progress("%s: starting", g_ui.apply_what);
 
-    /* freeze the draw view before the thread exists: the worker writes
-     * the real hw (apply_hw), every draw during busy reads s_hw_frozen */
     g_ui.apply_hw = g_ui.hw;
     s_hw_frozen = *g_ui.hw;
     g_ui.hw = &s_hw_frozen;
 
-    atomic_store(&g_ui.apply_busy, true); /* release: fields above are set */
+    atomic_store(&g_ui.apply_busy, true);
     if (pthread_create(&g_ui.apply_tid, NULL, apply_worker, NULL) == 0) {
         g_ui.apply_spawned = true;
     } else {
@@ -765,13 +1118,9 @@ void ui_spawn_apply(int kind, const char *what, const char *arg)
     }
 }
 
-/* UI-thread completion: everything that touches g_ui/toasts/logs the
- * harness may be waiting on — runs strictly AFTER apply_busy dropped,
- * and each kind emits exactly ONE completion line (the footer shows
- * only the newest entry, so split lines would bury each other) */
 static void finalize_apply(void)
 {
-    g_ui.hw = g_ui.apply_hw; /* back to the real hw the worker wrote */
+    g_ui.hw = g_ui.apply_hw;
     long took = (ut_mono_ms() - g_ui.apply_start_ms) / 100;
     switch (g_ui.apply_kind) {
     case APPLY_SNAPSHOT:
@@ -783,10 +1132,14 @@ static void finalize_apply(void)
                    g_ui.apply_sum[0] ? g_ui.apply_sum : "?",
                    took / 10, took % 10);
         pw_sync_from_hw();
+        sys_sync_from_hw();
         break;
-    case APPLY_POWER: {
+    case APPLY_POWER:
+    case APPLY_SYSTEM: {
+        const char *tag = g_ui.apply_kind == APPLY_POWER ? "power" : "system";
         pw_sync_from_hw();
-        ut_log("power apply: %s · %ld.%ld s",
+        sys_sync_from_hw();
+        ut_log("%s apply: %s · %ld.%ld s", tag,
                g_ui.apply_fails ? "some fields FAILED (privilege?)" : "ok",
                took / 10, took % 10);
         if (g_ui.apply_sum[0]) {
@@ -814,6 +1167,7 @@ static void finalize_apply(void)
                    took / 10, took % 10);
         }
         pw_sync_from_hw();
+        sys_sync_from_hw();
         break;
     }
     default:
@@ -821,87 +1175,32 @@ static void finalize_apply(void)
     }
     ut_progress_clear();
     g_ui.apply_warned = false;
-    s_last_refresh_ms = 0; /* first frame after an apply refreshes data */
+    s_last_refresh_ms = 0;
 }
 
-/* ---- main loop ------------------------------------------------------------ */
+/* ---- key dispatch (unified conflict-free keymap) ------------------------ */
 
-/* Quit with a guard: staged POWER edits are dropped silently otherwise,
- * so the first q just warns and the second one quits. A running apply
- * is never killed — the second q asks to quit the moment it finishes. */
 static void try_quit(void)
 {
     if (atomic_load(&g_ui.apply_busy)) {
         if (!g_ui.quit_pending) {
             atomic_store(&g_ui.quit_pending, true);
-            ut_log("apply running — quitting when it finishes (q again to "
-                   "quit immediately after)");
+            ut_log("apply running — quitting when it finishes");
             return;
         }
         ut_log("still applying — waiting for it to finish");
         return;
     }
-    if (g_ui.pw_dirty && !g_ui.pw_quit_warned) {
+    if ((g_ui.pw_dirty || g_ui.sys_dirty) && !g_ui.pw_quit_warned) {
         g_ui.pw_quit_warned = true;
-        ut_log("POWER: staged edits pending — q again to quit");
+        ut_log("staged edits pending — press q again to quit without applying");
         return;
     }
     g_ui.running = false;
 }
 
-/* shift+arrows: focus the panel in that direction — panels BESIDE the
- * current one first (perpendicular span overlap, so shift+right from
- * the left column lands on the workspace, not the full-width telemetry
- * strip below it), else the nearest centre diagonally. The swap_left /
- * telem_top layout variants need no special cases; collapsed panels
- * (zero rect) are never targets; no wrap — an arrow pointing off the
- * layout keeps the focus where it is */
-static bool fw_span_overlap(const rect_t *a, const rect_t *b, bool vertical)
-{
-    if (vertical)
-        return a->y < b->y + b->h && b->y < a->y + a->h;
-    return a->x < b->x + b->w && b->x < a->x + a->w;
-}
-
-static void focus_move(int dx, int dy)
-{
-    const rect_t *r[FOC_COUNT];
-    r[FOC_PROFILES] = &g_ui.rc_prof;
-    r[FOC_CONTROLS] = &g_ui.rc_ctl;
-    r[FOC_WORKSPACE] = &g_ui.rc_ws;
-    r[FOC_TELEM] = &g_ui.rc_telem;
-    const rect_t *cur = r[g_ui.focus];
-    int ccx = cur->x + cur->w / 2, ccy = cur->y + cur->h / 2;
-    for (int pass = 0; pass < 2; pass++) {
-        int best = -1;
-        long bestd = 0;
-        for (int i = 0; i < FOC_COUNT; i++) {
-            if (i == (int)g_ui.focus || r[i]->w <= 0 || r[i]->h <= 0)
-                continue;
-            int cx = r[i]->x + r[i]->w / 2, cy = r[i]->y + r[i]->h / 2;
-            if ((dx < 0 && cx >= ccx) || (dx > 0 && cx <= ccx) ||
-                (dy < 0 && cy >= ccy) || (dy > 0 && cy <= ccy))
-                continue;
-            if (pass == 0 && !fw_span_overlap(cur, r[i], dx != 0))
-                continue;
-            long d = (long)(cx - ccx) * (cx - ccx) +
-                     (long)(cy - ccy) * (cy - ccy);
-            if (best < 0 || d < bestd) {
-                best = i;
-                bestd = d;
-            }
-        }
-        if (best >= 0) {
-            g_ui.focus = (focus_t)best;
-            return;
-        }
-    }
-}
-
 static void dispatch_key(uint32_t key, const struct ncinput *ni)
 {
-    /* a running apply owns the machine's write path: only q gets
-     * through (it just schedules the quit) */
     if (atomic_load(&g_ui.apply_busy) && key != 'q' && key != 'Q') {
         if (!g_ui.apply_warned) {
             ut_log("apply running — keys paused, q to queue quit");
@@ -910,9 +1209,7 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
         return;
     }
 
-    /* Notcurses delivers Ctrl+letter as letter + NCKEY_MOD_CTRL rather
-     * than raw control codes. Normalize readline editing chords once here
-     * so every tinput_t consumer sees 0x01/0x05/0x0b/0x15/0x17 cleanly. */
+    /* normalize Ctrl+letter readline chords once for all tinput_t widgets */
     if (ncinput_ctrl_p(ni) && !ncinput_alt_p(ni)) {
         switch (key) {
         case 'a': case 'A': key = 0x01; break;
@@ -924,21 +1221,14 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
         }
     }
 
-    /* fullscreen telemetry is read-only: t/T closes from either mode,
-     * q quits the app (rule 5), everything else belongs to the
-     * section navigation / detail handler */
-    if (g_ui.telem_full) {
-        if (key == 't' || key == 'T') {
-            g_ui.telem_full = false;
-            g_ui.telem_detail = -1;
-        } else if (key == 'q' || key == 'Q') {
+    /* 1. Floating overlays swallow keys first; Esc always closes */
+    if (g_ui.help_overlay) {
+        if (key == NCKEY_ESC || key == '?' || key == 'h')
+            g_ui.help_overlay = false;
+        else if (key == 'q' || key == 'Q')
             try_quit();
-        } else {
-            panel_telem_full_key(key);
-        }
         return;
     }
-
     if (g_ui.log_overlay) {
         int n = ut_log_count();
         switch (key) {
@@ -974,29 +1264,6 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
         }
         return;
     }
-
-    /* typing modes swallow printable keys first */
-    if (g_ui.prof_input != 0 && g_ui.focus == FOC_PROFILES) {
-        panel_profiles_key(key);
-        return;
-    }
-    if (g_ui.fe_input && g_ui.focus == FOC_WORKSPACE && g_ui.ws_view == WSV_FAN) {
-        editor_fan_key(key);
-        return;
-    }
-    if (g_ui.lt_hex_active && g_ui.focus == FOC_WORKSPACE && g_ui.ws_view == WSV_LIGHT) {
-        panel_workspace_key(key);
-        return;
-    }
-    if (g_ui.pw_typing && g_ui.focus == FOC_WORKSPACE && g_ui.ws_view == WSV_POWER) {
-        panel_workspace_key(key);
-        return;
-    }
-    if (g_ui.md_field >= 0 && g_ui.settings_overlay) {
-        panel_settings_key(key);
-        return;
-    }
-
     if (g_ui.db_overlay) {
         editor_daeboard_key(key);
         return;
@@ -1010,8 +1277,11 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
         return;
     }
     if (g_ui.settings_overlay) {
-
-        if (key == NCKEY_ESC || key == 's' || key == 'S') {
+        if (g_ui.md_field >= 0) {
+            panel_settings_key(key);
+            return;
+        }
+        if (key == NCKEY_ESC || key == ',') {
             g_ui.settings_overlay = false;
             g_ui.set_del_arm = -1;
             return;
@@ -1024,133 +1294,112 @@ static void dispatch_key(uint32_t key, const struct ncinput *ni)
         return;
     }
 
-    /* the focused snapshots panel owns s (save): the global s/ESC
-     * settings shortcut used to swallow it, so keyboard saving never
-     * worked — only the Save button did */
-    if (g_ui.focus == FOC_PROFILES && (key == 's' || key == 'S')) {
+    /* 2. Active inline text-input fields swallow printable keys */
+    if (g_ui.view == VIEW_SNAPSHOTS && g_ui.prof_input != 0) {
         panel_profiles_key(key);
         return;
     }
-
-    /* 'T' opens fullscreen telemetry EVERYWHERE. Lowercase 't' does
-     * too, except where it already starts exact-value typing
-     * (FAN/POWER views); the overlays above have returned by now, so
-     * their own key handlers are untouched. */
-    if (key == 'T' ||
-        (key == 't' &&
-         !(g_ui.focus == FOC_WORKSPACE &&
-           (g_ui.ws_view == WSV_FAN || g_ui.ws_view == WSV_POWER)))) {
-        g_ui.prof_del_arm = -1;
-        g_ui.telem_full = true;
+    if (g_ui.view == VIEW_FANS && g_ui.fe_input != 0) {
+        editor_fan_key(key);
+        return;
+    }
+    if (g_ui.view == VIEW_POWER && g_ui.pw_typing) {
+        panel_workspace_key(key);
+        return;
+    }
+    if (g_ui.view == VIEW_SYSTEM && (g_ui.lt_hex_active || g_ui.sys_bat_typing)) {
+        panel_workspace_key(key);
         return;
     }
 
-    /* 'L' opens the floating event log viewer everywhere (typing modes
-     * and overlays already returned above). */
-    if (key == 'L') {
-        g_ui.prof_del_arm = -1;
-        g_ui.log_overlay = true;
-        g_ui.log_scroll = 0;
+    /* 3. Telemetry detail page owns 1..8 section jumps + Esc back to grid */
+    if (g_ui.view == VIEW_TELEM && g_ui.telem_detail >= 0) {
+        if (key == 'q' || key == 'Q') { try_quit(); return; }
+        if (key == ',') { settings_open(); return; }
+        if (key == 'L') { g_ui.log_overlay = true; g_ui.log_scroll = 0; return; }
+        if (key == '?') { g_ui.help_overlay = true; return; }
+        if (key == 't' || key == 'T') {
+            g_ui.telem_detail = -1;
+            ui_set_view(g_ui.prev_view != VIEW_TELEM ? g_ui.prev_view : VIEW_POWER);
+            return;
+        }
+        if (key == NCKEY_TAB) {
+            g_ui.telem_detail = -1;
+            ui_set_view((ui_view_t)((g_ui.view + (ncinput_shift_p(ni) ? VIEW_COUNT - 1 : 1)) % VIEW_COUNT));
+            return;
+        }
+        panel_telem_full_key(key);
         return;
     }
 
+    /* 4. Global navigation & overlays (consistent across all 5 views) */
     switch (key) {
     case 'q':
     case 'Q':
         g_ui.prof_del_arm = -1;
         try_quit();
         return;
-    case NCKEY_ESC:
-    case 's':
-    case 'S':
+    case ',':
         g_ui.prof_del_arm = -1;
         settings_open();
         return;
-    case NCKEY_TAB:
+    case 'L':
         g_ui.prof_del_arm = -1;
-        g_ui.focus = (focus_t)((g_ui.focus + (ni->shift ? FOC_COUNT - 1 : 1)) % FOC_COUNT);
+        g_ui.log_overlay = true;
+        g_ui.log_scroll = 0;
         return;
-    case '1': g_ui.prof_del_arm = -1; g_ui.focus = FOC_PROFILES; return;
-    case '2': g_ui.prof_del_arm = -1; g_ui.focus = FOC_CONTROLS; return;
-    case '3': g_ui.prof_del_arm = -1; g_ui.focus = FOC_WORKSPACE; return;
-    case '4': g_ui.prof_del_arm = -1; g_ui.focus = FOC_TELEM; return;
-    /* 5..8: workspace views, globally — f/p/l are taken by the fan
-     * editor and the power/light rows, so the letters never worked as
-     * reliable view keys; digits continue the 1..4 panel story and no
-     * view binds them */
-    case '5':
-        g_ui.prof_del_arm = -1;
-        g_ui.focus = FOC_WORKSPACE;
-        ws_set_view(WSV_FAN);
-        return;
-    case '6':
-        g_ui.prof_del_arm = -1;
-        g_ui.focus = FOC_WORKSPACE;
-        ws_set_view(WSV_POWER);
-        return;
-    case '7':
-        g_ui.prof_del_arm = -1;
-        g_ui.focus = FOC_WORKSPACE;
-        ws_set_view(WSV_LIGHT);
-        return;
-    case '8':
     case '?':
         g_ui.prof_del_arm = -1;
-        g_ui.focus = FOC_WORKSPACE;
-        ws_set_view(WSV_HELP);
+        g_ui.help_overlay = true;
+        return;
+    case 't':
+    case 'T':
+        g_ui.prof_del_arm = -1;
+        if (g_ui.view == VIEW_TELEM)
+            ui_set_view(g_ui.prev_view != VIEW_TELEM ? g_ui.prev_view : VIEW_POWER);
+        else
+            ui_set_view(VIEW_TELEM);
+        return;
+    case NCKEY_TAB:
+        ui_set_view((ui_view_t)((g_ui.view + (ncinput_shift_p(ni) ? VIEW_COUNT - 1 : 1)) % VIEW_COUNT));
+        return;
+    case '1': ui_set_view(VIEW_POWER);     return;
+    case '2': ui_set_view(VIEW_FANS);      return;
+    case '3': ui_set_view(VIEW_SYSTEM);    return;
+    case '4': ui_set_view(VIEW_SNAPSHOTS); return;
+    case '5': ui_set_view(VIEW_TELEM);     return;
+    case NCKEY_ESC:
+        /* Esc NEVER opens a menu: cancels armed delete or exits telem back */
+        if (g_ui.prof_del_arm >= 0) {
+            g_ui.prof_del_arm = -1;
+        } else if (g_ui.view == VIEW_TELEM && g_ui.prev_view != VIEW_TELEM) {
+            ui_set_view(g_ui.prev_view);
+        }
         return;
     default:
         break;
     }
 
-    /* shift+arrows move the focus between panels; plain arrows stay
-     * with the focused panel's rows/grid (the modifier helpers are
-     * the non-deprecated route — ncinput's bool shift is 4.0 fodder) */
-    if (ncinput_shift_p(ni) && !ncinput_alt_p(ni) && !ncinput_ctrl_p(ni)) {
-        if (key == NCKEY_LEFT) {
-            g_ui.prof_del_arm = -1;
-            focus_move(-1, 0);
-            return;
-        }
-        if (key == NCKEY_RIGHT) {
-            g_ui.prof_del_arm = -1;
-            focus_move(1, 0);
-            return;
-        }
-        if (key == NCKEY_UP) {
-            g_ui.prof_del_arm = -1;
-            focus_move(0, -1);
-            return;
-        }
-        if (key == NCKEY_DOWN) {
-            g_ui.prof_del_arm = -1;
-            focus_move(0, 1);
-            return;
-        }
-    }
-
-    switch (g_ui.focus) {
-    case FOC_PROFILES:  panel_profiles_key(key); break;
-    case FOC_CONTROLS:  panel_controls_key(key); break;
-    case FOC_WORKSPACE: panel_workspace_key(key); break;
-    case FOC_TELEM:
-        /* the strip has no rows to walk; Enter/Space opens the
-         * fullscreen view — same as 't', completing the 4-then-act
-         * story the other focused panels have; 'l' opens the event log */
-        if (key == NCKEY_ENTER || key == '\r' || key == '\n' || key == ' ')
-            g_ui.telem_full = true;
-        else if (key == 'l' || key == 'L') {
-            g_ui.log_overlay = true;
-            g_ui.log_scroll = 0;
-        }
+    /* 5. Delegate to the active view */
+    switch (g_ui.view) {
+    case VIEW_POWER:
+    case VIEW_FANS:
+    case VIEW_SYSTEM:
+        panel_workspace_key(key);
         break;
-    default: break;
+    case VIEW_SNAPSHOTS:
+        panel_profiles_key(key);
+        break;
+    case VIEW_TELEM:
+        panel_telem_full_key(key);
+        break;
+    default:
+        break;
     }
 }
 
-/* SIGTERM/SIGINT: set by the handlers below, checked at the top of the
- * TUI loop so the signal takes the normal exit path (worker join,
- * settings save, notcurses stop, singleton pidfile removal). */
+/* ---- main loop ------------------------------------------------------------ */
+
 static volatile sig_atomic_t s_term_flag;
 
 static void ui_on_term(int sig)
@@ -1162,9 +1411,7 @@ static void ui_on_term(int sig)
 int ui_run(hw_state_t *hw)
 {
     setlocale(LC_ALL, "");
-    /* Notcurses wants LC_CTYPE for unicode, but LC_NUMERIC must stay "C":
-     * strtod/printf otherwise parse "59.87" as 59 under tr_TR (decimal
-     * comma) and the refresh-rate lists corrupt (59/164 ghosts). */
+    /* Rule 1: LC_NUMERIC stays "C" so strtod/printf never corrupt Hz lists */
     setlocale(LC_NUMERIC, "C");
 
     struct notcurses_options opts = {0};
@@ -1184,58 +1431,43 @@ int ui_run(hw_state_t *hw)
 
     memset(&g_ui, 0, sizeof(g_ui));
     s_last_refresh_ms = 0;
+    s_in_modal = false;
     atomic_init(&g_ui.apply_busy, false);
     atomic_init(&g_ui.quit_pending, false);
     g_ui.hw = hw;
     g_ui.running = true;
-    g_ui.focus = FOC_CONTROLS;
-    g_ui.ws_view = WSV_FAN;
     g_ui.md_field = -1;
     g_ui.telem_detail = -1;
     g_ui.prof_del_arm = -1;
     g_ui.set_del_arm = -1;
+    g_ui.prof_meta_sel = -1;
     g_ui.prof_n = profile_list(g_ui.profs, MAX_PROFILES);
     g_ui.mode_n = modes_load(g_ui.modes, MODES_MAX);
     tin_set(&g_ui.prof_name, "my-snapshot");
 
     hw_refresh_live(hw);
     settings_load(hw);
-    g_ui.ctl_prof_idx = (int)hw->profile;
-    g_ui.ctl_kbd_idx = (int)hw->kbd;
-    g_ui.ctl_bat = hw->bat_limit > 0 ? hw->bat_limit : 80;
-    g_ui.ctl_fan_idx = 0;
-    /* start the Refresh row on the mode closest to the live rate */
-    g_ui.ctl_hz_idx = 0;
-    for (int i = 1; i < hw->hz_count; i++) {
-        if (hw->hz_cur > 0 &&
-            abs(hw->hz_modes[i] - hw->hz_cur) <
-                abs(hw->hz_modes[g_ui.ctl_hz_idx] - hw->hz_cur))
-            g_ui.ctl_hz_idx = i;
-    }
+    g_ui.view = (ui_view_t)ut_clamp_i(g_prefs.startup_view, 0, VIEW_COUNT - 1);
+    g_ui.prev_view = VIEW_POWER;
+
     g_ui.lt_eff = 0;
     g_ui.lt_col = 0;
     tin_set(&g_ui.lt_hex, "00e5ff");
-    g_ui.pwv_asusd_ac = -1;   /* sane start if asusd is absent */
+    g_ui.pwv_asusd_ac = -1;
     g_ui.pwv_asusd_bat = -1;
     pw_sync_from_hw();
+    sys_sync_from_hw();
 
-    ut_log("TUI ready (%d profiles, %d modes)", g_ui.prof_n, g_ui.mode_n);
+    ut_log("TUI ready (%d snapshots, %d modes)", g_ui.prof_n, g_ui.mode_n);
 
     bool apply_prev = false;
-    /* SIGTERM/SIGINT take the clean exit path (worker joined, settings
-     * saved, pidfile removed): ctron-toggle closes the TUI with pkill,
-     * and a signal-killed ctron made `konsole -e` hold the window open
-     * with a crash notice. The staged-edits q-warning is bypassed —
-     * a signal IS the force path; settings still save. */
     s_term_flag = 0;
     signal(SIGTERM, ui_on_term);
     signal(SIGINT, ui_on_term);
+
     while (g_ui.running) {
         if (s_term_flag)
             g_ui.running = false;
-        /* worker completion: finalize on the UI thread, strictly after
-         * apply_busy dropped (harness key-ordering depends on the
-         * completion logs landing after the drop) */
         bool busy = atomic_load(&g_ui.apply_busy);
         if (apply_prev && !busy)
             finalize_apply();
@@ -1244,31 +1476,56 @@ int ui_run(hw_state_t *hw)
             g_ui.running = false;
 
         tgt_clear();
+        s_in_modal = false;
+
+        /* clear canvas using active palette's native/solid base background */
+        const palette_t *pal = ui_palette(g_prefs.theme);
+        uint64_t base_ch = ui_ch(pal->text, false);
+        ncplane_set_base(stdn, " ", 0, base_ch);
+        ncplane_erase(stdn);
 
         unsigned dimy = 0, dimx = 0;
         ncplane_dim_yx(stdn, &dimy, &dimx);
         ui_layout(dimy, dimx);
-        draw_topbar(stdn, dimy, dimx);
 
-        /* background panels always render (each fills its own box, so the
-         * whole screen is wiped); the settings window floats on top */
-        panel_profiles_draw(stdn, &g_ui.rc_prof);
-        panel_controls_draw(stdn, &g_ui.rc_ctl);
-        panel_workspace_draw(stdn, &g_ui.rc_ws);
-        panel_telemetry_draw(stdn, &g_ui.rc_telem);
-        if (g_ui.telem_full)
-            panel_telem_full_draw(stdn, &g_ui.rc_overlay);
-        else if (g_ui.log_overlay)
+        draw_header(stdn, dimy, dimx);
+        draw_rail(stdn, &g_ui.rc_rail);
+
+        switch (g_ui.view) {
+        case VIEW_POWER:
+        case VIEW_FANS:
+        case VIEW_SYSTEM:
+            panel_workspace_draw(stdn, &g_ui.rc_ws);
+            break;
+        case VIEW_SNAPSHOTS:
+            panel_profiles_draw(stdn, &g_ui.rc_ws);
+            break;
+        case VIEW_TELEM:
+            panel_telem_full_draw(stdn, &g_ui.rc_ws);
+            break;
+        default:
+            break;
+        }
+
+        draw_footer(stdn, dimy, dimx);
+
+        if (g_ui.help_overlay) {
+            draw_help_overlay(stdn, &g_ui.rc_overlay);
+        } else if (g_ui.log_overlay) {
             draw_log_overlay(stdn, &g_ui.rc_overlay);
-        else if (g_ui.db_overlay)
+        } else if (g_ui.db_overlay) {
             editor_daeboard_draw(stdn, &g_ui.rc_overlay);
-        else if (g_ui.cf_overlay)
+            ui_modal_end();
+        } else if (g_ui.cf_overlay) {
             editor_corefreq_draw(stdn, &g_ui.rc_overlay);
-        else if (g_ui.fe_presets_overlay)
+            ui_modal_end();
+        } else if (g_ui.fe_presets_overlay) {
             editor_fan_presets_draw(stdn, &g_ui.rc_overlay);
-        else if (g_ui.settings_overlay)
+            ui_modal_end();
+        } else if (g_ui.settings_overlay) {
             panel_settings_draw(stdn, &g_ui.rc_overlay);
-
+            ui_modal_end();
+        }
 
         notcurses_render(nc);
 
@@ -1290,19 +1547,11 @@ int ui_run(hw_state_t *hw)
             continue;
         }
 
-        /* Dispatch everything already queued (input batching): keys
-         * that piled up while we drew are handled one by one — same
-         * per-key semantics — and a single rate-limited refresh covers
-         * the whole batch instead of one full refresh per key. */
         bool force = false, any = false;
         while (key != (uint32_t)-1 && key != 0) {
             if (key == NCKEY_RESIZE) {
                 force = true;
             } else if (key != '[' && key != ']') {
-                /* lone '[' / ']' are CSI leftovers from focus
-                 * reporting; a bare 0x1b here IS NCKEY_ESC (same
-                 * value) and must reach the overlay dispatch, so it
-                 * is deliberately not filtered. */
                 any = true;
                 if (nckey_mouse_p(key)) {
                     if (ni.evtype != NCTYPE_RELEASE)
@@ -1317,10 +1566,6 @@ int ui_run(hw_state_t *hw)
             maybe_refresh(hw, force);
     }
 
-    /* the worker is never killed: wait it out (bounded by the freq
-     * window rounds, ~9 s worst case) before saving state. A term
-     * signal can exit the loop mid-busy, past finalize — put the
-     * pointer back so settings_save sees the real (post-apply) hw */
     if (g_ui.apply_spawned) {
         pthread_join(g_ui.apply_tid, NULL);
         if (g_ui.hw == &s_hw_frozen)

@@ -7,31 +7,24 @@
 #include <stdio.h>
 #include <string.h>
 
-/* Fullscreen settings overlay (ESC / 's'). Covers every panel:
+/* Preferences & CLI shortcuts modal (','). Esc or ',' closes.
  *
- *   LAYOUT            swap left panels, telemetry position, column/split
- *                     ratios, telemetry height — applied live
- *   PREFERENCES       poll interval / write method / theme / gpu temp
- *   CLI SHORTCUTS     modes.ini list — Enter apply, n new, e edit, d del
- *   MODE EDITOR       name + steps fields (runs inside the overlay) */
+ *   PREFERENCES       startup view / theme / poll interval / write method / gpu temp
+ *   CLI SHORTCUTS     modes.ini list — Enter apply, n new, e edit, dd del
+ *   MODE EDITOR       name + steps fields (runs inside the modal) */
 
 enum {
-    SET_SWAPLEFT = 0,
-    SET_TELEMTOP,
-    SET_LEFTPCT,
-    SET_SPLITPCT,
-    SET_TELEMH,
+    SET_STARTUP = 0,
+    SET_THEME,
     SET_POLL,
     SET_WRITE,
-    SET_THEME,
     SET_GPUTEMP,
-    SET_ROW_COUNT      /* unified settings rows (LAYOUT + PREFERENCES) */
+    SET_ROW_COUNT
 };
-#define SET_PREF_FIRST SET_POLL
 
 enum {
-    ACT_SET_ROW_BASE = 1,   /* + row (0..SET_ROW_COUNT-1) */
-    ACT_SET_MODE_BASE = 20, /* + index */
+    ACT_SET_ROW_BASE = 1,
+    ACT_SET_MODE_BASE = 20,
     ACT_MD_SAVE = 95,
     ACT_MD_SAVE_APPLY,
 };
@@ -69,25 +62,15 @@ void ws_start_mode_edit(const mode_def_t *m)
     g_ui.settings_overlay = true;
 }
 
-/* ---- settings rows ------------------------------------------------------ */
-
 static void row_apply(int row, int dir)
 {
     switch (row) {
-    case SET_SWAPLEFT:
-        g_prefs.swap_left = !g_prefs.swap_left;
+    case SET_STARTUP:
+        g_prefs.startup_view = (g_prefs.startup_view + dir + VIEW_COUNT) % VIEW_COUNT;
+        ut_log("startup view: %s", VIEW_NAMES[g_prefs.startup_view]);
         break;
-    case SET_TELEMTOP:
-        g_prefs.telem_top = !g_prefs.telem_top;
-        break;
-    case SET_LEFTPCT:
-        g_prefs.left_pct = ut_clamp_i(g_prefs.left_pct + 2 * dir, 25, 50);
-        break;
-    case SET_SPLITPCT:
-        g_prefs.split_pct = ut_clamp_i(g_prefs.split_pct + 5 * dir, 25, 75);
-        break;
-    case SET_TELEMH:
-        g_prefs.telem_h = ut_clamp_i(g_prefs.telem_h + dir, 3, 10);
+    case SET_THEME:
+        g_prefs.theme = (g_prefs.theme + dir + THEME_COUNT) % THEME_COUNT;
         break;
     case SET_POLL: {
         int idx = 0;
@@ -101,9 +84,6 @@ static void row_apply(int row, int dir)
     case SET_WRITE:
         g_prefs.write_pref = (g_prefs.write_pref + dir + 3) % 3;
         ut_log("write method: %s", WRITE_OPTS[g_prefs.write_pref]);
-        break;
-    case SET_THEME:
-        g_prefs.theme = (g_prefs.theme + dir + THEME_COUNT) % THEME_COUNT;
         break;
     case SET_GPUTEMP:
         g_prefs.gpu_temp = !g_prefs.gpu_temp;
@@ -120,58 +100,39 @@ static void mode_apply_idx(int i)
     ui_spawn_apply(APPLY_MODE, "mode", g_ui.modes[i].name);
 }
 
-/* ---- settings view ------------------------------------------------------ */
-
 static void draw_settings(struct ncplane *n, const rect_t *r)
 {
     const palette_t *pal = ui_palette(g_prefs.theme);
     int x = r->x + 2, w = r->w - 4;
+    if (w < 14 || r->h < 8)
+        return;
 
-    /* floating window: shadow + double frame + interior fill wipes the
-     * panels underneath every frame (no ghost text) */
-    ui_window(n, r, "SETTINGS");
+    ui_window(n, r, "PREFERENCES");
 
-    char pollv[16], leftv[16], splitv[16], telemhv[16];
-    snprintf(pollv,   sizeof(pollv),   "%d ms", g_prefs.poll_ms);
-    snprintf(leftv,   sizeof(leftv),   "%d %%", g_prefs.left_pct);
-    snprintf(splitv,  sizeof(splitv),  "%d %%", g_prefs.split_pct);
-    snprintf(telemhv, sizeof(telemhv), "%d rows", g_prefs.telem_h);
+    char pollv[16];
+    snprintf(pollv, sizeof(pollv), "%d ms", g_prefs.poll_ms);
 
     const char *vals[SET_ROW_COUNT] = {
-        onoff(g_prefs.swap_left),
-        onoff(g_prefs.telem_top),
-        leftv,
-        splitv,
-        telemhv,
+        VIEW_NAMES[ut_clamp_i(g_prefs.startup_view, 0, VIEW_COUNT - 1)],
+        THEME_NAMES[ut_clamp_i(g_prefs.theme, 0, THEME_COUNT - 1)],
         pollv,
         WRITE_OPTS[ut_clamp_i(g_prefs.write_pref, 0, 2)],
-        THEME_NAMES[ut_clamp_i(g_prefs.theme, 0, THEME_COUNT - 1)],
         onoff(g_prefs.gpu_temp),
     };
     static const char *const labels[SET_ROW_COUNT] = {
-        "Swap left panels", "Telemetry at top", "Left column",
-        "Left split (upper panel)", "Telemetry height",
-        "Poll interval", "Write method", "Theme", "GPU temp (nvidia-smi)",
+        "Startup view", "Theme", "Poll interval",
+        "Write method", "GPU temp (nvidia-smi)",
     };
 
     int y = r->y + 1;
     ui_putln(n, x, y, w,
-             "j/k/Tab move · h/l change · Enter apply · Esc/s closes · persists on quit",
+             "j/k/Tab move · h/l change · Enter apply · Esc/, close · saves on quit",
              pal->muted, false);
     y += 2;
 
-    ui_putln(n, x, y, w, "LAYOUT (applied instantly)", pal->accent, true);
-    y += 1;
-    for (int i = 0; i < SET_PREF_FIRST; i++, y++) {
-        ui_row(n, x, y, w, labels[i], vals[i],
-               !g_ui.set_in_modes && g_ui.set_sel == i);
-        tgt_register(x, y, w, 1, TGT(TGT_PANEL_SETTINGS, ACT_SET_ROW_BASE + i));
-    }
-    y += 1;
-
     ui_putln(n, x, y, w, "PREFERENCES", pal->accent, true);
     y += 1;
-    for (int i = SET_PREF_FIRST; i < SET_ROW_COUNT; i++, y++) {
+    for (int i = 0; i < SET_ROW_COUNT; i++, y++) {
         ui_row(n, x, y, w, labels[i], vals[i],
                !g_ui.set_in_modes && g_ui.set_sel == i);
         tgt_register(x, y, w, 1, TGT(TGT_PANEL_SETTINGS, ACT_SET_ROW_BASE + i));
@@ -185,17 +146,17 @@ static void draw_settings(struct ncplane *n, const rect_t *r)
         snprintf(warn, sizeof(warn),
                  "CLI SHORTCUTS — press d again to delete '%.24s' · other key cancels",
                  g_ui.modes[g_ui.set_mode_sel].name);
-        ui_putln(n, x, y, w, warn, 0xFF4D5E, true);
+        ui_putln(n, x, y, w, warn, pal->err, true);
     } else {
-        ui_putln(n, x, y, w, "CLI SHORTCUTS (modes.ini) — Enter apply · n new · e edit · d del",
+        ui_putln(n, x, y, w,
+                 "CLI SHORTCUTS (modes.ini) — Enter apply · n new · e edit · dd del",
                  pal->accent, true);
     }
     y += 1;
     int last = r->y + r->h - 1;
-    int vis = last - y;   /* rows that fit */
+    int vis = last - y;
     if (vis < 1)
         vis = 1;
-    /* keep the selection inside the visible window (scroll) */
     if (g_ui.mode_n <= vis) {
         g_ui.set_mode_top = 0;
     } else {
@@ -210,8 +171,7 @@ static void draw_settings(struct ncplane *n, const rect_t *r)
     }
     for (int i = g_ui.set_mode_top; i < g_ui.mode_n && y < last; i++, y++) {
         char label[96];
-        snprintf(label, sizeof(label), "%s%s", i == g_ui.set_mode_sel ? "▸ " : "  ",
-                 g_ui.modes[i].name);
+        snprintf(label, sizeof(label), "%s", g_ui.modes[i].name);
         char val[128];
         snprintf(val, sizeof(val), "%s", g_ui.modes[i].steps);
         ui_row(n, x, y, w, label, val,
@@ -219,10 +179,8 @@ static void draw_settings(struct ncplane *n, const rect_t *r)
         tgt_register(x, y, w, 1, TGT(TGT_PANEL_SETTINGS, ACT_SET_MODE_BASE + i));
     }
     if (g_ui.mode_n == 0 && y < last)
-        ui_putln(n, x, y, w, "(no modes)", pal->muted, false);
+        ui_putln(n, x, y, w, "(no modes — press n to add)", pal->muted, false);
 }
-
-/* ---- mode editor view --------------------------------------------------- */
 
 static void save_mode(bool also_apply)
 {
@@ -262,8 +220,7 @@ static void draw_modeedit(struct ncplane *n, const rect_t *r)
     int x = r->x + 2, w = r->w - 4;
 
     ui_window(n, r, "MODE EDITOR");
-
-    ui_putln(n, x, r->y + 1, w, "Tab switches field · Esc cancels",
+    ui_putln(n, x, r->y + 1, w, "Tab switches field · Enter saves · Esc cancels",
              pal->muted, false);
 
     char nm[88], st[232], name_l[96], steps_l[256];
@@ -278,7 +235,7 @@ static void draw_modeedit(struct ncplane *n, const rect_t *r)
              "steps: comma list — profile performance, ppt P80, fan cool, hz max,",
              pal->muted, false);
     ui_putln(n, x, r->y + 8, w,
-             "        epp power, battery 80, kbd high, aura static red, freq 4000",
+             "       epp power, battery 80, kbd high, aura static red, freq 4000",
              pal->muted, false);
 
     int by = r->y + 10;
@@ -288,8 +245,6 @@ static void draw_modeedit(struct ncplane *n, const rect_t *r)
     };
     ui_btn_row(n, by, x, w, row, 2);
 }
-
-/* ---- dispatcher ---------------------------------------------------------- */
 
 void panel_settings_draw(struct ncplane *n, const rect_t *r)
 {

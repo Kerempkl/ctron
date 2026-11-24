@@ -136,46 +136,57 @@ void editor_fan_draw(struct ncplane *n, const rect_t *r)
         g_ui.fe_sel = -1;
     }
 
-    int x = r->x + 2;
-    int w = r->w - 4;
+    int x = r->x;
+    int w = r->w;
+    if (w < 16 || r->h < 8)
+        return;
 
     /* control row */
-    int cy = r->y + 1;
+    int cy = r->y;
     bool on = g_ui.fe_gpu ? hw->fan_gpu_on : hw->fan_cpu_on;
     const ui_btndef_t ctl[] = {
-        { "CPU",    !g_ui.fe_gpu, TGT(TGT_PANEL_WORKSPACE, ACT_FE_CPU) },
-        { "GPU",     g_ui.fe_gpu, TGT(TGT_PANEL_WORKSPACE, ACT_FE_GPU) },
-        { "+",       false,       TGT(TGT_PANEL_WORKSPACE, ACT_FE_ADD) },
-        { "-",       false,       TGT(TGT_PANEL_WORKSPACE, ACT_FE_DEL) },
-        { " Write ", false,       TGT(TGT_PANEL_WORKSPACE, ACT_FE_WRITE) },
-        { on ? " ON " : " OFF ", on, TGT(TGT_PANEL_WORKSPACE, ACT_FE_TOGGLE) },
+        { " CPU ",    !g_ui.fe_gpu, TGT(TGT_PANEL_WORKSPACE, ACT_FE_CPU) },
+        { " GPU ",     g_ui.fe_gpu, TGT(TGT_PANEL_WORKSPACE, ACT_FE_GPU) },
+        { " + ",       false,       TGT(TGT_PANEL_WORKSPACE, ACT_FE_ADD) },
+        { " - ",       false,       TGT(TGT_PANEL_WORKSPACE, ACT_FE_DEL) },
+        { " Write ",   hw->fan_staged, TGT(TGT_PANEL_WORKSPACE, ACT_FE_WRITE) },
+        { on ? " Custom ON " : " Custom OFF ", on, TGT(TGT_PANEL_WORKSPACE, ACT_FE_TOGGLE) },
     };
-    ui_btn_row(n, cy, x, w, ctl, 6);
+    int next_x = ui_btn_row(n, cy, x, w, ctl, 6);
+    {
+        char live[56];
+        int ltemp = g_ui.fe_gpu ? hw->gpu_temp : hw->cpu_temp;
+        int lrpm = g_ui.fe_gpu ? hw->rpm_gpu : hw->rpm_cpu;
+        char ts[16], rs[16];
+        if (ltemp < 0) snprintf(ts, sizeof(ts), "--");
+        else snprintf(ts, sizeof(ts), "%d°C", ltemp);
+        if (lrpm < 0) snprintf(rs, sizeof(rs), "--");
+        else snprintf(rs, sizeof(rs), "%d rpm", lrpm);
+        snprintf(live, sizeof(live), "live %s · %s", ts, rs);
+        int lw = ut_cells(live);
+        if (x + w - lw > next_x + 2)
+            ui_putln(n, x + w - lw, cy, lw + 1, live, pal->muted, false);
+    }
 
     /* graph area */
-    s_graph.x = r->x + 6;
-    s_graph.y = r->y + 3;
-    s_graph.w = r->w - 9;
-    s_graph.h = r->h - 9;
+    s_graph.x = r->x + 5;
+    s_graph.y = r->y + 2;
+    s_graph.w = r->w - 7;
+    s_graph.h = r->h - 7;
     if (s_graph.w < 10)
         s_graph.w = 10;
     if (s_graph.h < 4)
         s_graph.h = 4;
 
-    uint64_t ch_ax = 0, ch_ln = 0, ch_pt = 0, ch_lb = 0;
-    ncchannels_set_fg_rgb(&ch_ax, pal->border);
-    ncchannels_set_fg_rgb(&ch_ln, pal->accent2);
-    ncchannels_set_fg_rgb(&ch_pt, pal->accent);
-    ncchannels_set_fg_rgb(&ch_lb, pal->muted);
+    uint64_t ch_ax = ui_ch(pal->border, false);
+    uint64_t ch_ln = ui_ch(pal->accent2, false);
+    uint64_t ch_pt = ui_ch(pal->accent, false);
+    uint64_t ch_lb = ui_ch(pal->muted, false);
 
-    /* axes + clear */
+    /* axes */
     ncplane_set_channels(n, ch_ax);
-    for (int yy = 0; yy < s_graph.h; yy++) {
+    for (int yy = 0; yy < s_graph.h; yy++)
         ncplane_putstr_yx(n, s_graph.y + yy, s_graph.x - 1, "│");
-        ncplane_cursor_move_yx(n, s_graph.y + yy, s_graph.x);
-        for (int xx = 0; xx < s_graph.w; xx++)
-            ncplane_putchar(n, ' ');
-    }
     ncplane_putstr_yx(n, s_graph.y + s_graph.h, s_graph.x - 1, "└");
     for (int xx = 0; xx < s_graph.w; xx++)
         ncplane_putstr(n, "─");
@@ -190,11 +201,9 @@ void editor_fan_draw(struct ncplane *n, const rect_t *r)
         ncplane_putstr_yx(n, s_graph.y + s_graph.h, s_graph.x + s_graph.w - 4, lb);
     }
 
-    /* value guides ('i'): dotted 10 °C verticals + 25 % horizontals
-     * with axis labels, so "what °C maps to what PWM" is readable
-     * off the graph instead of guessed from the point chips */
+    /* value guides ('i') */
     if (g_ui.fe_grid) {
-        static const int G_PWM[] = { 64, 128, 192 }; /* ~25/50/75 % */
+        static const int G_PWM[] = { 64, 128, 192 };
         ncplane_set_channels(n, ch_ax);
         for (int t = 30; t <= 100; t += 10) {
             int gx = s_graph.x + (t - FAN_TMIN) * (s_graph.w - 1) /
@@ -224,13 +233,16 @@ void editor_fan_draw(struct ncplane *n, const rect_t *r)
         }
     }
 
-    /* live temp marker on the axis */
-    if (hw->cpu_temp > 0 && !g_ui.fe_gpu) {
-        int lx = s_graph.x +
-                 (ut_clamp_i(hw->cpu_temp, FAN_TMIN, FAN_TMAX) - FAN_TMIN) *
-                 (s_graph.w - 1) / (FAN_TMAX - FAN_TMIN);
-        ncplane_set_channels(n, ch_pt);
-        ncplane_putstr_yx(n, s_graph.y + s_graph.h, lx, "▲");
+    /* live temp marker on the axis (CPU or GPU) */
+    {
+        int live_t = g_ui.fe_gpu ? hw->gpu_temp : hw->cpu_temp;
+        if (live_t > 0) {
+            int lx = s_graph.x +
+                     (ut_clamp_i(live_t, FAN_TMIN, FAN_TMAX) - FAN_TMIN) *
+                     (s_graph.w - 1) / (FAN_TMAX - FAN_TMIN);
+            ncplane_set_channels(n, ch_pt);
+            ncplane_putstr_yx(n, s_graph.y + s_graph.h, lx, "▲");
+        }
     }
 
     /* polyline + points */
@@ -244,29 +256,29 @@ void editor_fan_draw(struct ncplane *n, const rect_t *r)
     ncplane_set_styles(n, NCSTYLE_NONE);
 
     /* point chips under the graph */
-    int chy = r->y + r->h - 4;
+    int chy = r->y + r->h - 3;
     for (int i = 0; i < fc->n; i++) {
         char chip[20];
-        snprintf(chip, sizeof(chip), "%d:%d,%d", i + 1, fc->temp_c[i], fc->pwm[i]);
-        int cx = x + (i % 4) * 13;
+        snprintf(chip, sizeof(chip), " %d:%d°,%d ", i + 1, fc->temp_c[i], fc->pwm[i]);
+        int cx = x + (i % 4) * 14;
         int cyy = chy + i / 4;
-        if (cyy < r->y + r->h - 2) {
+        if (cyy < r->y + r->h - 1 && cx + 12 <= x + w) {
             ui_btn(n, cx, cyy, chip, i == g_ui.fe_sel, false,
                    TGT(TGT_PANEL_WORKSPACE, ACT_FE_NODE_BASE + i));
         }
     }
 
     /* X/Y input row */
-    int iy = r->y + r->h - 2;
+    int iy = r->y + r->h - 1;
     char xd[10], yd[10], tb[24], pb[24];
     tin_format(&g_ui.fe_x, xd, sizeof(xd), g_ui.fe_input == 1);
     tin_format(&g_ui.fe_y, yd, sizeof(yd), g_ui.fe_input == 2);
-    snprintf(tb, sizeof(tb), "T[%s]", xd);
-    snprintf(pb, sizeof(pb), "P[%s]", yd);
+    snprintf(tb, sizeof(tb), " T[%s] ", xd);
+    snprintf(pb, sizeof(pb), " P[%s] ", yd);
     const ui_btndef_t xy[] = {
         { tb,    g_ui.fe_input == 1, TGT(TGT_PANEL_WORKSPACE, ACT_FE_T_FIELD) },
         { pb,    g_ui.fe_input == 2, TGT(TGT_PANEL_WORKSPACE, ACT_FE_P_FIELD) },
-        { "Set", false,              TGT(TGT_PANEL_WORKSPACE, ACT_FE_SET) },
+        { " Set ", false,            TGT(TGT_PANEL_WORKSPACE, ACT_FE_SET) },
         { " Presets (m) ", g_ui.fe_presets_overlay, TGT(TGT_PANEL_WORKSPACE, ACT_FE_PRESETS_BTN) },
     };
     ui_btn_row(n, iy, x, w, xy, 4);
@@ -365,14 +377,13 @@ void editor_fan_key(uint32_t key)
         else
             ctrl_fan_set_enabled(g_ui.hw, !g_ui.hw->fan_cpu_on, g_ui.hw->fan_gpu_on);
         break;
-    case 't':
-    case 'T':
+    case 'e':
+    case 'E':
         g_ui.fe_input = 1;
         tin_clear(&g_ui.fe_x);
         break;
-    /* 'P' is deliberately not bound here: dispatch gives it to the
-     * POWER view hotkey; lowercase p types the pwm field */
     case 'p':
+    case 'P':
         g_ui.fe_input = 2;
         tin_clear(&g_ui.fe_y);
         break;
@@ -435,6 +446,9 @@ void editor_fan_act(int id, int mx, int my)
 
     /* button clicks carry an ACT_FE_* id; id == 0 is a graph click */
     if (id >= ACT_FE_BASE && id < ACT_FE_END) {
+        if (id != ACT_FE_ADD && id != ACT_FE_T_FIELD &&
+            id != ACT_FE_P_FIELD && id != ACT_FE_SET)
+            g_ui.fe_input = 0;
         switch (id) {
         case ACT_FE_CPU:
             g_ui.fe_gpu = 0;
