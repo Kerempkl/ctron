@@ -32,7 +32,8 @@ static void print_version(void)
 
 static void print_usage(const char *prog)
 {
-    printf("Usage: %s [flags] | %s mode <sub> | %s snapshot <sub>\n\n", prog, prog, prog);
+    printf("Usage: %s [flags] | %s mode <sub> | %s snapshot <sub> | %s fancurve <sub>\n\n",
+           prog, prog, prog, prog);
     printf("No arguments opens the fullscreen TUI (needs a terminal).\n\n");
     printf("Information:\n");
     printf("  --status, -s [--json]   live hardware snapshot\n");
@@ -41,11 +42,12 @@ static void print_usage(const char *prog)
     printf("  --doctor [--json]       capability report\n");
     printf("  --help, -h              this help\n");
     printf("  --version, -V           version\n\n");
-    printf("Modes & snapshots:\n");
+    printf("Modes, snapshots & fan curves:\n");
     printf("  --mode <name> [--dry-run]   apply (or preview) a shortcut bundle\n");
     printf("  mode list|show <n>|add <name> <steps>|delete <n>\n");
     printf("  snapshot list   (alias: profile)\n");
-    printf("  snapshot apply [--dry-run]|diff|export|delete <name>\n\n");
+    printf("  snapshot apply [--dry-run]|diff|export|delete <name>\n");
+    printf("  fancurve list|apply [--dry-run]|diff|export|delete <name>\n\n");
     printf("Hardware (key = value pairs, same as mode steps):\n");
     printf("  --profile quiet|balanced|performance\n");
     printf("  --ac-profile off|quiet|balanced|performance\n");
@@ -69,7 +71,7 @@ static void print_usage(const char *prog)
     printf("  --daeboard-stop     ask the daemon to quit\n");
     printf("  --daeboard-reload   recompile ~/.config/ctron/daeboard.binds\n");
     printf("  --aura <effect> [color|hex]\n");
-    printf("  --fan stock|silent|cool|full|on|off|cpu on|cpu off|gpu on|gpu off\n");
+    printf("  --fan stock|silent|cool|full|on|off|cpu on|cpu off|gpu on|gpu off|<curve>\n");
     printf("  --fan-curve cpu|gpu <temps> <pwms>\n");
     printf("  --fan-write             write in-memory curve to the EC\n");
     printf("  --dry-run               validate flags/mode/snapshot without writing\n\n");
@@ -886,6 +888,66 @@ static int cmd_profile(int argc, char **argv, hw_state_t *hw, bool dry_run)
     return 2;
 }
 
+static int cmd_fancurve(int argc, char **argv, hw_state_t *hw, bool dry_run)
+{
+    if (argc < 3) {
+        fprintf(stderr, "usage: ctron fancurve list|apply|diff|export|delete <name>\n");
+        return 2;
+    }
+    const char *sub = argv[2];
+
+    if (!strcmp(sub, "list")) {
+        char list[MAX_FCURVES][FCURVE_NAME_MAX];
+        int n = fcurve_list(list, MAX_FCURVES);
+        for (int i = 0; i < n; i++)
+            printf("%s\n", list[i]);
+        return 0;
+    }
+    if (argc < 4) {
+        fprintf(stderr, "fancurve %s needs a name\n", sub);
+        return 2;
+    }
+    const char *name = argv[3];
+
+    if (!strcmp(sub, "diff")) {
+        hw_refresh_live(hw);
+        fcurve_meta_t m;
+        if (fcurve_parse(name, &m) != 0) {
+            fprintf(stderr, "ctron: no such fan curve: %s\n", name);
+            return 1;
+        }
+        char diff[160];
+        fcurve_diff(hw, &m, diff, sizeof(diff));
+        printf("%s: %s\n", name, diff);
+        return 0;
+    }
+    if (!strcmp(sub, "apply")) {
+        char err[128];
+        if (dry_run) {
+            int rc = fcurve_dry_run(name, stdout, err, sizeof(err));
+            if (rc != 0)
+                fprintf(stderr, "ctron: %s\n", err[0] ? err : "dry-run failed");
+            return rc == 0 ? 0 : 1;
+        }
+        ut_priv_denied_clear();
+        int rc = fcurve_apply(name, hw, err, sizeof(err));
+        if (rc != 0)
+            fprintf(stderr, "%s\n", err[0] ? err : "apply failed");
+        if (rc == 0)
+            return 0;
+        return ut_priv_denied() ? 3 : 1;
+    }
+    if (!strcmp(sub, "export")) {
+        hw_refresh_live(hw);
+        return fcurve_export(name, hw) == 0 ? 0 : 1;
+    }
+    if (!strcmp(sub, "delete"))
+        return fcurve_delete(name) == 0 ? 0 : 1;
+
+    fprintf(stderr, "unknown fancurve subcommand: %s\n", sub);
+    return 2;
+}
+
 /* ---- flag → cmd_run bridge ------------------------------------------------ */
 
 static int run_flag(hw_state_t *hw, const char *key, const char *val, bool dry)
@@ -1064,6 +1126,8 @@ int main(int argc, char *argv[])
         return cmd_mode(argc, argv, &hw);
     if (!strcmp(argv[1], "snapshot") || !strcmp(argv[1], "profile"))
         return cmd_profile(argc, argv, &hw, opt_dry_run);
+    if (!strcmp(argv[1], "fancurve") || !strcmp(argv[1], "fan-curve"))
+        return cmd_fancurve(argc, argv, &hw, opt_dry_run);
 
     /* status / watch need a live snapshot */
     if (!strcmp(argv[1], "--follow")) {

@@ -5,7 +5,27 @@
 
 ---
 
-## Latest session — 2026-11-25 (Snapshot Editor: PPT row edits watts by hand)
+## Latest session — 2026-11-25 (Fan curve subsystem overhaul & Saved Fan Curves in `4 Snapshots`)
+
+**Antigravity / Kerempkl / FA608PP** — audited the entire fan curve subsystem end-to-end against live FA608PP hardware (`/etc/asusd/fan_curves.ron` + `asus_custom_fan_curve` `hwmon11`), fixed 9 root-cause reliability/UX bugs, and added first-class **Saved Fan Curves** (`~/.config/ctron/fan_curves/*.fc`) with a split `4 Snapshots` workspace:
+
+- **Live diagnosis & fan curve fixes (`fan.{h,c}`, `control.c`, `hw.c`, `editor_fan.c`):**
+  - Live read of the host showed the `Performance` GPU curve stuck at `temp: 61..68`, `pwm: 53..53` (~20% / 2800 RPM) from cascading editor + `asusctl` bugs:
+    1. `asusctl 6.5.0` exits `0` even when printing `[ERROR asusctl]` (`< 8` points, D-Bus error); `ctrl_fan_write()` now expands curves to 8 points (`fan_to_hw8()`), refreshes live `platform_profile`, checks `asusctl` stdout/stderr via `asusctl_exec_ok()`, avoids overwriting stored RON points when a fan is set to factory auto (`pwmN_enable = 2`), bails on the first denied sysfs node instead of 34 doomed `sudo -n` spawns, and **verifies `pwm{1,2}_enable` + all 16 hwmon points on read-back** (`FAN_W_VERIFY_FAIL` returns `-1`).
+    2. `fan_preset_get()` previously read `/etc/asusd/fan_curves.ron` before `fan_preset_builtin()`, so user writes overwrote the `Quiet`/`Balanced`/`Performance` presets; it now always returns uncorrupted built-in OEM reference curves (`FAN_PSRC_BUILTIN`), and `ctrl_fan_preset("stock")` genuinely sets `fan_cpu_on = fan_gpu_on = false` (EC auto).
+    3. `fan_enforce_from()` / `fan_normalize()` now cascade colliding left/right neighbours outward without reordering nudged point indices (eliminating left-nudge freeze on tightly packed points), enforce monotonic non-decreasing PWM (`0..255`), and keep a 2-point minimum floor in `fan_del_point()`.
+    4. Fixed `editor_fan.c` `+`/`a` duplicating `fe_x` at `T+1` (now auto-places in widest temperature gap), auto-staged `fan_*_on = true` when editing points, implemented `r` (`Revert` to live EC), preserved staged enable flags across `hw_refresh_live()`, tracked external `Fn+F5` profile + `pwm{1,2}_enable` transitions in `hw_refresh_fast()`, and added `%` axis/chip/input support.
+- **Saved Fan Curves & split `4 Snapshots` pane (`profile.{h,c}`, `settings.{h,c}`, `panel_profiles.c`, `editor_fan.c`, `cmds.c`, `main.c`, `ui.c`):**
+  - Added `fcurve_meta_t` & `fcurve_*` CRUD/diff/dry-run (`~/.config/ctron/fan_curves/<name>.fc`, `group/name` subdirectories, `# saved:` / `# note:`, selective CPU/GPU `— (skip)` or `off (factory auto)`).
+  - Split the left pane of `4 Snapshots` into top `SNAPSHOTS` and bottom `FAN CURVES` (`f` or click switches focus). Saved fan curves support `Enter` apply (`APPLY_FAN_CURVE` worker), `s`/`n` save (also `s` inside `2 Fans`), `r` rename, `c` note, `uu` live overwrite, `dd` delete, and `e` 18-row interactive **Fan Curve Inspector & Editor** (`h`/`l` PWM, `<`/`>` °C, `e` exact `<temp> <pwm|pct%>`, `x` skip, `f` live, `m` OEM ref, `o` open in `2 Fans` graph, `w`/`Enter` save).
+  - Selectable inside `EDIT SNAPSHOT` on `CPU fan curve` / `GPU fan curve` (`h`/`l` cycles OEM presets + saved curves, `a` applies to both CPU + GPU, `e` accepts curve name or CSV), inside `2 Fans` → `m` (`FAN PRESETS & SAVED CURVES`), and via CLI (`--fan <curve>`, `ctron fancurve list|apply [--dry-run]|diff|export|delete <name>`).
+- **Verification:** `make clean && make HARDEN=1 && make test` and standard `make && make test` 0 warnings (including `check_fcurves_and_fan_fixes()` in `tests/test_core.c`); UBSan (`-fsanitize=undefined -fno-sanitize-recover=all`) clean; `clang --analyze` 0 findings across all 10 modified C files; `nm -u build/ctron` 0 `popen`/`pclose`/`system` symbols; `make tuitest` **14/14 flows (57/57 assertions) PASS** (exit 0).
+
+Signed: **Antigravity** — fan curve subsystem overhaul & Saved Fan Curves.
+
+---
+
+## Previous session — 2026-11-25 (Snapshot Editor: PPT row edits watts by hand)
 
 **GLM 5.4 / Kerempkl / FA608PP** — user follow-up on the widened snapshot
 scope: the `PPT (SPL/SPPT/FPPT)` row stepped only through the

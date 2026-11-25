@@ -1059,17 +1059,14 @@ bool profile_aura_differs(const hw_state_t *hw, const char *aura)
 
 static int curve_differs(const char *t, const char *p, const fan_curve_t *live)
 {
-    fan_curve_t fc;
+    fan_curve_t fc, fc8, lv8;
     if (!t[0] || !p[0])
         return 0;
     if (fan_from_csv(&fc, t, p) < 0)
         return 1;
-    if (fc.n != live->n)
-        return 1;
-    for (int i = 0; i < fc.n && i < FAN_POINTS; i++)
-        if (fc.temp_c[i] != live->temp_c[i] || fc.pwm[i] != live->pwm[i])
-            return 1;
-    return 0;
+    fan_to_hw8(&fc, &fc8);
+    fan_to_hw8(live, &lv8);
+    return fan_curves_equal(&fc8, &lv8) ? 0 : 1;
 }
 
 static bool cores_differ(const hw_state_t *hw, const profile_meta_t *m)
@@ -1149,9 +1146,9 @@ static int diff_collect(const hw_state_t *hw, const profile_meta_t *m,
         ADD_LABEL("fan-cpu");
     if (m->fan_gpu_on >= 0 && m->fan_gpu_on != (int)hw->fan_gpu_on)
         ADD_LABEL("fan-gpu");
-    if (curve_differs(m->fan_cpu_t, m->fan_cpu_p, &hw->fan_cpu))
+    if (m->fan_cpu_on != 0 && curve_differs(m->fan_cpu_t, m->fan_cpu_p, &hw->fan_cpu))
         ADD_LABEL("curve-cpu");
-    if (curve_differs(m->fan_gpu_t, m->fan_gpu_p, &hw->fan_gpu))
+    if (m->fan_gpu_on != 0 && curve_differs(m->fan_gpu_t, m->fan_gpu_p, &hw->fan_gpu))
         ADD_LABEL("curve-gpu");
 
 #undef ADD_LABEL
@@ -1168,6 +1165,412 @@ void profile_meta_diff(const hw_state_t *hw, const profile_meta_t *m,
 {
     char labels[160];
     int ndiff = diff_collect(hw, m, labels, sizeof(labels));
+    if (ndiff == 0)
+        snprintf(out, n, "≡ live");
+    else
+        snprintf(out, n, "Δ %s", labels);
+}
+
+/* =========================================================================
+ *  Saved Fan Curves (~/.config/ctron/fan_curves/<name>.fc)
+ * ========================================================================= */
+
+static void cleanup_empty_fc_group_dir(const char *fc_path)
+{
+    char root[460], parent[520];
+    settings_fancurves_dir(root, sizeof(root));
+    snprintf(parent, sizeof(parent), "%s", fc_path);
+    char *slash = strrchr(parent, '/');
+    if (!slash || slash == parent)
+        return;
+    *slash = '\0';
+    if (strcmp(parent, root) != 0)
+        (void)rmdir(parent);
+}
+
+static void fcurve_path(const char *name, char *out, size_t n)
+{
+    char safe[FCURVE_NAME_MAX];
+    sanitize_name(name, safe, sizeof(safe));
+    char dir[460];
+    settings_fancurves_dir(dir, sizeof(dir));
+    snprintf(out, n, "%s/%s.fc", dir, safe);
+}
+
+void fcurve_gen_name(char *out, size_t n)
+{
+    static const char *tags[] = {
+        "quiet-fan", "cool-fan", "game-fan", "night-fan",
+        "render-fan", "silent-fan", "desk-fan", "max-fan"
+    };
+    srand((unsigned)(time(NULL) ^ getpid()));
+    char buf[36];
+    snprintf(buf, sizeof(buf), "%s-%03d", tags[rand() % 8], rand() % 1000);
+    sanitize_name(buf, out, n);
+}
+
+int fcurve_list(char list[][FCURVE_NAME_MAX], int max)
+{
+    char dir[460];
+    settings_fancurves_dir(dir, sizeof(dir));
+    ut_mkdir_p(dir);
+
+    char pattern[560];
+    int count = 0;
+    size_t dirlen = strlen(dir);
+    snprintf(pattern, sizeof(pattern), "%s/*.fc", dir);
+    list_from_glob(list, &count, max, pattern, dirlen);
+    snprintf(pattern, sizeof(pattern), "%s/*/*.fc", dir);
+    list_from_glob(list, &count, max, pattern, dirlen);
+    qsort(list, (size_t)count, FCURVE_NAME_MAX, name_cmp);
+    return count;
+}
+
+void fcurve_meta_init(fcurve_meta_t *m)
+{
+    memset(m, 0, sizeof(*m));
+    m->cpu_on = -1;
+    m->gpu_on = -1;
+    fan_default(&m->cpu);
+    fan_default(&m->gpu);
+}
+
+void fcurve_meta_from_hw(const hw_state_t *hw, fcurve_meta_t *m)
+{
+    fcurve_meta_init(m);
+    fan_to_hw8(&hw->fan_cpu, &m->cpu);
+    fan_to_hw8(&hw->fan_gpu, &m->gpu);
+    m->has_cpu = true;
+    m->has_gpu = true;
+    /* When saving a named fan curve while both fans sit in factory auto,
+     * mark both sides enabled so applying or selecting the curve activates
+     * the saved points instead of leaving custom mode off. */
+    if (hw->fan_cpu_on || hw->fan_gpu_on) {
+        m->cpu_on = hw->fan_cpu_on ? 1 : 0;
+        m->gpu_on = hw->fan_gpu_on ? 1 : 0;
+    } else {
+        m->cpu_on = 1;
+        m->gpu_on = 1;
+    }
+}
+
+int fcurve_save(const char *name, const fcurve_meta_t *m)
+{
+    char safe[FCURVE_NAME_MAX];
+    sanitize_name(name, safe, sizeof(safe));
+
+    char path[520];
+    fcurve_path(safe, path, sizeof(path));
+    mkdir_parent(path);
+    char tmp[544];
+    FILE *f = ut_atomic_begin(path, tmp, sizeof(tmp));
+    if (!f)
+        return -1;
+
+    char saved[24] = "";
+    time_t now = time(NULL);
+    struct tm tm_buf;
+    if (localtime_r(&now, &tm_buf))
+        strftime(saved, sizeof(saved), "%Y-%m-%d %H:%M", &tm_buf);
+
+    fprintf(f, "# ctron fan curve\n");
+    fprintf(f, "# saved: %s\n",
+            saved[0] ? saved : (m->saved[0] ? m->saved : "unknown"));
+    if (m->note[0])
+        fprintf(f, "# note: %s\n", m->note);
+
+    fprintf(f, "[fan]\n");
+    if (m->cpu_on >= 0)
+        fprintf(f, "fan_cpu = %d\n", m->cpu_on ? 1 : 0);
+    if (m->has_cpu && m->cpu_on != 0) {
+        fan_curve_t c8;
+        char t[96], p[96];
+        fan_to_hw8(&m->cpu, &c8);
+        fan_to_csv(&c8, t, sizeof(t), p, sizeof(p));
+        fprintf(f, "fan-curve cpu = %s %s\n", t, p);
+    }
+    if (m->gpu_on >= 0)
+        fprintf(f, "fan_gpu = %d\n", m->gpu_on ? 1 : 0);
+    if (m->has_gpu && m->gpu_on != 0) {
+        fan_curve_t g8;
+        char t[96], p[96];
+        fan_to_hw8(&m->gpu, &g8);
+        fan_to_csv(&g8, t, sizeof(t), p, sizeof(p));
+        fprintf(f, "fan-curve gpu = %s %s\n", t, p);
+    }
+
+    if (ut_atomic_commit(f, tmp, path) != 0)
+        return -1;
+    ut_log("fan curve saved: %s", safe);
+    return 0;
+}
+
+int fcurve_export(const char *name, const hw_state_t *hw)
+{
+    char safe[FCURVE_NAME_MAX];
+    sanitize_name(name, safe, sizeof(safe));
+
+    fcurve_meta_t m, prev;
+    fcurve_meta_from_hw(hw, &m);
+    if (fcurve_parse(safe, &prev) == 0 && prev.note[0])
+        snprintf(m.note, sizeof(m.note), "%s", prev.note);
+    return fcurve_save(safe, &m);
+}
+
+int fcurve_parse(const char *name, fcurve_meta_t *m)
+{
+    char path[520];
+    fcurve_path(name, path, sizeof(path));
+    FILE *f = fopen(path, "r");
+    if (!f)
+        return -1;
+
+    fcurve_meta_init(m);
+    char line[512];
+    int r;
+    while ((r = ut_fgets_full(line, sizeof(line), f)) != 0) {
+        if (r < 0) {
+            ut_log("fan curve '%s': overlong line skipped", name);
+            continue;
+        }
+        char *s = ut_trim(line);
+        if (!strncmp(s, "# saved:", 8)) {
+            snprintf(m->saved, sizeof(m->saved), "%.*s",
+                     (int)sizeof(m->saved) - 1, ut_trim(s + 8));
+        } else if (!strncmp(s, "# note:", 7)) {
+            snprintf(m->note, sizeof(m->note), "%.*s",
+                     (int)sizeof(m->note) - 1, ut_trim(s + 7));
+        } else if (!strncasecmp(s, "fan-curve", 9)) {
+            char which[8] = {0}, t[96] = {0}, p[96] = {0};
+            if (sscanf(s + 9, " %7s = %95s %95s", which, t, p) != 3)
+                continue;
+            fan_curve_t fc;
+            if (fan_from_csv(&fc, t, p) < 0)
+                continue;
+            if (ut_ascii_ieq(which, "cpu")) {
+                fan_to_hw8(&fc, &m->cpu);
+                m->has_cpu = true;
+                if (m->cpu_on < 0)
+                    m->cpu_on = 1;
+            } else if (ut_ascii_ieq(which, "gpu")) {
+                fan_to_hw8(&fc, &m->gpu);
+                m->has_gpu = true;
+                if (m->gpu_on < 0)
+                    m->gpu_on = 1;
+            }
+        } else {
+            char *eq = strchr(s, '=');
+            if (!eq)
+                continue;
+            *eq = '\0';
+            char *key = ut_trim(s);
+            char *val = ut_trim(eq + 1);
+            if (ut_ascii_ieq(key, "fan_cpu"))
+                m->cpu_on = atoi(val) ? 1 : 0;
+            else if (ut_ascii_ieq(key, "fan_gpu"))
+                m->gpu_on = atoi(val) ? 1 : 0;
+        }
+    }
+    fclose(f);
+    return 0;
+}
+
+int fcurve_apply(const char *name, hw_state_t *hw, char *err, size_t errn)
+{
+    fcurve_meta_t m;
+    if (err && errn)
+        err[0] = '\0';
+    if (fcurve_parse(name, &m) != 0) {
+        if (err && errn)
+            snprintf(err, errn, "no such fan curve");
+        return -1;
+    }
+    if (m.cpu_on < 0 && !m.has_cpu && m.gpu_on < 0 && !m.has_gpu) {
+        ut_log("fan curve '%s': empty (both fans skipped)", name);
+        return 0;
+    }
+    if (m.has_cpu)
+        hw->fan_cpu = m.cpu;
+    if (m.cpu_on >= 0)
+        hw->fan_cpu_on = (m.cpu_on != 0);
+    else if (m.has_cpu)
+        hw->fan_cpu_on = true;
+
+    if (m.has_gpu)
+        hw->fan_gpu = m.gpu;
+    if (m.gpu_on >= 0)
+        hw->fan_gpu_on = (m.gpu_on != 0);
+    else if (m.has_gpu)
+        hw->fan_gpu_on = true;
+
+    hw->fan_staged = true;
+    if (ctrl_fan_write(hw) != 0) {
+        if (err && errn)
+            snprintf(err, errn, "fan curve write failed (see log)");
+        return -1;
+    }
+    ut_log("fan curve applied: %s", name);
+    return 0;
+}
+
+int fcurve_dry_run(const char *name, FILE *out, char *err, size_t errn)
+{
+    fcurve_meta_t m;
+    if (err && errn)
+        err[0] = '\0';
+    if (fcurve_parse(name, &m) != 0) {
+        if (err && errn)
+            snprintf(err, errn, "no such fan curve");
+        return -1;
+    }
+    if (out) {
+        if (m.cpu_on >= 0)
+            fprintf(out, "dry-run: fan_cpu = %s\n", m.cpu_on ? "on" : "off");
+        if (m.has_cpu && m.cpu_on != 0) {
+            char t[96], p[96];
+            fan_to_csv(&m.cpu, t, sizeof(t), p, sizeof(p));
+            fprintf(out, "dry-run: fan-curve cpu = %s %s\n", t, p);
+        }
+        if (m.gpu_on >= 0)
+            fprintf(out, "dry-run: fan_gpu = %s\n", m.gpu_on ? "on" : "off");
+        if (m.has_gpu && m.gpu_on != 0) {
+            char t[96], p[96];
+            fan_to_csv(&m.gpu, t, sizeof(t), p, sizeof(p));
+            fprintf(out, "dry-run: fan-curve gpu = %s %s\n", t, p);
+        }
+        fprintf(out, "dry-run: fan-write\n");
+    }
+    return 0;
+}
+
+int fcurve_delete(const char *name)
+{
+    char path[520];
+    fcurve_path(name, path, sizeof(path));
+    if (unlink(path) == 0) {
+        cleanup_empty_fc_group_dir(path);
+        ut_log("fan curve deleted: %s", name);
+        return 0;
+    }
+    return -1;
+}
+
+int fcurve_rename(const char *old_name, const char *new_name)
+{
+    char oldp[520], newp[520], safe[FCURVE_NAME_MAX];
+    fcurve_path(old_name, oldp, sizeof(oldp));
+    sanitize_name(new_name, safe, sizeof(safe));
+    fcurve_path(safe, newp, sizeof(newp));
+    if (ut_path_exists(newp)) {
+        ut_log("fan curve rename: '%s' already exists", safe);
+        return -1;
+    }
+    mkdir_parent(newp);
+    if (rename(oldp, newp) != 0)
+        return -1;
+    cleanup_empty_fc_group_dir(oldp);
+    ut_log("fan curve renamed: %s -> %s", old_name, safe);
+    return 0;
+}
+
+int fcurve_set_note(const char *name, const char *note)
+{
+    fcurve_meta_t m;
+    if (fcurve_parse(name, &m) != 0)
+        return -1;
+    if (note && strlen(note) >= sizeof(m.note)) {
+        ut_log("fan curve note: %s too long (max %zu chars)",
+               name, sizeof(m.note) - 1);
+        return -1;
+    }
+    snprintf(m.note, sizeof(m.note), "%s", note ? note : "");
+    if (fcurve_save(name, &m) != 0)
+        return -1;
+    ut_log("fan curve note: %s %s", name,
+           note && note[0] ? "set" : "cleared");
+    return 0;
+}
+
+void fcurve_summary(const fcurve_meta_t *m, char *out, size_t n)
+{
+    char cs[48], gs[48], head[80] = "";
+    if (m->note[0])
+        snprintf(head, sizeof(head), "%.40s · ", m->note);
+    if (m->cpu_on < 0 && !m->has_cpu)
+        snprintf(cs, sizeof(cs), "cpu —");
+    else if (m->cpu_on == 0)
+        snprintf(cs, sizeof(cs), "cpu auto");
+    else
+        snprintf(cs, sizeof(cs), "cpu %d-%d° (%d-%d%%)",
+                 m->cpu.temp_c[0], m->cpu.temp_c[m->cpu.n - 1],
+                 fan_pwm_to_pct(m->cpu.pwm[0]),
+                 fan_pwm_to_pct(m->cpu.pwm[m->cpu.n - 1]));
+
+    if (m->gpu_on < 0 && !m->has_gpu)
+        snprintf(gs, sizeof(gs), "gpu —");
+    else if (m->gpu_on == 0)
+        snprintf(gs, sizeof(gs), "gpu auto");
+    else
+        snprintf(gs, sizeof(gs), "gpu %d-%d° (%d-%d%%)",
+                 m->gpu.temp_c[0], m->gpu.temp_c[m->gpu.n - 1],
+                 fan_pwm_to_pct(m->gpu.pwm[0]),
+                 fan_pwm_to_pct(m->gpu.pwm[m->gpu.n - 1]));
+
+    snprintf(out, n, "%s%s · %s", head, cs, gs);
+}
+
+static int fcurve_diff_collect(const hw_state_t *hw, const fcurve_meta_t *m,
+                               char *labels, size_t lcap)
+{
+    size_t off = 0;
+    int ndiff = 0;
+    if (labels && lcap > 0)
+        labels[0] = '\0';
+
+#define FC_ADD(lbl)                                                          \
+    do {                                                                     \
+        if (labels && lcap > off) {                                          \
+            int wl = snprintf(labels + off, lcap - off, "%s%s",              \
+                              ndiff ? " · " : "", lbl);                      \
+            if (wl > 0 && (size_t)wl < lcap - off)                           \
+                off += (size_t)wl;                                           \
+        }                                                                    \
+        ndiff++;                                                             \
+    } while (0)
+
+    fan_curve_t lv_cpu, lv_gpu, m_cpu, m_gpu;
+    fan_to_hw8(&hw->fan_cpu, &lv_cpu);
+    fan_to_hw8(&hw->fan_gpu, &lv_gpu);
+
+    if (m->cpu_on >= 0 && m->cpu_on != (int)hw->fan_cpu_on)
+        FC_ADD("fan-cpu");
+    if (m->has_cpu && m->cpu_on != 0) {
+        fan_to_hw8(&m->cpu, &m_cpu);
+        if (!fan_curves_equal(&m_cpu, &lv_cpu))
+            FC_ADD("curve-cpu");
+    }
+    if (m->gpu_on >= 0 && m->gpu_on != (int)hw->fan_gpu_on)
+        FC_ADD("fan-gpu");
+    if (m->has_gpu && m->gpu_on != 0) {
+        fan_to_hw8(&m->gpu, &m_gpu);
+        if (!fan_curves_equal(&m_gpu, &lv_gpu))
+            FC_ADD("curve-gpu");
+    }
+
+#undef FC_ADD
+    return ndiff;
+}
+
+int fcurve_diff_count(const hw_state_t *hw, const fcurve_meta_t *m)
+{
+    return fcurve_diff_collect(hw, m, NULL, 0);
+}
+
+void fcurve_diff(const hw_state_t *hw, const fcurve_meta_t *m,
+                 char *out, size_t n)
+{
+    char labels[128];
+    int ndiff = fcurve_diff_collect(hw, m, labels, sizeof(labels));
     if (ndiff == 0)
         snprintf(out, n, "≡ live");
     else

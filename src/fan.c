@@ -28,8 +28,56 @@ static void clamp_point(int *temp, int *pwm)
     if (*pwm > 255) *pwm = 255;
 }
 
-/* Insertion sort by temperature, then force strictly increasing temps.
- * Returns the new index of `keep_idx`. */
+/* Enforce strictly increasing temperatures inside [FAN_TMIN, FAN_TMAX] and
+ * monotonic non-decreasing PWM inside [0, 255] anchored at `anchor`, pushing
+ * colliding neighbours outward without reordering point indices. */
+static int fan_enforce_from(fan_curve_t *fc, int anchor)
+{
+    int n = fc->n;
+    if (n <= 0) {
+        fc->n = 0;
+        return 0;
+    }
+    if (n > FAN_POINTS)
+        n = fc->n = FAN_POINTS;
+    if (anchor < 0)
+        anchor = 0;
+    if (anchor >= n)
+        anchor = n - 1;
+    for (int i = 0; i < n; i++)
+        clamp_point(&fc->temp_c[i], &fc->pwm[i]);
+    if (n == 1)
+        return 0;
+
+    fc->temp_c[anchor] = ut_clamp_i(fc->temp_c[anchor],
+                                    FAN_TMIN + anchor,
+                                    FAN_TMAX - (n - 1 - anchor));
+    for (int i = anchor - 1; i >= 0; i--) {
+        if (fc->temp_c[i] >= fc->temp_c[i + 1])
+            fc->temp_c[i] = fc->temp_c[i + 1] - 1;
+        if (fc->temp_c[i] < FAN_TMIN + i)
+            fc->temp_c[i] = FAN_TMIN + i;
+    }
+    for (int i = anchor + 1; i < n; i++) {
+        if (fc->temp_c[i] <= fc->temp_c[i - 1])
+            fc->temp_c[i] = fc->temp_c[i - 1] + 1;
+        if (fc->temp_c[i] > FAN_TMAX - (n - 1 - i))
+            fc->temp_c[i] = FAN_TMAX - (n - 1 - i);
+    }
+
+    for (int i = anchor - 1; i >= 0; i--) {
+        if (fc->pwm[i] > fc->pwm[i + 1])
+            fc->pwm[i] = fc->pwm[i + 1];
+    }
+    for (int i = anchor + 1; i < n; i++) {
+        if (fc->pwm[i] < fc->pwm[i - 1])
+            fc->pwm[i] = fc->pwm[i - 1];
+    }
+    return anchor;
+}
+
+/* Stable insertion sort by temperature, then enforce strictly increasing
+ * temperatures and monotonic non-decreasing PWM anchored at `new_keep`. */
 static int fan_normalize(fan_curve_t *fc, int keep_idx)
 {
     int n = fc->n;
@@ -39,10 +87,11 @@ static int fan_normalize(fan_curve_t *fc, int keep_idx)
     }
     if (n > FAN_POINTS)
         n = fc->n = FAN_POINTS;
-    if (n < 2) {
-        if (keep_idx < 0) return 0;
-        if (keep_idx >= n) return n ? n - 1 : 0;
-        return keep_idx;
+    if (n == 0)
+        return 0;
+    if (n == 1) {
+        clamp_point(&fc->temp_c[0], &fc->pwm[0]);
+        return 0;
     }
 
     int order[FAN_POINTS];
@@ -62,6 +111,7 @@ static int fan_normalize(fan_curve_t *fc, int keep_idx)
     for (int i = 0; i < n; i++) {
         nt[i] = fc->temp_c[order[i]];
         np[i] = fc->pwm[order[i]];
+        clamp_point(&nt[i], &np[i]);
         if (order[i] == keep_idx)
             new_keep = i;
     }
@@ -69,26 +119,7 @@ static int fan_normalize(fan_curve_t *fc, int keep_idx)
         fc->temp_c[i] = nt[i];
         fc->pwm[i] = np[i];
     }
-
-    /* strictly increasing temps within [FAN_TMIN, FAN_TMAX] */
-    for (int i = 1; i < n; i++) {
-        if (fc->temp_c[i] <= fc->temp_c[i - 1])
-            fc->temp_c[i] = fc->temp_c[i - 1] + 1;
-    }
-    if (fc->temp_c[n - 1] > FAN_TMAX) {
-        fc->temp_c[n - 1] = FAN_TMAX;
-        for (int i = n - 2; i >= 0; i--) {
-            if (fc->temp_c[i] >= fc->temp_c[i + 1])
-                fc->temp_c[i] = fc->temp_c[i + 1] - 1;
-            if (fc->temp_c[i] < FAN_TMIN)
-                fc->temp_c[i] = FAN_TMIN;
-        }
-        for (int i = 1; i < n; i++) {
-            if (fc->temp_c[i] <= fc->temp_c[i - 1])
-                fc->temp_c[i] = fc->temp_c[i - 1] + 1;
-        }
-    }
-    return new_keep;
+    return fan_enforce_from(fc, new_keep);
 }
 
 int fan_from_csv(fan_curve_t *fc, const char *temps, const char *pwms)
@@ -106,7 +137,7 @@ int fan_from_csv(fan_curve_t *fc, const char *temps, const char *pwms)
         fc->temp_c[i] = tc;
         fc->pwm[i] = pc;
     }
-    fan_normalize(fc, 0);
+    fan_normalize(fc, -1);
     return fc->n;
 }
 
@@ -176,6 +207,8 @@ int fan_del_point(fan_curve_t *fc, int idx)
 {
     if (fc->n < 1)
         return -1;
+    if (fc->n <= 2)
+        return (idx >= 0 && idx < fc->n) ? idx : 0;
     if (idx < 0 || idx >= fc->n)
         idx = fc->n - 1;
     for (int i = idx; i < fc->n - 1; i++) {
@@ -195,7 +228,7 @@ int fan_nudge_point(fan_curve_t *fc, int idx, int dtemp, int dpwm)
     clamp_point(&t, &p);
     fc->temp_c[idx] = t;
     fc->pwm[idx] = p;
-    return fan_normalize(fc, idx);
+    return fan_enforce_from(fc, idx);
 }
 
 int fan_set_point(fan_curve_t *fc, int idx, int temp, int pwm)
@@ -210,15 +243,75 @@ int fan_set_point(fan_curve_t *fc, int idx, int temp, int pwm)
     return fan_normalize(fc, idx);
 }
 
+void fan_to_hw8(const fan_curve_t *src, fan_curve_t *out)
+{
+    if (!out)
+        return;
+    if (!src || src->n < 1) {
+        fan_default(out);
+        return;
+    }
+    *out = *src;
+    if (out->n > FAN_POINTS)
+        out->n = FAN_POINTS;
+    fan_normalize(out, -1);
+    while (out->n < FAN_POINTS) {
+        if (fan_add_point(out, -1, -1) < 0)
+            break;
+    }
+}
+
+int fan_pwm_to_pct(int pwm)
+{
+    return (ut_clamp_i(pwm, 0, 255) * 100 + 127) / 255;
+}
+
+int fan_pct_to_pwm(int pct)
+{
+    return (ut_clamp_i(pct, 0, 100) * 255 + 50) / 100;
+}
+
+int fan_eval_pwm(const fan_curve_t *fc, int temp_c)
+{
+    if (!fc || fc->n < 1)
+        return -1;
+    int n = fc->n <= FAN_POINTS ? fc->n : FAN_POINTS;
+    if (temp_c <= fc->temp_c[0])
+        return fc->pwm[0];
+    if (temp_c >= fc->temp_c[n - 1])
+        return fc->pwm[n - 1];
+    for (int i = 0; i + 1 < n; i++) {
+        int t0 = fc->temp_c[i], t1 = fc->temp_c[i + 1];
+        if (temp_c >= t0 && temp_c <= t1) {
+            if (t1 <= t0)
+                return fc->pwm[i];
+            int p0 = fc->pwm[i], p1 = fc->pwm[i + 1];
+            return p0 + (temp_c - t0) * (p1 - p0) / (t1 - t0);
+        }
+    }
+    return fc->pwm[n - 1];
+}
+
+bool fan_curves_equal(const fan_curve_t *a, const fan_curve_t *b)
+{
+    if (!a || !b || a->n != b->n || a->n < 1 || a->n > FAN_POINTS)
+        return false;
+    for (int i = 0; i < a->n; i++)
+        if (a->temp_c[i] != b->temp_c[i] || a->pwm[i] != b->pwm[i])
+            return false;
+    return true;
+}
+
 void fan_scale(fan_curve_t *dst, const fan_curve_t *src, int num, int den)
 {
     *dst = *src;
     if (dst->n < 1)
-        dst->n = FAN_POINTS;
+        fan_default(dst);
     for (int i = 0; i < dst->n && i < FAN_POINTS; i++) {
-        int p = src->pwm[i] * num / den;
+        int p = dst->pwm[i] * num / den;
         dst->pwm[i] = ut_clamp_i(p, 0, 255);
     }
+    fan_normalize(dst, -1);
 }
 
 int fan_enable_raw(int on)
@@ -320,7 +413,7 @@ static int parse_fan_block(const char *block, const char *fan_tag, fan_curve_t *
         fc->temp_c[i] = tc;
         fc->pwm[i] = pc;
     }
-    fan_normalize(fc, 0);
+    fan_normalize(fc, -1);
     return 0;
 }
 
@@ -439,23 +532,21 @@ int fan_preset_get(hw_state_t *hw, fan_preset_t preset, fan_curve_t *cpu,
         return 0; /* info stays DEFAULT */
     }
 
-    /* Try asusd fan_curves.ron first */
-    char buf[8192];
-    if (ut_read_file_all("/etc/asusd/fan_curves.ron", buf, sizeof(buf)) == 0) {
-        bool c_en = true, g_en = true;
-        if (fan_ron_parse(buf, preset, cpu, gpu, &c_en, &g_en) == 0) {
-            if (info) {
-                info->src = FAN_PSRC_RON;
+    /* Always return the clean OEM factory reference for QUIET/BALANCED/PERF:
+     * asusctl fan-curve writes overwrite /etc/asusd/fan_curves.ron in-place,
+     * so reading curves back from fan_curves.ron returned the user's own
+     * custom edits instead of the reference preset. */
+    if (info) {
+        info->src = FAN_PSRC_BUILTIN;
+        char buf[8192];
+        if (ut_read_file_all("/etc/asusd/fan_curves.ron", buf, sizeof(buf)) == 0) {
+            bool c_en = true, g_en = true;
+            if (fan_ron_parse(buf, preset, NULL, NULL, &c_en, &g_en) == 0) {
                 info->cpu_en = c_en;
                 info->gpu_en = g_en;
             }
-            return 0;
         }
     }
-
-    /* Built-in snapshot fallback */
-    if (info)
-        info->src = FAN_PSRC_BUILTIN;
     return fan_preset_builtin(preset, cpu, gpu);
 }
 

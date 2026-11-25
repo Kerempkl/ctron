@@ -81,24 +81,32 @@ typedef struct ui_ctx {
     rect_t rc_ws;               /* main workspace area */
     rect_t rc_overlay;          /* floating modal rectangle */
 
-    /* snapshots view (VIEW_SNAPSHOTS) */
+    /* snapshots & saved fan curves view (VIEW_SNAPSHOTS) */
     char profs[MAX_PROFILES][PROFILE_NAME_MAX];
     int prof_n, prof_sel;
     int prof_top;
+    char fcurves[MAX_FCURVES][FCURVE_NAME_MAX];
+    int fc_n, fc_sel;
+    int fc_top;
+    bool prof_in_fcurves;       /* false = top SNAPSHOTS, true = bottom FAN CURVES */
     int prof_input;             /* 0 none, 1 save, 2 rename, 3 note */
-    int prof_del_arm;           /* double-d confirm: armed prof_sel, or -1 */
+    int prof_del_arm;           /* double-d confirm: armed sel, or -1 */
     int prof_upd_arm;           /* double-u confirm: overwrite with live, or -1 */
     tinput_t prof_name;
     tinput_t prof_note;
     profile_meta_t prof_meta;
     int prof_meta_sel;
     bool prof_meta_ok;
-    bool prof_in_edit;          /* true when focus is in right-hand Snapshot Editor */
+    bool prof_in_edit;          /* true when focus is in right-hand Editor */
     int prof_edit_sel;          /* 0..SF_COUNT-1 field row inside Snapshot Editor */
     int prof_edit_top;          /* scroll offset for Snapshot Editor */
     bool prof_edit_dirty;       /* unsaved edits in prof_edit */
     profile_meta_t prof_edit;   /* editable working copy of selected snapshot */
-    tinput_t prof_val_in;       /* exact value input inside Snapshot Editor */
+    fcurve_meta_t fc_edit;      /* editable working copy of selected fan curve */
+    int fc_edit_sel;            /* 0..17 row inside Fan Curve Editor */
+    int fc_edit_top;            /* scroll offset for Fan Curve Editor */
+    bool fc_edit_dirty;         /* unsaved edits in fc_edit */
+    tinput_t prof_val_in;       /* exact value input inside right-hand Editor */
     bool prof_val_typing;       /* true while typing exact field value */
     bool prof_in_cores;         /* Snapshot Editor shows the per-core grid */
     int prof_cf_staged[HW_CPU_MAX]; /* the grid's snapshot pool: kept apart
@@ -116,11 +124,13 @@ typedef struct ui_ctx {
     bool ctl_mode_pick;
 
     /* fan editor (VIEW_FANS) */
-    int fe_gpu, fe_sel, fe_input; /* fe_input: 0 none, 1 temp, 2 pwm */
+    int fe_gpu, fe_sel, fe_input; /* fe_input: 0 none, 1 temp, 2 pwm, 3 save name */
     bool fe_grid;                 /* 'i': value guides on the graph */
-    tinput_t fe_x, fe_y;
+    tinput_t fe_x, fe_y, fe_save_name;
+    char fe_loaded[FCURVE_NAME_MAX]; /* active saved curve label in editor */
     rect_t fe_graph;
-    int fe_pr_sel;                /* 0..3: Quiet, Balanced, Performance, Active */
+    int fe_pr_sel;                /* 0..3 built-ins + 4..4+fc_n-1 saved curves */
+    int fe_pr_top;
     bool fe_pr_target_cpu;
     bool fe_pr_target_gpu;
 
@@ -336,6 +346,7 @@ void editor_daeboard_act(int id);
 void editor_fan_draw(struct ncplane *n, const rect_t *r);
 void editor_fan_key(uint32_t key);
 void editor_fan_act(int id, int mx, int my);
+void editor_fan_sync_bufs(void);
 void editor_fan_presets_open(void);
 void editor_fan_presets_draw(struct ncplane *n, const rect_t *r);
 void editor_fan_presets_key(uint32_t key);
@@ -344,9 +355,12 @@ void editor_fan_presets_act(int id);
 #define ACT_FE_END  160
 const rect_t *editor_fan_graph(void);
 
+/* Cached saved fan curve accessor shared with editor_fan presets modal */
+const fcurve_meta_t *panel_profiles_fcurve_meta(int idx);
+
 void ui_flash(const char *msg);
 
-enum { APPLY_SNAPSHOT, APPLY_POWER, APPLY_SYSTEM, APPLY_MODE };
+enum { APPLY_SNAPSHOT, APPLY_FAN_CURVE, APPLY_POWER, APPLY_SYSTEM, APPLY_MODE };
 void ui_spawn_apply(int kind, const char *what, const char *arg);
 
 #endif /* CTRON_UI_INTERNAL_H */

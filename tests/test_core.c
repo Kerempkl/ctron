@@ -2748,6 +2748,167 @@ static void check_tinput(void)
           "tin_is_edit_op classifies edit keys");
 }
 
+static void check_fcurves_and_fan_fixes(void)
+{
+    /* 1. Left-nudge cascade on tightly packed curve (no freeze) */
+    fan_curve_t fc = {0};
+    CHECK(fan_from_csv(&fc, "61,62,63,64,65,66,67,68",
+                       "53,53,53,53,53,53,53,53") == 8,
+          "packed curve parse");
+    int idx = fan_nudge_point(&fc, 4, -1, 0);
+    CHECK(idx == 4 && fc.temp_c[4] == 64 && fc.temp_c[3] == 63 &&
+              fc.temp_c[0] == 60,
+          "left nudge cascades packed neighbours left instead of freezing");
+    idx = fan_nudge_point(&fc, 2, +2, 0);
+    CHECK(fc.temp_c[idx] == 64 && fc.temp_c[3] == 65 && fc.temp_c[4] == 66,
+          "right nudge cascades packed neighbours right");
+
+    /* 2. Monotonic non-decreasing PWM enforcement */
+    CHECK(fan_from_csv(&fc, "40,60,80", "50,100,150") == 3, "mono setup");
+    idx = fan_nudge_point(&fc, 1, 0, +80); /* 100 -> 180 > 150 */
+    CHECK(idx == 1 && fc.pwm[1] == 180 && fc.pwm[2] == 180 && fc.pwm[0] == 50,
+          "raising middle PWM lifts higher-temp neighbours");
+    idx = fan_nudge_point(&fc, 1, 0, -150); /* 180 -> 30 < 50 */
+    CHECK(idx == 1 && fc.pwm[1] == 30 && fc.pwm[0] == 30 && fc.pwm[2] == 180,
+          "lowering middle PWM lowers lower-temp neighbours");
+
+    /* 3. 2-point minimum floor on delete + 8-point hardware expansion */
+    CHECK(fan_del_point(&fc, 2) >= 0 && fc.n == 2, "del down to 2 points");
+    CHECK(fan_del_point(&fc, 1) >= 0 && fc.n == 2, "del floor keeps 2 points");
+    fan_curve_t hw8 = {0};
+    fan_to_hw8(&fc, &hw8);
+    CHECK(hw8.n == FAN_POINTS, "fan_to_hw8 expands 2pt to 8pt");
+    for (int i = 1; i < hw8.n; i++) {
+        CHECK(hw8.temp_c[i] > hw8.temp_c[i - 1], "hw8 temps strictly inc");
+        CHECK(hw8.pwm[i] >= hw8.pwm[i - 1], "hw8 pwms monotonic");
+    }
+
+    /* 4. Pure helpers: pct <-> pwm, eval, equal, uncorrupted factory presets */
+    CHECK(fan_pwm_to_pct(0) == 0 && fan_pwm_to_pct(255) == 100 &&
+              fan_pct_to_pwm(0) == 0 && fan_pct_to_pwm(50) == 128 &&
+              fan_pct_to_pwm(100) == 255,
+          "fan pct<->pwm helpers");
+    fan_curve_t lin = {0};
+    fan_from_csv(&lin, "40,80", "50,250");
+    CHECK(fan_eval_pwm(&lin, 30) == 50 && fan_eval_pwm(&lin, 60) == 150 &&
+              fan_eval_pwm(&lin, 95) == 250,
+          "fan_eval_pwm linear interpolation + clamp");
+    fan_curve_t lin2 = lin;
+    CHECK(fan_curves_equal(&lin, &lin2), "fan_curves_equal identical");
+    lin2.pwm[1] = 240;
+    CHECK(!fan_curves_equal(&lin, &lin2), "fan_curves_equal detects diff");
+
+    fan_preset_info_t pinfo = {0};
+    fan_curve_t p_cpu = {0}, p_gpu = {0}, b_cpu = {0}, b_gpu = {0};
+    CHECK(fan_preset_get(NULL, FAN_PRESET_PERF, &p_cpu, &p_gpu, &pinfo) == 0 &&
+              pinfo.src == FAN_PSRC_BUILTIN &&
+              fan_preset_builtin(FAN_PRESET_PERF, &b_cpu, &b_gpu) == 0 &&
+              fan_curves_equal(&p_cpu, &b_cpu) &&
+              fan_curves_equal(&p_gpu, &b_gpu),
+          "fan_preset_get returns uncorrupted builtin factory curves");
+
+    /* 5. Saved Fan Curves (.fc) CRUD, diff, dry-run, and --fan validation */
+    char tmp[] = "/tmp/ctron-test-fc-XXXXXX";
+    CHECK(mkdtemp(tmp) != NULL, "mkdtemp fcurves");
+    setenv("CTRON_CONFIG", tmp, 1);
+
+    char gen[FCURVE_NAME_MAX] = "";
+    fcurve_gen_name(gen, sizeof(gen));
+    CHECK(gen[0] != '\0' && strstr(gen, "-fan-") != NULL,
+          "fcurve_gen_name generates valid fan name");
+
+    hw_state_t hw;
+    memset(&hw, 0, sizeof(hw));
+    hw.has_fan_curve = true;
+    hw.fan_cpu_on = true;
+    hw.fan_gpu_on = true;
+    fan_from_csv(&hw.fan_cpu, "35,50,60,70,78,85,92,100",
+                 "30,60,90,120,160,195,225,255");
+    fan_from_csv(&hw.fan_gpu, "40,55,65,72,80,88,95,102",
+                 "35,70,105,140,175,210,235,255");
+
+    CHECK(fcurve_export("curve-1", &hw) == 0, "fcurve_export");
+    CHECK(fcurve_set_note("curve-1", "test note") == 0, "fcurve_set_note init");
+
+    /* Save a GPU-only curve inside a group folder */
+    fcurve_meta_t gm;
+    fcurve_meta_init(&gm);
+    snprintf(gm.note, sizeof(gm.note), "gpu only");
+    gm.cpu_on = -1;
+    gm.has_cpu = false;
+    gm.gpu_on = 1;
+    gm.has_gpu = true;
+    fan_from_csv(&gm.gpu, "45,75", "64,200");
+    CHECK(fcurve_save("oyun/sessiz", &gm) == 0, "fcurve_save grouped");
+
+    char names[16][FCURVE_NAME_MAX];
+    int n = fcurve_list(names, 16);
+    CHECK(n == 2 && !strcmp(names[0], "curve-1") &&
+              !strcmp(names[1], "oyun/sessiz"),
+          "fcurve_list sorted including group");
+
+    fcurve_meta_t parsed;
+    CHECK(fcurve_parse("curve-1", &parsed) == 0 &&
+              !strcmp(parsed.note, "test note") && parsed.saved[0] != '\0' &&
+              parsed.cpu_on == 1 && parsed.gpu_on == 1 &&
+              fan_curves_equal(&parsed.cpu, &hw.fan_cpu) &&
+              fan_curves_equal(&parsed.gpu, &hw.fan_gpu),
+          "fcurve_parse roundtrip");
+
+    fcurve_meta_t gparsed;
+    CHECK(fcurve_parse("oyun/sessiz", &gparsed) == 0 &&
+              gparsed.cpu_on == -1 && !gparsed.has_cpu &&
+              gparsed.gpu_on == 1 && gparsed.has_gpu &&
+              gparsed.gpu.n == FAN_POINTS,
+          "fcurve_parse selective skip + 8pt expansion");
+
+    /* Diff against live hw */
+    char diff[128] = "";
+    fcurve_diff(&hw, &parsed, diff, sizeof(diff));
+    CHECK(fcurve_diff_count(&hw, &parsed) == 0 && !strcmp(diff, "≡ live"),
+          "fcurve_diff matches live");
+    hw.fan_gpu.pwm[3] = 155;
+    fcurve_diff(&hw, &parsed, diff, sizeof(diff));
+    CHECK(fcurve_diff_count(&hw, &parsed) == 1 &&
+              strstr(diff, "curve-gpu") != NULL,
+          "fcurve_diff detects gpu curve change");
+
+    /* Note update + rename with empty group folder cleanup */
+    CHECK(fcurve_set_note("oyun/sessiz", "updated") == 0, "fcurve_set_note");
+    CHECK(fcurve_rename("oyun/sessiz", "sessiz-v2") == 0, "fcurve_rename");
+    char gdir[PATH_MAX];
+    snprintf(gdir, sizeof(gdir), "%s/fan_curves/oyun", tmp);
+    CHECK(!ut_path_exists(gdir), "empty fan_curves group dir removed");
+    CHECK(fcurve_parse("sessiz-v2", &gparsed) == 0 &&
+              !strcmp(gparsed.note, "updated"),
+          "renamed fcurve preserves note");
+
+    /* Dry-run and CLI cmd_validate("fan", "<saved-curve>") */
+    char err[128] = "", dry_buf[256] = "";
+    FILE *dryf = tmpfile();
+    CHECK(dryf != NULL, "dryf tmpfile");
+    if (dryf) {
+        CHECK(fcurve_dry_run("sessiz-v2", dryf, err, sizeof(err)) == 0,
+              "fcurve_dry_run succeeds");
+        rewind(dryf);
+        size_t nr = fread(dry_buf, 1, sizeof(dry_buf) - 1, dryf);
+        dry_buf[nr] = '\0';
+        CHECK(strstr(dry_buf, "fan-gpu") != NULL || strstr(dry_buf, "gpu") != NULL,
+              "fcurve_dry_run outputs steps");
+        fclose(dryf);
+    }
+    CHECK(cmd_validate(&hw, "fan", "sessiz-v2", err, sizeof(err)) == 0,
+          "cmd_validate accepts saved fan curve name");
+    CHECK(cmd_validate(&hw, "fan", "no-such-curve", err, sizeof(err)) != 0,
+          "cmd_validate rejects unknown fan curve name");
+
+    CHECK(fcurve_delete("curve-1") == 0 && fcurve_delete("sessiz-v2") == 0,
+          "fcurve_delete cleans up");
+    snprintf(gdir, sizeof(gdir), "%s/fan_curves", tmp);
+    rmdir(gdir);
+    rmdir(tmp);
+}
+
 int main(void)
 {
     check_fan_csv();
@@ -2790,6 +2951,7 @@ int main(void)
     check_progress_and_log();
     check_no_sudo();
     check_tinput();
+    check_fcurves_and_fan_fixes();
 
     if (failures) {
         fprintf(stderr, "%d failure(s)\n", failures);

@@ -64,6 +64,14 @@ const char *settings_profiles_dir(char *out, size_t n)
     return out;
 }
 
+const char *settings_fancurves_dir(char *out, size_t n)
+{
+    char dir[400];
+    settings_dir(dir, sizeof(dir));
+    snprintf(out, n, "%s/fan_curves", dir);
+    return out;
+}
+
 const char *settings_modes_file(char *out, size_t n)
 {
     char dir[400];
@@ -74,11 +82,13 @@ const char *settings_modes_file(char *out, size_t n)
 
 static void ensure_dirs(void)
 {
-    char dir[400], prof[420];
+    char dir[400], prof[420], fcdir[420];
     settings_dir(dir, sizeof(dir));
     ut_mkdir_p(dir);
     snprintf(prof, sizeof(prof), "%s/profiles", dir);
     ut_mkdir_p(prof);
+    snprintf(fcdir, sizeof(fcdir), "%s/fan_curves", dir);
+    ut_mkdir_p(fcdir);
     modes_write_defaults(); /* seeds modes.ini on first run */
 }
 

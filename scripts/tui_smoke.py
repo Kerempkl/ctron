@@ -498,6 +498,8 @@ def flow_fan_clicks():
                     fail("fan_clicks", f"click on {name} switched views")
                     return
             ok("fan_clicks", "control-row clicks stay in Fans view")
+            s.key(b"r")            # revert staged add/del before Write
+            time.sleep(0.2)
             m = s.mark()
             s.click(47, row)       # Write
             if s.wait_for(b"fan curve", since=m, timeout=6.0):
@@ -709,10 +711,10 @@ def flow_snapshots():
             time.sleep(1.5)
             with open(ctr_path, "r") as cf:
                 cbody3 = cf.read()
-            # one CCD = 8 cores / 16 threads, all rewritten to the rule's value
+            # one CCD = 8 cores / 16 threads rewritten to the rule's value
             core_lines = [ln for ln in cbody3.splitlines() if ln.startswith("freq = core ")]
-            if (len(core_lines) != 16 or
-                    any(not ln.endswith(" 3000") for ln in core_lines) or
+            ccd0_lines = [ln for ln in core_lines if ln.endswith(" 3000")]
+            if (len(ccd0_lines) != 16 or
                     "\nfreq = 5386\n" not in cbody3 or
                     "\nppt = 67,82,82\n" not in cbody3 or
                     "\naura = static ff0000\n" not in cbody3):
@@ -815,6 +817,144 @@ def flow_narrow_terminal():
             s.close()
 
 
+def flow_saved_fan_curves():
+    """Saved Fan Curves: save in 2 Fans, split pane in 4 Snapshots, rename, edit, select in snapshot."""
+    with IsolatedConfig() as cfg:
+        s = Session("fcurves")
+        try:
+            s.wait_render()
+            s.key(b"2")
+            time.sleep(0.35)
+            # Load Balanced factory preset so we save a clean known curve
+            s.key(b"m")
+            time.sleep(0.25)
+            s.key(b"2")
+            time.sleep(0.15)
+            s.key(b"\r")
+            time.sleep(0.25)
+            # Save named fan curve 'fc1' via 's'
+            m_sv = s.mark()
+            s.key(b"s")
+            if not s.wait_for(b"save fan curve", since=m_sv, timeout=6.0):
+                fail("fcurves", "'s' in 2 Fans did not open save fan curve prompt")
+                return
+            s.key(b"\x15")         # Ctrl+U clear suggested name
+            s.key(b"fc1")
+            m_ok = s.mark()
+            s.key(b"\r")
+            if not s.wait_for(b"fc1", since=m_ok, timeout=6.0):
+                fail("fcurves", "saving 'fc1' in 2 Fans failed")
+                return
+            ok("fcurves", "'s' in 2 Fans saves named fan curve 'fc1'")
+
+            # Verify 'Saved: fc1' appears inside 'm' FAN PRESETS modal
+            m_pr = s.mark()
+            s.key(b"m")
+            if not s.wait_for(b"Saved: fc1", since=m_pr, timeout=6.0):
+                fail("fcurves", "saved curve 'fc1' missing in 'm' FAN PRESETS modal")
+                return
+            ok("fcurves", "saved curve 'fc1' listed inside 'm' FAN PRESETS modal")
+            s.key(b"\x1b")
+            time.sleep(0.2)
+
+            # Open 4 Snapshots and verify split pane (SNAPSHOTS top + FAN CURVES bottom)
+            m_v4 = s.mark()
+            s.key(b"4")
+            if not s.wait_for(b"FAN CURVES", since=m_v4, timeout=6.0):
+                fail("fcurves", "split FAN CURVES section missing in 4 Snapshots")
+                return
+            ok("fcurves", "4 Snapshots left pane split into SNAPSHOTS + FAN CURVES")
+
+            # 'f' focuses FAN CURVES; rename fc1 -> fc2 ('r') and add note ('c')
+            s.key(b"f")
+            time.sleep(0.25)
+            s.key(b"r")
+            time.sleep(0.2)
+            s.key(b"\x15")
+            s.key(b"fc2")
+            m_rn = s.mark()
+            s.key(b"\r")
+            if not s.wait_for(b"fc2", since=m_rn, timeout=6.0):
+                fail("fcurves", "renaming fan curve fc1 -> fc2 failed")
+                return
+            ok("fcurves", "fan curve renamed fc1 -> fc2")
+
+            s.key(b"c")
+            time.sleep(0.2)
+            s.key(b"quiet-gpu")
+            m_nt = s.mark()
+            s.key(b"\r")
+            if not s.wait_for(b"quiet-gpu", since=m_nt, timeout=6.0):
+                fail("fcurves", "fan curve note 'quiet-gpu' not shown")
+                return
+            ok("fcurves", "fan curve note saved and displayed")
+
+            # 'e' opens interactive Fan Curve Editor; edit point 1 PWM and save ('w')
+            m_ed = s.mark()
+            s.key(b"e")
+            if not s.wait_for(b"EDIT FAN CURVE", since=m_ed, timeout=6.0):
+                fail("fcurves", "'e' did not open EDIT FAN CURVE")
+                return
+            s.key(b"j")            # CPU point 1 (40°C, 22 PWM -> +5 = 27 PWM)
+            s.key(b"l")
+            time.sleep(0.2)
+            s.key(b"w")
+            time.sleep(0.5)
+            fc_path = os.path.join(cfg, "fan_curves", "fc2.fc")
+            with open(fc_path, "r") as ff:
+                fc_body = ff.read()
+            if "# note: quiet-gpu" not in fc_body or "27,75,80,98" not in fc_body:
+                fail("fcurves", f"edited .fc content mismatch: {fc_body!r}")
+                return
+            ok("fcurves", "interactive Fan Curve Editor saves edited points + note to .fc")
+            s.key(b"\x1b")         # back to FAN CURVES list
+            time.sleep(0.2)
+
+            # Switch back to SNAPSHOTS ('f'), save 'sn1', and select 'fc2' inside EDIT SNAPSHOT
+            s.key(b"f")
+            time.sleep(0.2)
+            s.key(b"s")
+            time.sleep(0.2)
+            s.key(b"\x15")
+            s.key(b"sn1")
+            s.key(b"\r")
+            time.sleep(0.3)
+            s.key(b"e")            # EDIT SNAPSHOT
+            time.sleep(0.25)
+            for _ in range(13):    # row 13 = SF_FAN_CPU
+                s.key(b"j")
+            time.sleep(0.2)
+            s.key(b"e")            # type saved fan curve name 'fc2'
+            time.sleep(0.2)
+            s.key(b"\x15")
+            s.key(b"fc2")
+            m_sel = s.mark()
+            s.key(b"\r")
+            if not s.wait_for(b"[fc2]", since=m_sel, timeout=6.0):
+                fail("fcurves", "selecting saved fan curve 'fc2' in Snapshot Editor failed")
+                return
+            s.key(b"a")            # copy 'fc2' to both CPU + GPU fan curves in snapshot
+            time.sleep(0.2)
+            s.key(b"w")
+            time.sleep(0.4)
+            sn_path = os.path.join(cfg, "profiles", "sn1.ctr")
+            with open(sn_path, "r") as sf:
+                sn_body = sf.read()
+            if ("fan-curve cpu = 40,54,61,67,71,75,80,90 27,75,80,98,125,160,190,210" not in sn_body or
+                    "fan-curve gpu = 51,53,59,64,66,70,74,83 33,53,73,93,140,180,215,245" not in sn_body):
+                fail("fcurves", f"snapshot sn1 did not embed fc2 curves: {sn_body!r}")
+                return
+            ok("fcurves", "saved fan curve 'fc2' selectable + applied to CPU & GPU inside Snapshot")
+
+            s.key(b"\x1b")
+            time.sleep(0.2)
+            rc = s.quit_expect0()
+            if rc != 0:
+                fail("fcurves", f"q exit {rc!r}")
+        finally:
+            s.close()
+
+
 def main():
     if not os.access(BIN, os.X_OK):
         print(f"no executable at {BIN} (run make first)")
@@ -832,6 +972,7 @@ def main():
         flow_fan_clicks,
         flow_telemetry,
         flow_snapshots,
+        flow_saved_fan_curves,
         flow_log_and_help,
         flow_narrow_terminal,
     ]

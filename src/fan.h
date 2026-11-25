@@ -26,11 +26,24 @@ void fan_to_csv(const fan_curve_t *fc, char *t, size_t tn, char *p, size_t pn);
 
 /* Manipulation. All return the (possibly new) index of the affected
  * point, or -1 on failure. Temps are clamped to [FAN_TMIN, FAN_TMAX],
- * pwm to [0, 255]; the table is re-sorted and made unique. */
+ * pwm to [0, 255]; the table is kept strictly increasing in temperature
+ * and monotonic non-decreasing in PWM, anchored at the edited point. */
 int fan_add_point(fan_curve_t *fc, int temp, int pwm);
 int fan_del_point(fan_curve_t *fc, int idx);
 int fan_nudge_point(fan_curve_t *fc, int idx, int dtemp, int dpwm);
 int fan_set_point(fan_curve_t *fc, int idx, int temp, int pwm);
+
+/* Expand/normalize any 1..8 point curve into a full 8-point hardware
+ * table (asusd CurveData and asus_custom_fan_curve both require 8 points
+ * with strictly increasing temps). Pure. */
+void fan_to_hw8(const fan_curve_t *src, fan_curve_t *out);
+
+/* Pure helpers: PWM (0..255) <-> percentage (0..100), piecewise-linear
+ * PWM lookup at `temp_c`, and exact equality check. */
+int  fan_pwm_to_pct(int pwm);
+int  fan_pct_to_pwm(int pct);
+int  fan_eval_pwm(const fan_curve_t *fc, int temp_c);
+bool fan_curves_equal(const fan_curve_t *a, const fan_curve_t *b);
 
 /* Scale every pwm by num/den (clamped). Used by the Silent/Cool presets. */
 void fan_scale(fan_curve_t *dst, const fan_curve_t *src, int num, int den);

@@ -94,4 +94,40 @@ int  profile_meta_diff_count(const hw_state_t *hw, const profile_meta_t *m);
 void profile_meta_diff(const hw_state_t *hw, const profile_meta_t *m,
                        char *out, size_t n);
 
+/* ---- Saved Fan Curves (~/.config/ctron/fan_curves/<name>.fc) ------------
+ * First-class reusable CPU/GPU fan curve presets with free-form names
+ * ("group/name"), notes, selective CPU/GPU inclusion, live diff, and
+ * direct selection inside both the Snapshots and Fans views. */
+
+#define MAX_FCURVES 64
+#define FCURVE_NAME_MAX 48
+
+typedef struct {
+    int cpu_on;          /* -1 omitted (skip CPU), 0 factory auto, 1 custom */
+    int gpu_on;          /* -1 omitted (skip GPU), 0 factory auto, 1 custom */
+    bool has_cpu;        /* CPU 8-point curve stored */
+    bool has_gpu;        /* GPU 8-point curve stored */
+    fan_curve_t cpu;
+    fan_curve_t gpu;
+    char saved[24];      /* "# saved:" header */
+    char note[64];       /* "# note:" header */
+} fcurve_meta_t;
+
+void fcurve_gen_name(char *out, size_t n);
+int  fcurve_list(char list[][FCURVE_NAME_MAX], int max);
+void fcurve_meta_init(fcurve_meta_t *m);
+void fcurve_meta_from_hw(const hw_state_t *hw, fcurve_meta_t *m);
+int  fcurve_parse(const char *name, fcurve_meta_t *m);
+int  fcurve_save(const char *name, const fcurve_meta_t *m);
+int  fcurve_export(const char *name, const hw_state_t *hw);
+int  fcurve_apply(const char *name, hw_state_t *hw, char *err, size_t errn);
+int  fcurve_dry_run(const char *name, FILE *out, char *err, size_t errn);
+int  fcurve_delete(const char *name);
+int  fcurve_rename(const char *old_name, const char *new_name);
+int  fcurve_set_note(const char *name, const char *note);
+void fcurve_summary(const fcurve_meta_t *m, char *out, size_t n);
+int  fcurve_diff_count(const hw_state_t *hw, const fcurve_meta_t *m);
+void fcurve_diff(const hw_state_t *hw, const fcurve_meta_t *m,
+                 char *out, size_t n);
+
 #endif /* CTRON_PROFILE_H */

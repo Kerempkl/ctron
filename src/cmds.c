@@ -3,6 +3,7 @@
 #endif
 #include "cmds.h"
 #include "control.h"
+#include "profile.h"
 #include "util.h"
 #include "display/display.h"
 
@@ -315,24 +316,24 @@ static int cmd_exec_impl(hw_state_t *hw, const char *key, const char *val,
     }
     if (!strcasecmp(key, "aura"))
         return cmd_aura(hw, val, dry, err, errn);
-    if (!strcasecmp(key, "fan")) {
-        if (!strcasecmp(val, "stock"))
+    if (ut_ascii_ieq(key, "fan")) {
+        if (ut_ascii_ieq(val, "stock"))
             return dry ? 0 : ctrl_fan_preset(hw, 0);
-        if (!strcasecmp(val, "silent"))
+        if (ut_ascii_ieq(val, "silent"))
             return dry ? 0 : ctrl_fan_preset(hw, 1);
-        if (!strcasecmp(val, "cool"))
+        if (ut_ascii_ieq(val, "cool"))
             return dry ? 0 : ctrl_fan_preset(hw, 2);
-        if (!strcasecmp(val, "full"))
+        if (ut_ascii_ieq(val, "full"))
             return dry ? 0 : ctrl_fan_preset(hw, 3);
-        if (!strcasecmp(val, "on"))
+        if (ut_ascii_ieq(val, "on"))
             return dry ? 0 : ctrl_fan_set_enabled(hw, true, true);
-        if (!strcasecmp(val, "off"))
+        if (ut_ascii_ieq(val, "off"))
             return dry ? 0 : ctrl_fan_set_enabled(hw, false, false);
         {
             char side[8] = {0}, sw[8] = {0};
             int on;
             if (sscanf(val, "%7s %7s", side, sw) == 2 &&
-                (!strcasecmp(side, "cpu") || !strcasecmp(side, "gpu"))) {
+                (ut_ascii_ieq(side, "cpu") || ut_ascii_ieq(side, "gpu"))) {
                 on = cmd_parse_bool(sw);
                 if (on < 0) {
                     errf(err, errn, "fan: cpu|gpu on|off");
@@ -343,12 +344,18 @@ static int cmd_exec_impl(hw_state_t *hw, const char *key, const char *val,
                 /* the other side must be the live switch, not a stale
                  * saved flag, or this write turns it the wrong way */
                 hw_refresh_live(hw);
-                if (!strcasecmp(side, "cpu"))
+                if (ut_ascii_ieq(side, "cpu"))
                     return ctrl_fan_set_enabled(hw, on != 0, hw->fan_gpu_on);
                 return ctrl_fan_set_enabled(hw, hw->fan_cpu_on, on != 0);
             }
         }
-        errf(err, errn, "fan: stock|silent|cool|full|on|off|cpu on|gpu off");
+        /* Saved fan curve in ~/.config/ctron/fan_curves/<name>.fc */
+        if (val[0]) {
+            fcurve_meta_t fcm;
+            if (fcurve_parse(val, &fcm) == 0)
+                return dry ? 0 : fcurve_apply(val, hw, err, errn);
+        }
+        errf(err, errn, "fan: stock|silent|cool|full|on|off|cpu on|gpu off|<saved-curve>");
         return -1;
     }
     if (!strcasecmp(key, "fan-curve"))

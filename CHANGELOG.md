@@ -12,6 +12,27 @@ see [docs/history/changelog-2026-09-11.md](docs/history/changelog-2026-09-11.md)
 ## [Unreleased]
 
 ### Added
+- **Saved Fan Curves (`~/.config/ctron/fan_curves/*.fc`) & Split `4 Snapshots`
+  Workspace (`profile.{h,c}`, `settings.{h,c}`, `panel_profiles.c`,
+  `editor_fan.c`, `cmds.c`, `main.c`, `ui.c`):**
+  - First-class reusable fan curve presets (`fcurve_*` CRUD, `group/name`
+    subdirectories, `# saved:` / `# note:` headers, selective CPU/GPU `— (skip)`
+    or `off (factory auto)` modes, and live diff badges `≡ live` / `Δ N`).
+  - **Split left pane in `4 Snapshots`:** top half lists `SNAPSHOTS` (`.ctr`),
+    bottom half lists `FAN CURVES` (`.fc`); `f` or clicking either header/row
+    switches focus. Saved fan curves support the exact same management workflow
+    as snapshots: `Enter` applies via background `APPLY_FAN_CURVE`, `s`/`n`
+    saves from live (also `s` directly inside `2 Fans`), `r` renames, `c` sets
+    notes, `uu` overwrites from live preserving notes, `dd` deletes, and `e`
+    opens an 18-row interactive **Fan Curve Inspector & Editor** (`h`/`l` PWM,
+    `<`/`>` °C, `e` exact `<temp> <pwm|pct%>`, `x` skip, `f` capture live, `m`
+    cycle OEM references, `o` open directly in `2 Fans` graph, `w`/`Enter` save).
+  - **Selectable inside Snapshots, `2 Fans`, and CLI:** in `EDIT SNAPSHOT` on
+    `CPU fan curve` / `GPU fan curve`, `h`/`l` cycles OEM presets and saved fan
+    curves (`[curve-name]`), `a` copies to both CPU + GPU, and `e` accepts a
+    saved curve name or raw CSV. Also listed inside `2 Fans` → `m` (`FAN PRESETS
+    & SAVED CURVES`) and exposed on CLI via `--fan <saved-curve>` and
+    `ctron fancurve list|apply [--dry-run]|diff|export|delete <name>`.
 - **Two-pane `4 Snapshots` Inspector & Interactive Field Editor (`panel_profiles.c`, `profile.{h,c}`):**
   - Replaced the single-column snapshot list with a Konsept C two-pane workspace:
     left pane lists snapshots with live diff count badges (`≡ live` / `Δ N`),
@@ -80,6 +101,32 @@ see [docs/history/changelog-2026-09-11.md](docs/history/changelog-2026-09-11.md)
 - `docs/tui-snap.png` re-shot for the 15-field inspector.
 
 ### Fixed
+- **Fan curve subsystem overhaul (`fan.{h,c}`, `control.c`, `hw.c`,
+  `editor_fan.c`):**
+  - **Read-back verification & silent `asusctl` failure detection (`control.c`):**
+    `asusctl 6.5.0` exits `0` even when printing `[ERROR asusctl]` (e.g. `< 8`
+    curve points or D-Bus errors). `ctrl_fan_write()` now expands curves to 8
+    hardware points (`fan_to_hw8()`), refreshes live `platform_profile` first,
+    checks `asusctl` output via `asusctl_exec_ok()`, avoids clobbering stored
+    curve points when a fan is set to factory auto (`pwmN_enable = 2`), bails
+    fast on sysfs permission denial instead of 34 doomed `sudo -n` spawns, and
+    verifies `pwm{1,2}_enable` + all 16 hwmon points on read-back.
+  - **Uncorrupted OEM factory presets & real `stock` mode (`fan.c`,
+    `control.c`):** `fan_preset_get()` now returns clean built-in OEM reference
+    curves for `Quiet` / `Balanced` / `Performance` instead of reading back
+    user-overwritten `/etc/asusd/fan_curves.ron` tables; `ctrl_fan_preset("stock")`
+    genuinely restores `fan_cpu_on = fan_gpu_on = false` (EC auto).
+  - **Curve normalization, left-nudge freeze & monotonic PWM (`fan.c`):**
+    `fan_enforce_from()` / `fan_normalize()` now cascade colliding left/right
+    neighbours outward without reordering nudged point indices, enforce
+    monotonic non-decreasing PWM (`0..255`), and keep a 2-point minimum floor in
+    `fan_del_point()`.
+  - **`2 Fans` editor bugs (`editor_fan.c`, `hw.c`):** `+`/`a` now auto-places
+    new points in the widest temperature gap instead of duplicating `fe_x` at
+    `T+1`; editing a curve auto-stages `fan_*_on = true` so `w` activates it;
+    implemented `r` (`Revert` to live EC); preserved staged enable flags across
+    `hw_refresh_live()`; tracked external `Fn+F5` profile + `pwm{1,2}_enable`
+    transitions in `hw_refresh_fast()`; added `%` axis/chip/input support.
 - **Aura writes reported success when the keyboard did not change
   (`control.c`):** asusctl 6.5.0 prints
   `org.freedesktop.DBus.Error.NotSupported` for an effect the keyboard lacks

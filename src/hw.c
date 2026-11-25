@@ -331,16 +331,15 @@ static void fan_hwmon_read(hw_state_t *hw)
     }
     hw->has_fan_curve = true;
     /* staged edits are the user's intent: a live refresh must not
-     * clobber them with the hwmon table; the enable switches still
-     * track the hardware */
+     * clobber staged curve points OR staged enable flags */
     if (!hw->fan_staged) {
         hw_fan_hwmon_read_live(hw, &hw->fan_cpu, &hw->fan_gpu);
+        char p[300];
+        snprintf(p, sizeof(p), "%s/pwm1_enable", base);
+        hw->fan_cpu_on = fan_raw_is_on(ut_read_int(p));
+        snprintf(p, sizeof(p), "%s/pwm2_enable", base);
+        hw->fan_gpu_on = fan_raw_is_on(ut_read_int(p));
     }
-    char p[300];
-    snprintf(p, sizeof(p), "%s/pwm1_enable", base);
-    hw->fan_cpu_on = fan_raw_is_on(ut_read_int(p));
-    snprintf(p, sizeof(p), "%s/pwm2_enable", base);
-    hw->fan_gpu_on = fan_raw_is_on(ut_read_int(p));
 }
 
 
@@ -2162,6 +2161,32 @@ void hw_refresh_fast(hw_state_t *hw)
         hw->has_fan_rpm = false;
         hw->rpm_cpu = -1;
         hw->rpm_gpu = -1;
+    }
+
+    /* Keep platform_profile and custom-fan enable state current on fast
+     * polls (pure sysfs reads, zero forks) so external Fn+F5 / asusd
+     * transitions never leave hw->profile or Custom ON/OFF stale. */
+    {
+        char pbuf[32] = {0};
+        hw_profile_t prev = hw->profile;
+        if (ut_read_file("/sys/firmware/acpi/platform_profile",
+                         pbuf, sizeof(pbuf)) == 0) {
+            if (strstr(pbuf, "quiet"))            hw->profile = HW_QUIET;
+            else if (strstr(pbuf, "balanced"))    hw->profile = HW_BALANCED;
+            else if (strstr(pbuf, "performance")) hw->profile = HW_PERFORMANCE;
+        }
+        if (!hw->fan_staged && hw->paths.fan_curve[0]) {
+            if (hw->profile != prev) {
+                fan_hwmon_read(hw);
+            } else {
+                if (ut_path_join(q, sizeof(q), hw->paths.fan_curve,
+                                 "pwm1_enable") == 0)
+                    hw->fan_cpu_on = fan_raw_is_on(ut_read_int(q));
+                if (ut_path_join(q, sizeof(q), hw->paths.fan_curve,
+                                 "pwm2_enable") == 0)
+                    hw->fan_gpu_on = fan_raw_is_on(ut_read_int(q));
+            }
+        }
     }
 
     read_telem_extras(hw);

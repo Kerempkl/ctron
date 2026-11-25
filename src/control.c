@@ -1110,29 +1110,33 @@ static int fan_curve_base(hw_state_t *hw, char *out, size_t n)
     return hw_path_fan_curve(hw, out, n);
 }
 
-/* "30c:40,45c:90,..." for asusctl fan-curve --data. */
-static void fan_curve_data_str(const fan_curve_t *fc, char *out, size_t n)
+/* asusctl 6.x prints "[ERROR asusctl] ..." or D-Bus error strings while
+ * STILL exiting 0 — inspect combined stdout+stderr before claiming ok. */
+static int asusctl_exec_ok(const char *const argv[])
+{
+    char out[384] = {0};
+    int rc = ut_exec_argv_both(argv, out, sizeof(out));
+    if (rc != 0)
+        return -1;
+    if (strstr(out, "ERROR") || strstr(out, "Error:") ||
+        strstr(out, "DBus.Error") || strstr(out, "Failed to connect"))
+        return -1;
+    return 0;
+}
+
+/* "30c:40,45c:90,..." for asusctl fan-curve --data (always 8 points). */
+static void fan_curve_data_str(const fan_curve_t *fc8, char *out, size_t n)
 {
     size_t off = 0;
     out[0] = '\0';
-    int cnt = fc->n > 0 ? fc->n : 0;
+    int cnt = (fc8 && fc8->n > 0 && fc8->n <= FAN_POINTS) ? fc8->n : 0;
     for (int i = 0; i < cnt; i++) {
         int w = snprintf(out + off, n - off, "%s%dc:%d",
-                         i ? "," : "", fc->temp_c[i], fc->pwm[i]);
+                         i ? "," : "", fc8->temp_c[i], fc8->pwm[i]);
         if (w < 0 || (size_t)w >= n - off)
             break;
         off += (size_t)w;
     }
-}
-
-/* the value point i takes when the curve has fewer points in use:
- * padding with the last point (what the write loop sends) */
-static void fan_point(const hw_state_t *hw, bool cpu, int i, int *temp, int *pwm)
-{
-    const fan_curve_t *fc = cpu ? &hw->fan_cpu : &hw->fan_gpu;
-    int idx = (fc->n > 0) ? (i < fc->n ? i : fc->n - 1) : 0;
-    *temp = (fc->n > 0) ? fc->temp_c[idx] : FAN_TMIN;
-    *pwm  = (fc->n > 0) ? fc->pwm[idx] : 0;
 }
 
 /* pwmN_enable read-back. Points are not enough: the driver keeps them
@@ -1144,34 +1148,143 @@ static int fan_enable_ok(const char *base, const char *pwm, bool on)
     return ut_read_int(p) == fan_enable_raw(on);
 }
 
-/* rule 4 — verify the writes by reading back. The custom-curve hwmon
- * reads back what was written (unlike the nb-wmi PPT cache), so a
- * mismatch is a real failure, not staleness. */
-static void fan_verify(const hw_state_t *hw, const char *base,
-                       int *cpu_ok, int *gpu_ok)
+/* Rule 4 — verify the writes by reading back from asus_custom_fan_curve
+ * hwmon (world-readable even when sysfs writes go through asusctl/asusd).
+ * When a fan's custom curve is disabled (`on == false`), `pwmN_enable == 2`
+ * is the effective hardware state; when enabled (`on == true`), all 8
+ * temperature+PWM points AND `pwmN_enable == 1` must match. */
+static void fan_verify_hw8(const char *base,
+                           const fan_curve_t *cpu8, bool cpu_on,
+                           const fan_curve_t *gpu8, bool gpu_on,
+                           int *cpu_ok, int *gpu_ok,
+                           int *en_cpu, int *en_gpu)
 {
-    *cpu_ok = 0;
-    *gpu_ok = 0;
+    *en_cpu = fan_enable_ok(base, "pwm1", cpu_on);
+    *en_gpu = fan_enable_ok(base, "pwm2", gpu_on);
+    *cpu_ok = cpu_on ? 0 : (*en_cpu ? FAN_POINTS : 0);
+    *gpu_ok = gpu_on ? 0 : (*en_gpu ? FAN_POINTS : 0);
+
     char p[300];
     for (int i = 0; i < FAN_POINTS; i++) {
-        int tc, pc, tg, pg, t, w;
-        fan_point(hw, true, i, &tc, &pc);
-        fan_point(hw, false, i, &tg, &pg);
-
-        snprintf(p, sizeof(p), "%s/pwm1_auto_point%d_temp", base, i + 1);
-        t = ut_read_int(p);
-        snprintf(p, sizeof(p), "%s/pwm1_auto_point%d_pwm", base, i + 1);
-        w = ut_read_int(p);
-        if (t == tc && w == pc)
-            (*cpu_ok)++;
-
-        snprintf(p, sizeof(p), "%s/pwm2_auto_point%d_temp", base, i + 1);
-        t = ut_read_int(p);
-        snprintf(p, sizeof(p), "%s/pwm2_auto_point%d_pwm", base, i + 1);
-        w = ut_read_int(p);
-        if (t == tg && w == pg)
-            (*gpu_ok)++;
+        int t, w;
+        if (cpu_on) {
+            snprintf(p, sizeof(p), "%s/pwm1_auto_point%d_temp", base, i + 1);
+            t = ut_read_int(p);
+            snprintf(p, sizeof(p), "%s/pwm1_auto_point%d_pwm", base, i + 1);
+            w = ut_read_int(p);
+            if (t == cpu8->temp_c[i] && w == cpu8->pwm[i])
+                (*cpu_ok)++;
+        }
+        if (gpu_on) {
+            snprintf(p, sizeof(p), "%s/pwm2_auto_point%d_temp", base, i + 1);
+            t = ut_read_int(p);
+            snprintf(p, sizeof(p), "%s/pwm2_auto_point%d_pwm", base, i + 1);
+            w = ut_read_int(p);
+            if (t == gpu8->temp_c[i] && w == gpu8->pwm[i])
+                (*gpu_ok)++;
+        }
     }
+}
+
+static int fan_write_asusctl(const hw_state_t *hw,
+                             const fan_curve_t *cpu8,
+                             const fan_curve_t *gpu8)
+{
+    const char *prof = hw_profile_name(hw->profile);
+    char data[256];
+    int ok = 1;
+
+    if (hw->fan_cpu_on) {
+        fan_curve_data_str(cpu8, data, sizeof(data));
+        const char *av1[] = {
+            "asusctl", "fan-curve", "--mod-profile", prof,
+            "--fan", "cpu", "--data", data, NULL
+        };
+        if (asusctl_exec_ok(av1) != 0)
+            ok = 0;
+    }
+    {
+        const char *av2[] = {
+            "asusctl", "fan-curve", "--mod-profile", prof,
+            "--enable-fan-curve", hw->fan_cpu_on ? "true" : "false",
+            "--fan", "cpu", NULL
+        };
+        if (asusctl_exec_ok(av2) != 0)
+            ok = 0;
+    }
+
+    if (hw->fan_gpu_on) {
+        fan_curve_data_str(gpu8, data, sizeof(data));
+        const char *av3[] = {
+            "asusctl", "fan-curve", "--mod-profile", prof,
+            "--fan", "gpu", "--data", data, NULL
+        };
+        if (asusctl_exec_ok(av3) != 0)
+            ok = 0;
+    }
+    {
+        const char *av4[] = {
+            "asusctl", "fan-curve", "--mod-profile", prof,
+            "--enable-fan-curve", hw->fan_gpu_on ? "true" : "false",
+            "--fan", "gpu", NULL
+        };
+        if (asusctl_exec_ok(av4) != 0)
+            ok = 0;
+    }
+    return ok;
+}
+
+static int fan_write_sysfs(hw_state_t *hw, const char *base,
+                           const fan_curve_t *cpu8,
+                           const fan_curve_t *gpu8)
+{
+    static bool sysfs_dead_logged;
+    char path[300], val[16];
+
+    /* Probe the first writable node immediately: if permission is denied
+     * (no udev/sudoers rule for hwmon*), bail in < 80 ms instead of
+     * spawning 34 doomed sudo tee invocations (~3.5 s freeze). */
+    for (int i = 0; i < FAN_POINTS; i++) {
+        if (hw->fan_cpu_on) {
+            snprintf(path, sizeof(path), "%s/pwm1_auto_point%d_temp", base, i + 1);
+            snprintf(val, sizeof(val), "%d", cpu8->temp_c[i]);
+            if (ut_priv_write(path, val) != 0)
+                goto denied;
+            snprintf(path, sizeof(path), "%s/pwm1_auto_point%d_pwm", base, i + 1);
+            snprintf(val, sizeof(val), "%d", cpu8->pwm[i]);
+            if (ut_priv_write(path, val) != 0)
+                goto denied;
+        }
+        if (hw->fan_gpu_on) {
+            snprintf(path, sizeof(path), "%s/pwm2_auto_point%d_temp", base, i + 1);
+            snprintf(val, sizeof(val), "%d", gpu8->temp_c[i]);
+            if (ut_priv_write(path, val) != 0)
+                goto denied;
+            snprintf(path, sizeof(path), "%s/pwm2_auto_point%d_pwm", base, i + 1);
+            snprintf(val, sizeof(val), "%d", gpu8->pwm[i]);
+            if (ut_priv_write(path, val) != 0)
+                goto denied;
+        }
+    }
+
+    /* Points clear pwmN_enable in the driver; write enable flags last. */
+    snprintf(path, sizeof(path), "%s/pwm1_enable", base);
+    snprintf(val, sizeof(val), "%d", fan_enable_raw(hw->fan_cpu_on));
+    if (ut_priv_write(path, val) != 0)
+        goto denied;
+    snprintf(path, sizeof(path), "%s/pwm2_enable", base);
+    snprintf(val, sizeof(val), "%d", fan_enable_raw(hw->fan_gpu_on));
+    if (ut_priv_write(path, val) != 0)
+        goto denied;
+    return 0;
+
+denied:
+    hw->fan_sysfs_dead = true;
+    if (!sysfs_dead_logged) {
+        sysfs_dead_logged = true;
+        ut_log("fan sysfs path unwritable this session — asusctl path only");
+    }
+    return -1;
 }
 
 fan_write_verdict_t fan_write_verdict(int rc, int vok_cpu, int vok_gpu, int a_ok)
@@ -1193,141 +1306,107 @@ fan_write_verdict_t fan_write_verdict(int rc, int vok_cpu, int vok_gpu, int a_ok
 int ctrl_fan_write(hw_state_t *hw)
 {
     char base[256];
-    int rc = 0;
+    int rc = -1;
     int enable_bad = 0;
     int vok_cpu = -1, vok_gpu = -1; /* -1: no hwmon, not verified */
+    int a_ok = -1;                  /* -1: not attempted */
+    bool sysfs_ok = false;
 
-    /* session latch: with no sudoers rule for the hwmon path every
-     * point write spawns a doomed sudo (~0.1 s each, ~4 s per apply).
-     * After the first total failure, skip straight to asusctl. */
-    static bool sysfs_dead_logged;
+    /* Always target the real live platform_profile so asusctl --mod-profile
+     * modifies the active profile rather than a stale cached one. */
+    int live_prof = active_profile_read();
+    if (live_prof >= 0)
+        hw->profile = (hw_profile_t)live_prof;
+
+    fan_curve_t cpu8, gpu8;
+    fan_to_hw8(&hw->fan_cpu, &cpu8);
+    fan_to_hw8(&hw->fan_gpu, &gpu8);
+
+    bool have_hwmon = (fan_curve_base(hw, base, sizeof(base)) == 0);
 
     ut_progress("fan curves: writing to the EC");
-    if (fan_curve_base(hw, base, sizeof(base)) == 0 && !hw->fan_sysfs_dead) {
-        int sysfs_failed = 0;
-        for (int i = 0; i < FAN_POINTS; i++) {
-            char path[300];
-            int tc, pc, tg, pg;
-            fan_point(hw, true, i, &tc, &pc);
-            fan_point(hw, false, i, &tg, &pg);
-            char val[16];
 
-            snprintf(path, sizeof(path), "%s/pwm1_auto_point%d_temp", base, i + 1);
-            snprintf(val, sizeof(val), "%d", tc);
-            if (ut_priv_write(path, val) != 0) { rc = -1; sysfs_failed++; }
+    /* Rule 2 chain: asusctl first (passwordless D-Bus + daemon persistence),
+     * then direct/sudo sysfs fallback when asusctl is absent, disabled by
+     * preference, or fails. */
+    if (hw->has_asusctl && use_asusctl_first())
+        a_ok = fan_write_asusctl(hw, &cpu8, &gpu8);
 
-            snprintf(path, sizeof(path), "%s/pwm1_auto_point%d_pwm", base, i + 1);
-            snprintf(val, sizeof(val), "%d", pc);
-            if (ut_priv_write(path, val) != 0) { rc = -1; sysfs_failed++; }
-
-            snprintf(path, sizeof(path), "%s/pwm2_auto_point%d_temp", base, i + 1);
-            snprintf(val, sizeof(val), "%d", tg);
-            if (ut_priv_write(path, val) != 0) { rc = -1; sysfs_failed++; }
-
-            snprintf(path, sizeof(path), "%s/pwm2_auto_point%d_pwm", base, i + 1);
-            snprintf(val, sizeof(val), "%d", pg);
-            if (ut_priv_write(path, val) != 0) { rc = -1; sysfs_failed++; }
-        }
-        /* Points clear pwmN_enable in the driver. 1 turns the stored
-         * curve on; 2 selects factory auto. 0 is rejected. */
-        char path[300], val[8];
-        int en_cpu = 0, en_gpu = 0;
-        snprintf(path, sizeof(path), "%s/pwm1_enable", base);
-        snprintf(val, sizeof(val), "%d", fan_enable_raw(hw->fan_cpu_on));
-        if (ut_priv_write(path, val) != 0) { rc = -1; sysfs_failed++; }
-        snprintf(path, sizeof(path), "%s/pwm2_enable", base);
-        snprintf(val, sizeof(val), "%d", fan_enable_raw(hw->fan_gpu_on));
-        if (ut_priv_write(path, val) != 0) { rc = -1; sysfs_failed++; }
-
-        /* total failure on the first try = no sudoers rule for the
-         * hwmon path: stop paying ~34 doomed sudo spawns per write */
-        if (sysfs_failed >= 4 * FAN_POINTS + 2) {
-            hw->fan_sysfs_dead = true;
-            if (!sysfs_dead_logged) {
-                sysfs_dead_logged = true;
-                ut_log("fan sysfs path unwritable this session — asusctl "
-                       "path only from now on");
-            }
-        }
-
-        fan_verify(hw, base, &vok_cpu, &vok_gpu);
-        en_cpu = fan_enable_ok(base, "pwm1", hw->fan_cpu_on);
-        en_gpu = fan_enable_ok(base, "pwm2", hw->fan_gpu_on);
-        if (!en_cpu || !en_gpu) {
-            rc = -1;
-            enable_bad = 1;
-            ut_log("fan enable read-back: cpu %s, gpu %s",
-                   en_cpu ? "ok" : "FAILED", en_gpu ? "ok" : "FAILED");
-        }
+    if (have_hwmon && !hw->fan_sysfs_dead && a_ok != 1) {
+        if (fan_write_sysfs(hw, base, &cpu8, &gpu8) == 0)
+            sysfs_ok = true;
     }
 
-    /* asusctl persistence: survive asusd restarts. This is also the
-     * effective APPLY path when the sysfs nodes are unwritable (no
-     * sudoers rule for the hwmon path): asusd writes the EC itself
-     * over D-Bus, passwordless. Capture the results honestly. */
-    int a_ok = -1; /* -1: not attempted */
-    if (hw->has_asusctl) {
-        const char *prof = hw_profile_name(hw->profile);
-        char data[256];
-        int r1, r2, r3, r4;
-        fan_curve_data_str(&hw->fan_cpu, data, sizeof(data));
-        const char *av1[] = {
-            "asusctl", "fan-curve", "--mod-profile", prof,
-            "--fan", "cpu", "--data", data, NULL
-        };
-        r1 = ut_exec_argv(av1, NULL, 0);
-        const char *av2[] = {
-            "asusctl", "fan-curve", "--mod-profile", prof,
-            "--enable-fan-curve", hw->fan_cpu_on ? "true" : "false",
-            "--fan", "cpu", NULL
-        };
-        r2 = ut_exec_argv(av2, NULL, 0);
-        fan_curve_data_str(&hw->fan_gpu, data, sizeof(data));
-        const char *av3[] = {
-            "asusctl", "fan-curve", "--mod-profile", prof,
-            "--fan", "gpu", "--data", data, NULL
-        };
-        r3 = ut_exec_argv(av3, NULL, 0);
-        const char *av4[] = {
-            "asusctl", "fan-curve", "--mod-profile", prof,
-            "--enable-fan-curve", hw->fan_gpu_on ? "true" : "false",
-            "--fan", "gpu", NULL
-        };
-        r4 = ut_exec_argv(av4, NULL, 0);
-        a_ok = (r1 == 0 && r2 == 0 && r3 == 0 && r4 == 0) ? 1 : 0;
+    if (hw->has_asusctl && a_ok < 0)
+        a_ok = fan_write_asusctl(hw, &cpu8, &gpu8);
+
+    /* Rule 4: whenever asus_custom_fan_curve hwmon exists, read back both
+     * enable flags and all 8+8 curve points — whether written via sysfs
+     * OR via asusctl/asusd. Retry briefly in case asusd is still flushing. */
+    if (have_hwmon) {
+        int en_cpu = 0, en_gpu = 0;
+        bool wrote_any = (a_ok == 1 || sysfs_ok);
+        int tries = wrote_any ? 3 : 1;
+        for (int t = 0; t < tries; t++) {
+            if (t > 0)
+                usleep(50 * 1000);
+            fan_verify_hw8(base, &cpu8, hw->fan_cpu_on,
+                           &gpu8, hw->fan_gpu_on,
+                           &vok_cpu, &vok_gpu, &en_cpu, &en_gpu);
+            if (en_cpu && en_gpu &&
+                vok_cpu == FAN_POINTS && vok_gpu == FAN_POINTS)
+                break;
+        }
+        if (wrote_any) {
+            if (!en_cpu || !en_gpu) {
+                rc = -1;
+                a_ok = 0; /* asusd claimed ok, but EC enable did not land */
+                enable_bad = 1;
+                ut_log("fan enable read-back: cpu %s, gpu %s",
+                       en_cpu ? "ok" : "FAILED", en_gpu ? "ok" : "FAILED");
+            } else {
+                rc = 0;
+                if (vok_cpu != FAN_POINTS || vok_gpu != FAN_POINTS)
+                    a_ok = 0; /* force FAN_W_VERIFY_FAIL instead of unverified ok */
+            }
+        }
     }
 
     switch (fan_write_verdict(rc, vok_cpu, vok_gpu, a_ok)) {
     case FAN_W_VERIFIED:
+        if (hw->fan_cpu_on)
+            hw->fan_cpu = cpu8;
+        if (hw->fan_gpu_on)
+            hw->fan_gpu = gpu8;
+        hw->fan_staged = false;
+        rc = 0;
         ut_log("fan curves written (cpu %s, gpu %s) · verified %d/%d + %d/%d pts, enable ok",
                hw->fan_cpu_on ? "on" : "off", hw->fan_gpu_on ? "on" : "off",
                vok_cpu, FAN_POINTS, vok_gpu, FAN_POINTS);
-        hw->fan_staged = false; /* written and verified: not staged */
         break;
     case FAN_W_VERIFY_FAIL:
-        /* read-back mismatch: keep the staging so a retry 'w' does
-         * not get clobbered by the hwmon table in between */
+        /* read-back mismatch: keep staging so retry 'w' is not clobbered */
         ut_log("fan curves written (cpu %s, gpu %s) · VERIFY FAILED: cpu %d/%d, gpu %d/%d pts",
                hw->fan_cpu_on ? "on" : "off", hw->fan_gpu_on ? "on" : "off",
                vok_cpu, FAN_POINTS, vok_gpu, FAN_POINTS);
+        rc = -1;
         break;
     case FAN_W_ASUSCTL:
-        /* asusd applied and stored the curves — the user's intent DID
-         * land; claiming failure here lied while asusd silently
-         * changed the EC (observed 2026-10-08) */
+        if (hw->fan_cpu_on)
+            hw->fan_cpu = cpu8;
+        if (hw->fan_gpu_on)
+            hw->fan_gpu = gpu8;
         hw->fan_staged = false;
-        ut_log("fan curves applied via asusctl/asusd (%s; "
-               "no read-back — verify by ear/temps)",
-               vok_cpu >= 0 ? "sysfs unwritable" : "no fan hwmon");
+        ut_log("fan curves applied via asusctl/asusd (no fan hwmon; unverified)");
         rc = 0;
         break;
     case FAN_W_FAILED:
     default:
-        if (vok_cpu >= 0) { /* hwmon present: the sysfs side failed */
+        if (vok_cpu >= 0) {
             if (enable_bad) {
-                /* the enable read-back already logged its failure */
+                /* enable read-back already logged its failure */
             } else if (a_ok == 0) {
-                ut_log("fan curves: FAILED (sysfs unwritable AND asusctl errored)");
+                ut_log("fan curves: FAILED (asusctl errored and sysfs unwritable)");
             } else {
                 ut_log("fan curves: sysfs write FAILED (needs root; no passwordless sudo)");
             }
@@ -1351,31 +1430,48 @@ int ctrl_fan_set_enabled(hw_state_t *hw, bool cpu_on, bool gpu_on)
 
 int ctrl_fan_preset(hw_state_t *hw, int preset)
 {
+    int live_prof = active_profile_read();
+    if (live_prof >= 0)
+        hw->profile = (hw_profile_t)live_prof;
+
+    fan_preset_t bp = (hw->profile == HW_QUIET)       ? FAN_PRESET_QUIET
+                    : (hw->profile == HW_PERFORMANCE) ? FAN_PRESET_PERF
+                                                      : FAN_PRESET_BALANCED;
+    fan_curve_t ref_cpu, ref_gpu;
+    fan_preset_builtin(bp, &ref_cpu, &ref_gpu);
+
     switch (preset) {
     case 1: /* silent */
-        fan_scale(&hw->fan_cpu, &hw->fan_cpu_stock, 6, 10);
-        fan_scale(&hw->fan_gpu, &hw->fan_gpu_stock, 6, 10);
+        fan_preset_builtin(FAN_PRESET_QUIET, &ref_cpu, &ref_gpu);
+        fan_scale(&hw->fan_cpu, &ref_cpu, 85, 100);
+        fan_scale(&hw->fan_gpu, &ref_gpu, 85, 100);
+        hw->fan_cpu_on = true;
+        hw->fan_gpu_on = true;
         break;
     case 2: /* cool */
-        fan_scale(&hw->fan_cpu, &hw->fan_cpu_stock, 13, 10);
-        fan_scale(&hw->fan_gpu, &hw->fan_gpu_stock, 13, 10);
+        fan_scale(&hw->fan_cpu, &ref_cpu, 125, 100);
+        fan_scale(&hw->fan_gpu, &ref_gpu, 125, 100);
         hw->fan_cpu.pwm[FAN_POINTS - 1] = 255;
         hw->fan_gpu.pwm[FAN_POINTS - 1] = 255;
+        hw->fan_cpu_on = true;
+        hw->fan_gpu_on = true;
         break;
     case 3: /* full */
-        hw->fan_cpu = hw->fan_cpu_stock;
-        hw->fan_gpu = hw->fan_gpu_stock;
+        hw->fan_cpu = ref_cpu;
+        hw->fan_gpu = ref_gpu;
         for (int i = 4; i < FAN_POINTS; i++) {
             hw->fan_cpu.pwm[i] = 255;
             hw->fan_gpu.pwm[i] = 255;
         }
+        hw->fan_cpu_on = true;
+        hw->fan_gpu_on = true;
         break;
-    default: /* stock */
-        hw->fan_cpu = hw->fan_cpu_stock;
-        hw->fan_gpu = hw->fan_gpu_stock;
+    default: /* stock: genuine factory automatic EC control (Custom OFF) */
+        hw->fan_cpu = ref_cpu;
+        hw->fan_gpu = ref_gpu;
+        hw->fan_cpu_on = false;
+        hw->fan_gpu_on = false;
         break;
     }
-    hw->fan_cpu_on = true;
-    hw->fan_gpu_on = true;
     return ctrl_fan_write(hw);
 }

@@ -24,12 +24,12 @@ piped output never opens the TUI.
 
 | Area | What you get |
 | --- | --- |
-| **Fans** | Dual 8-point CPU/GPU curves with a live graph editor, built-in Quiet / Balanced / Performance presets, per-fan on/off, EC write with read-back verification |
+| **Fans** | Dual 8-point CPU/GPU curves with a live `%`/PWM graph editor, monotonic curve normalization, uncorrupted OEM Quiet / Balanced / Performance presets, reusable **saved fan curves** (`~/.config/ctron/fan_curves/*.fc`), per-fan on/off, EC write with full hwmon read-back verification |
 | **Power** | Platform profiles, EPP, PPT watt limits (asus-armoury or ryzenadj), per-core / per-CCD / all-thread frequency ceilings, GPU core-clock lock, NVIDIA dynamic boost & temp target, asusd AC/battery profile takeover |
 | **Battery** | Charge limit (20–100 %), one-shot charge-to-full |
 | **Display** | Refresh-rate control via compositor backends (KDE, Hyprland), panel overdrive |
 | **Lighting** | Keyboard backlight, keyboard colour and the effects the keyboard actually offers (read from asusd — the FA608PP has `static` only), optional daeboard LED daemon control + binds editor |
-| **Automation** | Shortcut modes (`modes.ini`), hardware snapshots (save / rename / note / apply / export; every Power, Display & Light, keyboard and fan setting, per-core ceilings included) |
+| **Automation** | Shortcut modes (`modes.ini`), hardware snapshots (`profiles/*.ctr`) and saved fan curves (`fan_curves/*.fc`) — save / rename / note / apply / diff / export, with saved fan curves selectable directly inside Snapshots, `2 Fans` presets, and CLI |
 | **Telemetry** | Temps, fan RPM, frequencies, watts, per-core load, memory/IO pressure (PSI), network rx/tx + wifi signal, battery — live in the TUI, one line under `--watch`, CSV log under `--csv` |
 
 Working principles, enforced in code:
@@ -101,14 +101,19 @@ preserves your terminal's own background/transparency (`Slate`, `Gruvbox`,
 preferred **startup view**). Rows are clickable (mouse is a known gap under
 Hyprland — see the [handoff notes](#display-backends-compositor-refresh-rate-control)).
 
-View `4` (`Snapshots`) shows saved `.ctr` states (`group/name` entries group
-into subdirectories) with live diff badges (`≡ live` / `Δ N`) on the left and a
-15-field **Inspector & Interactive Snapshot Editor** on the right: `Enter`
-applies, `s`/`n` saves a fresh live snapshot, `uu` overwrites the selected
-snapshot from live hardware (preserving its `# note:`), and `e` focuses the
-field editor (`h`/`l` step, `e` exact value, `x` toggle `— (skip)` for
-selective/partial snapshots that leave omitted hardware untouched on apply,
-`f` capture the live value, `w`/`Enter` save). On the `PPT` row, `h`/`l` step
+View `4` (`Snapshots`) splits its left pane into **Snapshots** (`profiles/*.ctr`)
+on top and **Saved Fan Curves** (`fan_curves/*.fc`) on the bottom (`f` or click
+switches between the two lists; both support `group/name` subdirectories and
+live diff badges `≡ live` / `Δ N`), paired with a context-aware right-hand
+**Inspector & Interactive Editor**: `Enter` applies, `s`/`n` saves from live
+(or press `s` directly inside `2 Fans`), `r` renames, `c` edits `# note:`, `uu`
+overwrites from live while preserving notes, `dd` deletes, and `e` focuses the
+right-hand editor (`h`/`l` step, `e` exact value, `x` toggle `— (skip)` for
+selective/partial files, `f` capture live, `w`/`Enter` save; `o` on a saved fan
+curve opens it directly in the `2 Fans` graph). On the Snapshot Editor's
+`CPU fan curve` and `GPU fan curve` rows, `h`/`l` cycles through OEM presets and
+all saved fan curves (`a` copies the chosen curve to both CPU and GPU; `e`
+accepts a saved curve name or raw CSV). On the `PPT` row, `h`/`l` step
 the three watt limits in 5 W increments (the same windows and ordering as
 the Power view) and `e` takes `SPL,SPPT,FPPT`, a single value for all
 three, or `off` — never a preset snap. A snapshot carries platform
@@ -169,7 +174,7 @@ ctron --battery-oneshot           # charge to full once
 <summary><b>Full flag list</b> (<code>ctron --help</code>)</summary>
 
 ```
-Usage: ctron [flags] | ctron mode <sub> | ctron snapshot <sub>
+Usage: ctron [flags] | ctron mode <sub> | ctron snapshot <sub> | ctron fancurve <sub>
 
 No arguments opens the fullscreen TUI (needs a terminal).
 
@@ -181,11 +186,12 @@ Information:
   --help, -h              this help
   --version, -V           version
 
-Modes & snapshots:
+Modes, snapshots & fan curves:
   --mode <name> [--dry-run]   apply (or preview) a shortcut bundle
   mode list|show <n>|add <name> <steps>|delete <n>
   snapshot list   (alias: profile)
   snapshot apply [--dry-run]|diff|export|delete <name>
+  fancurve list|apply [--dry-run]|diff|export|delete <name>
 
 Hardware (key = value pairs, same as mode steps):
   --profile quiet|balanced|performance
@@ -210,7 +216,7 @@ Hardware (key = value pairs, same as mode steps):
   --daeboard-stop     ask the daemon to quit
   --daeboard-reload   recompile ~/.config/ctron/daeboard.binds
   --aura <effect> [color|hex]
-  --fan stock|silent|cool|full|on|off|cpu on|cpu off|gpu on|gpu off
+  --fan stock|silent|cool|full|on|off|cpu on|cpu off|gpu on|gpu off|<curve>
   --fan-curve cpu|gpu <temps> <pwms>
   --fan-write             write in-memory curve to the EC
   --dry-run               validate flags/mode/snapshot without writing
@@ -367,5 +373,6 @@ daeboard daemon-side work (lives in the daeboard repo).
 | `docs/history/` | archived plans (`PLAN.md`, `PLANS.md`) & older session/change logs |
 
 Config lives in `~/.config/ctron/` (`settings.ini`, `modes.ini`,
-`profiles/*.ctr` snapshots); the TUI keeps a ring buffer of the last 24
-actions (press `L` or click the LIVE log line to inspect).
+`profiles/*.ctr` snapshots, `fan_curves/*.fc` saved fan curves); the TUI
+keeps a ring buffer of the last 24 actions (press `L` or click the LIVE
+log line to inspect).

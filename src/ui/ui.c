@@ -414,14 +414,20 @@ void ui_set_view(ui_view_t v)
     g_ui.prof_in_edit = false;
     g_ui.prof_val_typing = false;
     g_ui.prof_edit_dirty = false;
+    g_ui.fc_edit_dirty = false;
+    g_ui.pw_msg_ms = 0;
     if (v == VIEW_TELEM)
         g_ui.prev_view = g_ui.view;
     g_ui.view = v;
 
-    /* entering POWER or SYSTEM: pick up external changes unless dirty */
+    /* entering POWER, FANS or SYSTEM: pick up external changes unless dirty */
     if (v == VIEW_POWER && !g_ui.pw_dirty) {
         hw_refresh_live(g_ui.hw);
         pw_sync_from_hw();
+    } else if (v == VIEW_FANS) {
+        hw_refresh_live(g_ui.hw);
+        panel_profiles_reload();
+        editor_fan_sync_bufs();
     } else if (v == VIEW_SYSTEM && !g_ui.sys_dirty) {
         hw_refresh_live(g_ui.hw);
         sys_sync_from_hw();
@@ -507,15 +513,15 @@ static void draw_help_overlay(struct ncplane *n, const rect_t *r)
         "  c / b        focus inline Core Limits (Power) · daeboard (Display & Light)",
         "",
         "FANS (2)",
-        "  c / g        CPU / GPU curve · < > select point · h/l/j/k nudge",
-        "  e / p        exact Temp / PWM · + / - add/remove · i guides · m presets",
-        "  o / w        toggle custom curve on/off · write curve to EC",
+        "  c / g        CPU / GPU curve · < > select point · h/l/j/k nudge (J/K ±5%)",
+        "  e / p        exact Temp / PWM (or %) · + / - add/remove · i guides · m presets",
+        "  o / w / r    toggle custom on/off · write to EC · revert · s save curve",
         "",
-        "SNAPSHOTS (4)",
-        "  Enter        apply snapshot · e / l edit fields · u u overwrite from live",
-        "  s / n        save live state · auto-name · r rename · c note · d d delete",
-        "  In editor:   h/l step · e exact · x skip (—) · f live curve · w/Enter save",
-        "  c (ceiling)  per-core grid for the snapshot — edits the file, never writes",
+        "SNAPSHOTS & FAN CURVES (4)",
+        "  f            switch left list between Snapshots (top) & Fan Curves (bottom)",
+        "  Enter        apply · e / l edit · s / n save · u u update · r rename · d d del",
+        "  In editor:   h/l step (selects saved fan curves!) · e exact · x skip · w save",
+        "  c (ceiling)  per-core grid for the snapshot · o (fan curve) open in 2 Fans",
         "",
         "TELEMETRY (5)",
         "  h j k l      walk 8-section grid · Enter detail (1-8 jump inside detail)",
@@ -561,7 +567,7 @@ static void ui_layout(unsigned dimy, unsigned dimx)
         if (oh < 8)  oh = H - 1;
         g_ui.rc_overlay = (rect_t){ (W - ow) / 2, 1, ow, oh };
     } else if (g_ui.fe_presets_overlay) {
-        int ow = 68, oh = 15;
+        int ow = 72, oh = 20;
         if (ow > W - 4) ow = W - 4;
         if (ow < 20)    ow = W;
         if (oh > H - 4) oh = H - 4;
@@ -656,9 +662,12 @@ static void draw_header(struct ncplane *n, unsigned dimy, unsigned dimx)
 
 static int total_staged_edits(void)
 {
+    bool snap_dirty = g_ui.prof_in_edit &&
+                      (g_ui.prof_in_fcurves ? g_ui.fc_edit_dirty
+                                            : g_ui.prof_edit_dirty);
     return pw_staged_count() + sys_staged_count() +
            (g_ui.hw->fan_staged ? 1 : 0) +
-           (g_ui.prof_in_edit && g_ui.prof_edit_dirty ? 1 : 0);
+           (snap_dirty ? 1 : 0);
 }
 
 static void rail_kv(struct ncplane *n, int x, int y, int w,
@@ -687,7 +696,8 @@ static void draw_rail(struct ncplane *n, const rect_t *r)
         pw_staged_count() > 0,
         hw->fan_staged,
         sys_staged_count() > 0,
-        g_ui.prof_in_edit && g_ui.prof_edit_dirty,
+        g_ui.prof_in_edit && (g_ui.prof_in_fcurves ? g_ui.fc_edit_dirty
+                                                   : g_ui.prof_edit_dirty),
         false,
     };
 
@@ -885,7 +895,7 @@ static void draw_footer(struct ncplane *n, unsigned dimy, unsigned dimx)
             { "1-5/Tab", "view", false }, { "c/g", "cpu·gpu", false },
             { "</>", "pt", false },       { "hjkl", "nudge", false },
             { "e/p", "T/P", false },      { "m", "presets", false },
-            { "+/-", "add·del", false },  { "i", "grid", false },
+            { "s", "save", false },       { "r", "revert", false },
             { "o", "on/off", false },     { "w", "write", dirty_here },
             { "L", "log", false },        { "q", "quit", false },
         };
@@ -908,6 +918,16 @@ static void draw_footer(struct ncplane *n, unsigned dimy, unsigned dimx)
             { "L", "log", false },        { "q", "quit", false },
         };
         ui_keybar(n, 1, ky, W - 2, h, (int)(sizeof(h) / sizeof(h[0])));
+    } else if (g_ui.view == VIEW_SNAPSHOTS && g_ui.prof_in_edit && g_ui.prof_in_fcurves) {
+        const ui_hint_t h[] = {
+            { "Esc", "list", false },     { "j/k", "row", false },
+            { "h/l", "PWM", false },      { "</>", "temp", false },
+            { "e", "exact", false },      { "x", "skip", false },
+            { "f/m", "live·ref", false }, { "o", "graph", false },
+            { "w/Enter", "save", g_ui.fc_edit_dirty },
+            { "q", "quit", false },
+        };
+        ui_keybar(n, 1, ky, W - 2, h, (int)(sizeof(h) / sizeof(h[0])));
     } else if (g_ui.view == VIEW_SNAPSHOTS && g_ui.prof_in_edit) {
         const ui_hint_t h[] = {
             { "Esc", "list", false },
@@ -924,11 +944,12 @@ static void draw_footer(struct ncplane *n, unsigned dimy, unsigned dimx)
         ui_keybar(n, 1, ky, W - 2, h, (int)(sizeof(h) / sizeof(h[0])));
     } else if (g_ui.view == VIEW_SNAPSHOTS) {
         const ui_hint_t h[] = {
-            { "1-5/Tab", "view", false }, { "j/k", "row", false },
-            { "Enter", "apply", false },  { "e", "edit", false },
-            { "s/n", "save", false },     { "uu", "update", false },
-            { "r", "rename", false },     { "c", "note", false },
-            { "dd", "del", false },       { "L", "log", false },
+            { "1-5/Tab", "view", false },
+            { "f", g_ui.prof_in_fcurves ? "snaps" : "fans", false },
+            { "j/k", "row", false },      { "Enter", "apply", false },
+            { "e", "edit", false },       { "s/n", "save", false },
+            { "uu", "update", false },    { "r", "rename", false },
+            { "c", "note", false },       { "dd", "del", false },
             { "q", "quit", false },
         };
         ui_keybar(n, 1, ky, W - 2, h, (int)(sizeof(h) / sizeof(h[0])));
@@ -1098,6 +1119,13 @@ static void *apply_worker(void *arg)
         hw_refresh_live(hw);
         break;
     }
+    case APPLY_FAN_CURVE: {
+        char err[192] = "";
+        g_ui.apply_ok = fcurve_apply(g_ui.apply_arg, hw, err, sizeof(err)) == 0;
+        snprintf(g_ui.apply_sum, sizeof(g_ui.apply_sum), "%s", err);
+        hw_refresh_live(hw);
+        break;
+    }
     case APPLY_POWER: {
         int fails = 0;
         g_ui.apply_sum[0] = '\0';
@@ -1185,6 +1213,27 @@ static void finalize_apply(void)
         sys_sync_from_hw();
         cf_reset_staging();
         panel_profiles_reload();
+        break;
+    case APPLY_FAN_CURVE:
+        if (g_ui.apply_ok) {
+            ut_log("applied fan curve '%s' · %ld.%ld s",
+                   g_ui.apply_arg, took / 10, took % 10);
+            snprintf(g_ui.pw_msg, sizeof(g_ui.pw_msg),
+                     "✓ fan curve '%s' applied", g_ui.apply_arg);
+            g_ui.pw_msg_fail = false;
+        } else {
+            ut_log("fan curve '%s': %.120s · %ld.%ld s",
+                   g_ui.apply_arg,
+                   g_ui.apply_sum[0] ? g_ui.apply_sum : "failed",
+                   took / 10, took % 10);
+            snprintf(g_ui.pw_msg, sizeof(g_ui.pw_msg),
+                     "⚠ fan curve '%.36s': %.80s", g_ui.apply_arg,
+                     g_ui.apply_sum[0] ? g_ui.apply_sum : "failed");
+            g_ui.pw_msg_fail = true;
+        }
+        g_ui.pw_msg_ms = ut_mono_ms();
+        panel_profiles_reload();
+        editor_fan_sync_bufs();
         break;
     case APPLY_POWER:
     case APPLY_SYSTEM: {
@@ -1513,10 +1562,12 @@ int ui_run(hw_state_t *hw)
     g_ui.prof_meta_sel = -1;
     g_ui.mode_n = modes_load(g_ui.modes, MODES_MAX);
     tin_set(&g_ui.prof_name, "my-snapshot");
+    tin_set(&g_ui.fe_save_name, "my-fan");
 
     hw_refresh_live(hw);
     settings_load(hw);
     panel_profiles_reload();
+    editor_fan_sync_bufs();
     g_ui.view = (ui_view_t)ut_clamp_i(g_prefs.startup_view, 0, VIEW_COUNT - 1);
     g_ui.prev_view = VIEW_POWER;
 

@@ -33,6 +33,7 @@ extern prefs_t g_prefs;
 void settings_dir(char *out, size_t n);
 const char *settings_file(char *out, size_t n);
 const char *settings_profiles_dir(char *out, size_t n);
+const char *settings_fancurves_dir(char *out, size_t n);
 const char *settings_modes_file(char *out, size_t n);
 
 /* Load prefs + persisted hardware state (fan curves, cpu limit).
