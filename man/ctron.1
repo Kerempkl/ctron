@@ -1,0 +1,412 @@
+.\" ctron(1) manual page. Keep in step with `ctron --help` and
+.\" src/cmds.c; plain ASCII on purpose (groff escapes for the few
+.\" symbols), so every groff/mandoc build renders it without warnings.
+.TH CTRON 1 "" "ctron" "User Commands"
+.SH NAME
+ctron \- ASUS laptop control center: fullscreen TUI and headless CLI
+.SH SYNOPSIS
+.B ctron
+.RB [ \-\-tui ]
+.br
+.B ctron
+.I flag
+.RI [ flag ...]
+.br
+.B ctron mode list
+|
+.BI "mode show" " name"
+|
+.BI "mode add" " name " steps
+|
+.BI "mode delete" " name"
+.br
+.B ctron snapshot
+.RB ( alias:
+.BR profile )
+.I list
+|
+.BI "apply" " name"
+.RB [ \-\-dry\-run ]
+|
+.BI "diff" " name"
+|
+.BI "export" " name"
+|
+.BI "delete" " name"
+.br
+.B ctron fancurve
+.RB ( alias:
+.BR fan\-curve )
+.I list
+|
+.BI "apply" " name"
+.RB [ \-\-dry\-run ]
+|
+.BI "diff" " name"
+|
+.BI "export" " name"
+|
+.BI "delete" " name"
+.SH DESCRIPTION
+.B ctron
+controls fans, power limits, CPU frequency ceilings, the battery charge
+limit, display refresh rate and keyboard lighting of ASUS (TUF) laptops,
+and shows their telemetry.
+.PP
+Without arguments it opens a fullscreen terminal user interface (a
+terminal is required; without one it prints the help instead and exits
+2). With any argument it runs headless: it performs the requested
+action, prints the result and exits, so it is safe in scripts and over
+ssh.
+.PP
+Every write is an explicit user action: nothing is written when the
+program starts or while the TUI polls. A write goes through one chain:
+.B asusctl
+when it is installed (no root needed), else a direct sysfs write, else
+.BR "sudo \-n" ,
+passwordless sudo only. Without a usable door the action fails cleanly;
+you never get a password prompt or a hang. Writes are verified by reading
+the value back. Values that cannot be read reliably are shown as
+\fB\-\-\fP, never as a guess.
+.PP
+On a locked\-PPT laptop the CPU watt limits are volatile: they clear on
+reboot, suspend and profile changes. Within the same boot
+.B ctron
+remembers what it applied and shows it as \fB(set)\fP; a snapshot can be
+re\-applied automatically with a Boot snapshot (see
+.BR \-\-apply\-startup ).
+.SH OPTIONS
+.SS Global modifiers
+These are recognised anywhere on the command line and removed before
+anything else is parsed.
+.TP
+.BI \-\-config\-dir " DIR"
+Use \fIDIR\fP as the configuration directory instead of
+\fB$CTRON_CONFIG\fP, \fB$XDG_CONFIG_HOME/ctron\fP or \fB~/.config/ctron\fP.
+.BI \-\-config\-dir= DIR
+is accepted too.
+.TP
+.B \-\-json
+Machine\-readable output for \fB\-\-status\fP and \fB\-\-doctor\fP only;
+unknown values are emitted as JSON \fBnull\fP.
+.TP
+.B \-\-dry\-run
+Validate the flags, mode, snapshot or fan curve and print what would be
+written, without touching hardware.
+.SS Information
+.TP
+.BR \-\-status ", " \-s
+Print a live snapshot of every value ctron can read.
+.TP
+.BR \-\-watch ", " \-w
+Print one line of rolling telemetry at a time until interrupted
+(Ctrl\-C).
+.TP
+.BI \-\-csv " file"
+Append telemetry rows to \fIfile\fP until interrupted (Ctrl\-C). The
+header line is written when the file is new; an existing file must
+already have a header with the same columns.
+.TP
+.B \-\-doctor
+Print a capability report: what each feature will use and whether the
+required tool, sysfs node or sudo rule is available.
+.TP
+.BR \-\-help ", " \-h
+Print the help text and exit.
+.TP
+.BR \-\-version ", " \-V
+Print the version and exit.
+.TP
+.BR \-\-tui ", " \-t
+Open the TUI explicitly (same as no arguments).
+.TP
+.B \-\-setup
+Print where the configuration lives and exit. An early\-day flag kept
+for older instructions; it changes nothing.
+.SS Modes, snapshots and fan curves
+A \fImode\fP is a named bundle of \fIsteps\fP stored in \fBmodes.ini\fP.
+A \fIsnapshot\fP (\fBprofiles/*.ctr\fP) records hardware settings; a
+\fIsaved fan curve\fP (\fBfan_curves/*.fc\fP) records one or both fan
+curves. A single \fB/\fP places the entry in a group
+(\fBgaming/quiet\fP). Snapshot and fan\-curve names keep letters,
+digits, \fB.\fP, \fB_\fP and \fB/\fP; any other character becomes
+\fB\-\fP, so \(dqmy game\(dq is saved as \fBmy\-game\fP, and \fB.\fP or
+\fB..\fP is refused as a group. Mode names may not contain \fB[\fP,
+\fB]\fP or a line break.
+.TP
+.BI \-\-mode " name"
+Apply the mode \fIname\fP. With \fB\-\-dry\-run\fP validate and print
+its steps instead.
+.TP
+.B \-\-apply\-startup
+Apply the Boot snapshot selected in the TUI preferences. It is a no\-op
+(exit 0) while that preference is off, which is the default.
+.TP
+.B mode list
+List the modes with their steps.
+.TP
+.BI "mode show" " name"
+Print one mode as it appears in \fBmodes.ini\fP.
+.TP
+.BI "mode add" " name " steps...
+Add a mode. The steps are the remaining arguments joined by spaces, in
+the same \fIkey value\fP syntax as a mode file, so quote them:
+.RS
+.nf
+ctron mode add silent \(dqprofile quiet, ppt Q45, fan silent, hz 60\(dq
+.fi
+.RE
+.TP
+.BI "mode delete" " name"
+Delete a mode.
+.TP
+.B snapshot list
+List the snapshots by name. Also spelled \fBprofile list\fP.
+.TP
+.BI "snapshot apply" " name"
+Apply a snapshot. Fields the snapshot leaves out are not touched. With
+\fB\-\-dry\-run\fP validate and print the steps instead.
+.TP
+.BI "snapshot diff" " name"
+Show how the snapshot differs from the live hardware.
+.TP
+.BI "snapshot export" " name"
+Save the live hardware state as the snapshot \fIname\fP. An existing
+snapshot keeps its note.
+.TP
+.BI "snapshot delete" " name"
+Delete a snapshot.
+.PP
+\fBfancurve\fP (alias \fBfan\-curve\fP) takes the same five subcommands
+for saved fan curves: \fBlist\fP, \fBapply\fP \fIname\fP
+[\fB\-\-dry\-run\fP], \fBdiff\fP \fIname\fP, \fBexport\fP \fIname\fP and
+\fBdelete\fP \fIname\fP.
+.SS Hardware flags
+Any number of these may be given on one command line; they are applied
+in order. The same \fIkey value\fP pairs are the steps of a mode and the
+lines of a snapshot file. A flag that fails does not stop the remaining
+ones, but the exit status becomes non\-zero. Every flag also accepts the
+form \fB\-\-flag=\fP\fIvalue\fP.
+.TP
+.BI \-\-profile " quiet|balanced|performance"
+Platform profile (the firmware power mode).
+.TP
+.BI \-\-ac\-profile " off|quiet|balanced|performance"
+Which profile asusd enforces automatically while on AC power.
+\fBoff\fP leaves the choice to you; the currently active profile is not
+changed.
+.TP
+.BI \-\-battery\-profile " off|quiet|balanced|performance"
+The same for battery power.
+.TP
+.BI \-\-epp " power|balance_power|balance_performance|performance"
+Energy performance preference of the CPU.
+.TP
+.BI \-\-freq " mhz"
+Frequency ceiling for every thread (\fImhz\fP is 100..10000).
+.TP
+.BI \-\-freq " core " cpu\-id " " mhz
+Ceiling for one thread, \fIcpu\-id\fP being the kernel cpu number.
+.TP
+.BI \-\-freq " ccd " n " " mhz
+Ceiling for every thread of CCD \fIn\fP.
+.TP
+.BI \-\-hz " rate|max"
+Display refresh rate; the nearest mode the compositor offers is used.
+\fBmax\fP selects the highest.
+.TP
+.BI \-\-battery " 20..100"
+Battery charge limit in percent.
+.TP
+.B \-\-battery\-oneshot
+Charge to 100 % once through \fBasusctl battery oneshot\fP. It needs
+asusctl, as there is no sysfs path for it.
+.TP
+.BI \-\-ppt " Q45|B60|P80|spl,sppt,fppt|off|on"
+CPU watt limits (SPL, SPPT, FPPT): \fBQ45\fP is 45/55/55 W, \fBB60\fP is
+60/75/75 W, \fBP80\fP is 80/80/80 W; or give the three values in watts.
+\fBoff\fP lifts the limits to what the BIOS reports as maximum and
+remembers the previous values; it is refused when the BIOS does not
+report them. \fBon\fP writes the remembered values back; it is a no\-op
+(exit 0) when there are none, which the event log says.
+.TP
+.BI \-\-nv\-boost " 5..25"
+NVIDIA dynamic boost in watts.
+.TP
+.BI \-\-nv\-temp " 75..87"
+NVIDIA temperature target in \(deC.
+.TP
+.BI \-\-gpu\-clock " mhz|reset"
+Lock the NVIDIA core clock (\fImhz\fP is 200..4096) or release the lock
+(\fBreset\fP; \fBoff\fP is accepted too).
+.TP
+.BI \-\-panel\-od " on|off"
+Panel overdrive.
+.TP
+.BI \-\-cpu\-boost " on|off"
+Global cpufreq boost.
+.TP
+.BI \-\-kbd " off|low|med|high"
+Keyboard backlight brightness.
+.TP
+.BI \-\-aura " effect " [ color | hex ]
+Keyboard lighting. \fIeffect\fP is one of \fBstatic\fP, \fBbreathe\fP,
+\fBrainbow\-cycle\fP, \fBrainbow\-wave\fP, \fBpulse\fP, \fBcomet\fP,
+\fBflash\fP, \fBstars\fP, \fBrain\fP, \fBhighlight\fP, \fBlaser\fP,
+\fBripple\fP, whichever the keyboard offers (\fBctron \-\-doctor\fP
+lists them). \fIcolor\fP is \fBIce\fP, \fBRed\fP,
+\fBGreen\fP, \fBBlue\fP, \fBYellow\fP, \fBPurple\fP, \fBOrange\fP or
+\fBWhite\fP; \fIhex\fP is six hex digits (\fBffa500\fP). An effect the
+keyboard does not have is refused without writing.
+.TP
+.BI \-\-fan " stock|silent|cool|full|on|off"
+\fBstock\fP hands both fans back to the EC (factory control);
+\fBsilent\fP, \fBcool\fP and \fBfull\fP apply that preset to both fans;
+\fBon\fP and \fBoff\fP switch both custom fan curves on or off.
+.TP
+.BI \-\-fan " cpu|gpu " " on|off"
+Switch the custom curve of one fan (two words:
+\fB\-\-fan cpu on\fP).
+.TP
+.BI \-\-fan " curve"
+Apply the saved fan curve \fIcurve\fP (\fBctron fancurve list\fP).
+.TP
+.BI \-\-fan\-curve " cpu|gpu " " temps " " pwms"
+Stage a curve for one fan: two comma\-separated lists of up to eight
+integers (temperatures in \(deC, PWM 0..255), for example
+\fB\-\-fan\-curve cpu 40,60,80 80,140,220\fP. Values are clamped, the
+curve is normalised to increasing temperatures and non\-decreasing PWM,
+and it stays in memory until \fB\-\-fan\-write\fP.
+.TP
+.B \-\-fan\-write
+Write the staged curve(s) to the EC and verify them by reading back.
+.TP
+.B \-\-follow
+Run the actions bound in \fB~/.config/ctron/daeboard.binds\fP when the
+daeboard daemon sends them (runs until stopped).
+.TP
+.B \-\-daeboard\-start
+Start the daeboard daemon through \fBsystemd\-run\fP; needs passwordless
+sudo (see SECURITY.md, section 4).
+.TP
+.B \-\-daeboard\-stop
+Ask the running daemon to quit.
+.TP
+.B \-\-daeboard\-reload
+Recompile \fB~/.config/ctron/daeboard.binds\fP.
+.PP
+\fB\-\-status\fP, \fB\-\-watch\fP, \fB\-\-csv\fP, \fB\-\-doctor\fP,
+\fB\-\-mode\fP, \fB\-\-apply\-startup\fP, \fB\-\-follow\fP, the
+\fB\-\-daeboard\-...\fP flags and the \fBmode\fP, \fBsnapshot\fP and
+\fBfancurve\fP subcommands are stand\-alone commands: they must be the
+first argument.
+.SH THE TUI
+Views are switched with \fB1\fP to \fB5\fP or \fBTab\fP:
+\fB1 Power\fP, \fB2 Fans\fP, \fB3 Display & Light\fP, \fB4 Snapshots\fP,
+\fB5 Telemetry\fP. Values are staged with \fBj\fP \fBk\fP (row) and
+\fBh\fP \fBl\fP (step), or typed exactly with \fBe\fP; \fBw\fP or
+\fBEnter\fP applies the staged edits and \fBr\fP reverts them.
+\fB,\fP opens the preferences, \fBL\fP the event log, \fB?\fP the keymap
+help, \fBEsc\fP backs out of whatever is open and \fBq\fP quits (twice
+when edits are pending). The complete keymap is in the project README.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Runtime or verification error: unknown name, rejected value, or a write
+that failed or did not read back.
+.TP
+.B 2
+Usage error: unknown flag or missing value. Also when ctron is started
+without a terminal and without arguments (an explicit \fB\-\-tui\fP
+without a terminal exits 1).
+.TP
+.B 3
+A write needed root and did not get it (no passwordless sudo rule, or
+the \(dqno sudo\(dq preference is set).
+.SH ENVIRONMENT
+.TP
+.B CTRON_CONFIG
+Configuration directory (see \fB\-\-config\-dir\fP). Setting it, or
+.BR CTRON_TEST ,
+also lifts the single\-instance guard of the TUI, so isolated test
+instances can run side by side.
+.TP
+.B XDG_CONFIG_HOME
+Base of the default configuration directory
+(\fB$XDG_CONFIG_HOME/ctron\fP).
+.TP
+.BR XDG_RUNTIME_DIR ", " TMPDIR
+Where the TUI keeps its pidfile (\fBctron\-tui\-<uid>.pid\fP outside
+.BR XDG_RUNTIME_DIR ).
+.TP
+.B DISPLAY_BACKEND
+Force a compositor backend for the refresh rate: \fBkde\fP or
+\fBhyprland\fP.
+.TP
+.B DAEBOARD_BIN
+Path of the daeboard binary. Default: /usr/local/bin/daeboard, else
+~/Documents/daeboard/daeboard.
+.TP
+.B DAEBOARD_SRC
+Directory containing daeboard's \fBinstall.sh\fP, used when the TUI
+installs daeboard.
+.TP
+.B HYPRLAND_INSTANCE_SIGNATURE
+Read, not set, to detect Hyprland.
+.TP
+.B TERMINAL
+Used by \fBctron\-toggle\fP: the terminal emulator to open the TUI in.
+Defaults to \fBkonsole\fP.
+.PP
+Tools are probed on \fBPATH\fP, never linked: \fBasusctl\fP,
+\fBnvidia\-smi\fP, \fBryzenadj\fP, \fBkscreen\-doctor\fP,
+\fBhyprctl\fP. A missing one disables its rows; nothing is installed for
+you.
+.SH FILES
+.TP
+.I ~/.config/ctron/settings.ini
+Preferences and remembered hardware state (tagged with the boot id).
+.TP
+.I ~/.config/ctron/modes.ini
+The shortcut modes.
+.TP
+.I ~/.config/ctron/profiles/*.ctr
+Snapshots; subdirectories are groups.
+.TP
+.I ~/.config/ctron/fan_curves/*.fc
+Saved fan curves.
+.TP
+.I ~/.config/ctron/daeboard.binds
+Key binds for the optional daeboard daemon.
+.TP
+.I $XDG_RUNTIME_DIR/ctron-tui.pid
+Single\-instance lock of the TUI.
+.SH EXAMPLES
+.nf
+ctron                               # the TUI
+ctron \-\-status                     # everything ctron can read, once
+ctron \-\-doctor                     # what will work on this machine
+ctron \-\-ppt 45,55,65 \-\-dry\-run     # check three watt values, write nothing
+ctron \-\-mode turbo                 # a bundle from modes.ini
+ctron \-\-gpu\-clock 1400             # lock the GPU core clock
+ctron \-\-freq ccd 1 3500            # ceiling for one CCD
+ctron \-\-hz 165                      # refresh rate through the compositor
+ctron \-\-fan\-curve cpu 40,60,80 80,140,220 \-\-fan\-write
+ctron \-\-apply\-startup              # the Boot snapshot, if one is selected
+.fi
+.SH SEE ALSO
+The project documentation: README.md (keymap, display backends, the M4
+key), SECURITY.md (privilege model, sudoers rules, the least\-privilege
+\fBctron\-ppt\fP wrapper), HARDWARE.md (what works per machine).
+.PP
+.BR asusctl (1),
+.BR nvidia\-smi (1),
+.BR kscreen\-doctor (1),
+.BR hyprctl (1)
+.SH AUTHOR
+Kerempkl and contributors.
+.UR https://github.com/Kerempkl/ctron
+.UE

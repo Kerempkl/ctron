@@ -1,0 +1,182 @@
+#compdef ctron
+# Completion for ctron. Install as <datadir>/zsh/site-functions/_ctron
+# (a user install goes to ~/.local/share/zsh/site-functions, which must
+# be in fpath before compinit runs). If the completion does not show up
+# after installing, remove ~/.zcompdump* and start a new shell.
+#
+# Mode, snapshot and fan-curve names are read from the config directory
+# rather than from `ctron mode list` and friends: those initialise the
+# hardware layer (an nvidia-smi query, which can wake the GPU) and
+# create files on a fresh machine (modes.ini, profiles/) — pressing Tab
+# must do neither. The lists mirror src/modes.c and src/profile.c; the
+# values mirror `ctron --help` and src/cmds.c. scripts/completion_test.py
+# exercises this file together with the bash and fish ones.
+
+_ctron_config() {
+    print -r -- "${CTRON_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/ctron}"
+}
+
+_ctron_modes() {
+    # a section counts once it has a `steps =` line, and ctron stores at
+    # most 23 characters of its name
+    local f="$(_ctron_config)/modes.ini"
+    [[ -r $f ]] && awk '
+        /^[[:space:]]*\[/ { s = $0; sub(/^[[:space:]]*\[/, "", s); sub(/\].*/, "", s); next }
+        /^[[:space:]]*[#;]/ { next }
+        tolower($0) ~ /^[[:space:]]*steps[[:space:]]*=/ {
+            if (s != "" && !seen[s]++) print substr(s, 1, 23)
+        }' "$f"
+}
+
+# _ctron_files <directory under the config dir> <extension>
+_ctron_files() {
+    local dir="$(_ctron_config)/$1" f
+    [[ -d $dir ]] || return 0
+    for f in "$dir"/*."$2" "$dir"/*/*."$2"; do
+        [[ -f $f ]] && print -r -- "${${f#$dir/}%."$2"}"
+    done
+}
+
+# _ctron_seen: the words before the cursor minus the global modifiers
+# (and the value of --config-dir), in $reply. The first of them is a
+# subcommand group, a hardware flag, or nothing.
+_ctron_seen() {
+    local -a seen
+    local a skip=0
+    for a in "${(@)words[2,CURRENT-1]}"; do
+        if (( skip )); then
+            skip=0
+        elif [[ $a == --config-dir ]]; then
+            skip=1
+        elif [[ $a != --(json|dry-run) ]]; then
+            seen+=("$a")
+        fi
+    done
+    reply=("${seen[@]}")
+}
+
+local -a commands modes snapshots curves effects colors seen
+commands=(
+  'mode[shortcut bundles: list, show, add, delete]'
+  'snapshot[hardware snapshots: list, apply, diff, export, delete]'
+  'profile[alias of snapshot]'
+  'fancurve[saved fan curves: list, apply, diff, export, delete]'
+  'fan-curve[alias of fancurve]'
+)
+modes=( ${(f)"$(_ctron_modes)"} )
+snapshots=( ${(f)"$(_ctron_files profiles ctr)"} )
+curves=( ${(f)"$(_ctron_files fan_curves fc)"} )
+effects=(static breathe rainbow-cycle rainbow-wave pulse comet flash stars rain highlight laser ripple)
+colors=(Ice Red Green Blue Yellow Purple Orange White)
+
+_ctron_seen
+seen=("${reply[@]}")
+
+# The subcommand groups are stand-alone commands: inside one, only the
+# global modifiers apply. Positions: 1 group (typed), 2 its subcommand,
+# 3 the entry name.
+local -a modifiers
+local dry='*--dry-run[validate without writing]'
+# the same option with a leading `!`: recognised on the command line, never offered
+local dry_hidden='!*--dry-run[validate without writing]'
+modifiers=(
+  '*--json[machine-readable output for --status and --doctor]'
+  '*--config-dir=[configuration directory]:directory:_directories'
+)
+# --dry-run is offered only where it does something: under it, delete
+# and add would act for real
+case ${seen[1]} in
+(mode)
+  _arguments -S $modifiers $dry_hidden '1: :->group' '2: :->sub' '3: :->name' '*: ' && return 0
+  case $state in
+    (sub)
+      local -a subs=('list[list the modes]' 'show[print one mode]'
+                     'add[add a mode]' 'delete[delete a mode]')
+      _values 'mode subcommand' "${subs[@]}"
+      ;;
+    (name) [[ $words[CURRENT-1] == (show|delete) ]] && compadd -a modes ;;
+  esac
+  return 0
+  ;;
+(snapshot|profile|fancurve|fan-curve)
+  local -a names
+  if [[ ${seen[1]} == (snapshot|profile) ]]; then names=("${snapshots[@]}"); else names=("${curves[@]}"); fi
+  local -a mods=("${modifiers[@]}" "$dry_hidden")
+  [[ ${seen[2]} == apply ]] && mods[-1]="$dry"
+  _arguments -S $mods '1: :->group' '2: :->sub' '3: :->name' '*: ' && return 0
+  case $state in
+    (sub)
+      local -a subs=('list[list the entries]' 'apply[apply an entry]'
+                     'diff[compare with live hardware]' 'export[save the live state]'
+                     'delete[delete an entry]')
+      _values "${seen[1]} subcommand" "${subs[@]}"
+      ;;
+    (name)
+      [[ $words[CURRENT-1] == (apply|diff|export|delete) ]] && compadd -a names
+      ;;
+  esac
+  return 0
+  ;;
+esac
+
+# A leading `*` marks a flag that may be repeated; `=` lets the value be
+# given as `--flag=value` as well as the next word.
+_arguments -S \
+  {-h,--help}'[print the help text and exit]' \
+  {-V,--version}'[print the version and exit]' \
+  {-t,--tui}'[open the fullscreen TUI]' \
+  {-s,--status}'[print a live hardware snapshot]' \
+  {-w,--watch}'[print rolling one-line telemetry]' \
+  '--doctor[print a capability report]' \
+  '--csv=[append telemetry rows to a CSV]:file:_files' \
+  '--follow[run the actions of daeboard binds]' \
+  '--daeboard-start[start the daeboard daemon]' \
+  '--daeboard-stop[ask the daeboard daemon to quit]' \
+  '--daeboard-reload[recompile daeboard.binds]' \
+  $modifiers $dry \
+  '*--apply-startup[apply the configured Boot snapshot]' \
+  '*--mode=[apply a shortcut bundle]:mode:->modes' \
+  '*--profile=[platform profile]:profile:(quiet balanced performance)' \
+  '*--ac-profile=[profile asusd enforces on AC]:profile:(off quiet balanced performance)' \
+  '*--battery-profile=[profile asusd enforces on battery]:profile:(off quiet balanced performance)' \
+  '*--epp=[energy performance preference]:epp:(power balance_power balance_performance performance)' \
+  '*--freq=[frequency ceiling]:scope:(core ccd)' \
+  '*--hz=[display refresh rate]:rate:(max)' \
+  '*--battery=[battery charge limit]:percent:(20 30 40 50 60 70 80 90 100)' \
+  '*--battery-oneshot[charge to 100 % once (asusctl)]' \
+  '*--ppt=[CPU watt limits]:ppt:(Q45 B60 P80 45,55,55 60,75,75 80,80,80 off on)' \
+  '*--nv-boost=[NVIDIA dynamic boost]:watts:(5 10 15 20 25)' \
+  '*--nv-temp=[NVIDIA temperature target]:celsius:(75 80 85 87)' \
+  '*--gpu-clock=[NVIDIA core-clock lock]:mhz:(reset)' \
+  '*--panel-od=[panel overdrive]:state:(on off)' \
+  '*--cpu-boost=[cpufreq boost]:state:(on off)' \
+  '*--kbd=[keyboard backlight]:level:(off low med high)' \
+  '*--aura=[keyboard lighting]:effect:->aura' \
+  '*--fan=[fan preset, switch or saved curve]:fan:->fan' \
+  '*--fan-curve=[stage a fan curve]:fan:(cpu gpu)' \
+  '*--fan-write[write the staged curve to the EC]' \
+  ': :->command' '*: :->argument' && return 0
+
+case $state in
+(modes) compadd -a modes ;;
+(aura) compadd -a effects ;;
+(fan)
+  compadd stock silent cool full on off cpu gpu
+  compadd -a curves
+  ;;
+(command|argument)
+  case ${seen[1]} in
+  ('')
+    [[ $state == command ]] && _describe -t commands 'ctron command' commands
+    ;;
+  (--fan)
+    # second word of "--fan cpu|gpu <on|off>"
+    [[ ${seen[2]} == (cpu|gpu) && ${#seen} == 2 ]] && compadd on off
+    ;;
+  (--aura)
+    # optional second word of "--aura <effect> [color|hex]"
+    (( ${#seen} == 2 )) && compadd -a colors
+    ;;
+  esac
+  ;;
+esac
