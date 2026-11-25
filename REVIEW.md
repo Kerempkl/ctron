@@ -113,7 +113,21 @@ Kodun uzun ömürlü, başkalarının katkı verebileceği ve güvenle denetlene
   - Kalan tüm `asusctl` / `busctl` çağrılarını `ut_exec_argv*`'ye geçir, `ut_exec` / `ut_exec_raw` fonksiyonlarını tamamen kaldır.
   - **Kazanım:** İkilide tek bir `/bin/sh` veya `popen` çağrısı kalmaz — `SECURITY.md` ve güvenlik denetçileri için çok net bir garanti.
 
-### 2.2. `udev` + `tmpfiles.d` (`contrib/`) ile `sudo` yüzeyini %90 küçült + FAN yazımını hızlandır
+### 2.2. `udev` + `tmpfiles.d` (`contrib/`) ile `sudo` yüzeyini küçült + FAN yazımını hızlandır
+
+> **[TAMAMLANDI: `v0.14.0` — `contrib/99-ctron.rules` + `contrib/ctron.tmpfiles.conf`, öngörülen mekanizma düzeltilerek.]**
+> Ölçüm (FA608PP, kernel 7.3.1, systemd 262): udev'in `GROUP=`/`MODE=`
+> anahtarları yalnız `/dev` düğümüne uygulanır, sysfs öznitelikleri
+> `root:root` kalır (`/dev/rtc0` root:clock 0660 ↔ `/sys/class/rtc/rtc0/*`);
+> ayrıca `systemd-tmpfiles-setup` 2.2 sn'de biter, `asus_wmi` 5.1 sn'de
+> başlar ve düğümlerini sonra oluşturur. Bu yüzden düğüm listesi tmpfiles
+> `z` satırlarında duruyor, udev kuralı cihaz belirdiğinde aynı listeyi
+> yeniden uyguluyor (`RUN` ile `chgrp`/`chmod`; sürücünün "add" olayından
+> sonra oluşturduğu düğümler için bir saniye gecikmeli bir geçiş), fan
+> eğrisi dosyaları cihaza özel veriliyor. Kurulum ve kapsamı:
+> `SECURITY.md` 4.6. Aşağıdaki `%90` / `<5 ms` rakamları bu kurulumla
+> yeniden ölçülmedi; metin tarihsel gerekçe olarak kalıyor. `cpufreq_write_all`
+> adımı (1. madde) zaten `v0.10.0`'da kapandı.
 - **Mevcut durum:** `ut_priv_write()` doğrudan `ut_write_file()` → `sudo -n tee` sırasını izliyor, ancak `cpufreq_write_all()` (`src/control.c:78-118`) **önce `sudo -n tee` deniyor** (doğrudan yazım yalnız sudo başarısız olursa çalışıyor). Ayrıca sysfs düğümleri root sahipli olduğundan kullanıcı geniş `sudoers` kuralları yazmak zorunda kalıyor ve bir fan eğrisi yazımı `34` ayrı `sudo -n tee` fork'u (~3–4 saniye donma!) üretiyor.
 - **Yapılacak (kod + contrib birlikte):**
   1. **Kod:** `cpufreq_write_all()` önce tüm `cpu_ids` üzerinde doğrudan `ut_write_file()` denesin; yalnız izin reddedilirse (ve `ut_sudo_fallback_allowed()` ise) toplu `sudo -n tee`'ye düşsün.
@@ -146,7 +160,7 @@ Kodun uzun ömürlü, başkalarının katkı verebileceği ve güvenle denetlene
 
 ## 3. Ürün ve UX Profesyonelliği (P1–P2)
 
-*3.1, 3.2, 3.3, 3.4 ve 3.5 (`e77622f` + `2241130`) **`v0.11.0`** içinde tamamlandı (3.5'teki FAN `'w'` senkron kararı `AUDIT.md E5` uyarınca korundu; `v0.13.0` udev kuralları `sudo` gecikmesini doğrudan ortadan kaldırıyor). **3.6** ise sıradaki **`v0.12.0`** sürümünün ana hedefidir.*
+*3.1, 3.2, 3.3, 3.4 ve 3.5 (`e77622f` + `2241130`) **`v0.11.0`** içinde tamamlandı (3.5'teki FAN `'w'` senkron kararı `AUDIT.md E5` uyarınca korundu). **3.6** ise **`v0.12.0`**'da tamamlandı; `sudo` gecikmesini ortadan kaldıran udev/tmpfiles kurulumu `v0.14.0`'da geldi (`SECURITY.md` 4.6).*
 
 ### 3.1. Makinece okunabilir CLI (`--json`), `--dry-run`, `snapshot diff` ve çıkış kodu sözleşmesi
 - **`ctron --status --json` ve `ctron --doctor --json`:** Modern Linux ekosisteminde (`jq`, Waybar custom module, Polybar, Eww, AGS, shell betikleri, monitoring agent'ları) altın standart. Waybar desteğini doğrudan kodlamadan Waybar kullanıcılarına temiz entegrasyon sunar. Sıfır ekstra bağımlılıkla ~120 satır temiz JSON serializer yeterli.
@@ -196,13 +210,17 @@ Mevcut TUI fonksiyonel olarak çalışsa da görsel dil olarak tipik "AI üretim
 
 Bir projeyi GitHub'da dışarıdan bakan bir mühendisin gözünde "profesyonel" yapan katman burasıdır:
 
-### 4.1. Standart Linux `Makefile` kurulumu (`PREFIX` / `DESTDIR`) ve tek sürüm kaynağı
+### 4.1. Standart Linux `Makefile` kurulumu (`PREFIX` / `DESTDIR`) ve tek sürüm kaynağı — **[TAMAMLANDI: `v0.14.0`]**
+
+*Kök `VERSION` dosyası tek kaynak; Makefile onu `-DCTRON_VERSION` ile verir (`CFLAGS` dışında, `make CFLAGS=` ezilse bile). `PREFIX`/`DESTDIR`, `STRIP=0`, `uninstall`, link kuralında `LDFLAGS`, `make check-version` (README rozeti, `flake.nix`, `PKGBUILD`, `CHANGELOG`). Aşağıdaki metin tarihsel gerekçe.*
 - **Mevcut durum:** `Makefile:71-77` sabit `$(HOME)/.local/bin` dizinine kuruyor. Bu yüzden `flake.nix:23-27` bile `make install`'u atlayıp kendi `installPhase`'ini yazmak zorunda kalmış; Arch `PKGBUILD` veya Fedora `.spec` yazarken de aynı sorun çıkar.
 - **Yapılacak:**
   - `PREFIX ?= $(HOME)/.local`, `BINDIR ?= $(PREFIX)/bin`, `MANDIR ?= $(PREFIX)/share/man/man1`, `DESTDIR ?=` standart hedefleri — böylece mevcut root'suz `make install` (`~/.local/bin/ctron`, `AGENTS.md`/`README.md`) alışkanlığı kırılmaz; paketleyiciler (`flake.nix`, `PKGBUILD`, `.spec`) standart biçimde `make install PREFIX=/usr DESTDIR=...` geçer.
   - Sürüm numarasını tek bir `VERSION` dosyasından (veya `Makefile`'dan `-DCTRON_VERSION=\"...\"`) oku; `make check-version` hedefi `VERSION` == `README.md` badge == `flake.nix` tutarlılığını doğrulasın.
 
-### 4.2. Eksik paketleme & masaüstü artefaktları (`man/`, `completions/`, `contrib/`)
+### 4.2. Eksik paketleme & masaüstü artefaktları (`man/`, `completions/`, `contrib/`) — **[TAMAMLANDI: `v0.14.0`]**
+
+*`man/ctron.1`, `completions/` (bash, zsh, fish; `make comptest`), `contrib/` altında `ctron-ppt`, `sudoers.ctron.example`, `ctron.desktop`, `PKGBUILD` ve 2.2'nin iki dosyası. Kalan: `flake.lock` (Arcioth).*
 - **`man/ctron.1`:** Bayraklar, çıkış kodları, ortam değişkenleri (`CTRON_CONFIG`, `DISPLAY_BACKEND`, `DAEBOARD_BIN`), config dosya yolları ve örnekler.
 - **`completions/`:** `ctron.bash`, `_ctron` (zsh), `ctron.fish` — bayrak tamamlama + dinamik `ctron mode list` / `ctron snapshot list` tamamlaması.
 - **`contrib/`:**
@@ -219,15 +237,15 @@ Bir projeyi GitHub'da dışarıdan bakan bir mühendisin gözünde "profesyonel"
 2. `make test` + **UBSan** (`-fsanitize=undefined -fno-sanitize-recover=all`) + **LSan** (`-fsanitize=leak`).
 3. `clang --analyze` statik analiz.
 4. `shellcheck scripts/ctron-toggle.sh contrib/ctron-ppt`.
-5. Sürüm & `--help` ↔ `README.md` bayrak listesi senkron kontrolü.
-6. (2.4 tamamlanınca) `scripts/tui_smoke.py --offline`.
+5. Sürüm & `--help` ↔ `README.md` bayrak listesi senkron kontrolü (`make check-version`, `make check-help` — `v0.14.0`'dan beri hazır, CI'da koşulacak).
+6. `make comptest` (bash + zsh + fish tamamlamaları; bayrak listesi ikiliden alınır).
+7. (2.4 tamamlanınca) `scripts/tui_smoke.py --offline`.
 
 ### 4.4. Depo kök dizini ve doküman hijyeni
 - **[TAMAMLANDI 2026-11-23]:**
   - Tarihi kayıtlar (`PLAN.md`, `PLANS.md`), 2026-09/10 `HANDOFF.md` oturumları (`docs/history/handoff-2026-09-10.md`) ve 2860 satırlık ayrıntılı günlük `CHANGELOG.md` (`docs/history/changelog-2026-09-11.md`, eksik 3 başlık onarılarak) veri kayıpsız `docs/history/` altına arşivlendi.
   - Kök `CHANGELOG.md` kullanıcı-odaklı Keep a Changelog biçimine, kök `HANDOFF.md` güncel oturumlara, `NEXT.md` yalnızca açık işlere indirgendi; `README.md` (kırık anchor'lar dahil), `AGENTS.md`, `SECURITY.md`, `HARDWARE.md` ve `AUDIT.md` (çift `F4` + bayat `[x]` kayıtları) kodla hizalandı.
-- **Kalan (`v0.14.0` paketinde):**
-  - `CONTRIBUTING.md` ve `.github/ISSUE_TEMPLATE/hardware_report.yml` (`--doctor` çıktısı, kernel sürümü, laptop modeli isteyen şablon) ekle.
+- **[TAMAMLANDI 2026-11-26, `v0.14.0`]:** `CONTRIBUTING.md` ve `.github/ISSUE_TEMPLATE/hardware_report.yml` (`--doctor` çıktısı, kernel sürümü, laptop modeli isteyen şablon).
 
 ---
 
@@ -241,7 +259,7 @@ Her aşama kendi içinde derlenir, test edilir ve bağımsız sürümlenir (`v1.
 | **`v0.11.0`** | **CLI, JSON & Sıfır-Shell (P1)** — **[TAMAMLANDI]** | `--status --json` / `--doctor --json`, `snapshot diff`, `--dry-run`, çıkış kodları (`0/1/2/3`); TUI log viewer (`L`, 24 satır), imleçli `tinput_t`, çift-`d` silme onayı, dürüst POWER satırları, `.ctr` kapsam tamamlama; kalan tüm `popen`/`ut_exec` noktalarının kaldırılması (`143d2f7`, `e77622f`, `2241130`). |
 | **`v0.12.0`** | **Yeni TUI Tasarımı & Kısayol Mimarisi** — **[TAMAMLANDI]** | Bölüm 3.6: Konsept C (ince sol ray + tam boy sağ çalışma alanı, `< 96` kolonda otomatik üst sekme), terminal-doğal `Native`/`Mono` şeffaf + `Slate`/`Gruvbox`/`Light` temalar, `5 Telemetry` ana sekmesi + `startup_view` tercihi, tekil `Display & Light` (`APPLY_SYSTEM`), `ESC` yalnız geri/iptal, `,` Preferences, `?` Help, düz `1..5`/`Tab` (`7baf997`, `76f01dd`). |
 | **`v0.13.0`** | **Snapshot Editor, Kayıtlı Fan Eğrileri, Dürüst PPT & Boot Snapshot** — **[TAMAMLANDI]** | İki panelli 15 alanlı Snapshot Inspector/Editor, klavye AURA okuma/doğrulama, per-core snapshot ızgarası, manuel 5 W PPT adımlama, Fan Eğrisi altyapısı + Kayıtlı Fan Eğrileri (`.fc`) + bölünmüş `4 Snapshots`, `1 Power` `r` revert + BIOS-kilitli `PPT limits: off` + `--` sahte-değersiz PPT + `boot_id` hafızası + `,` Preferences `Boot snapshot` & `--apply-startup` + `contrib/` systemd oneshot üniteleri. |
-| **`v0.14.0`** | **Paketleme, `udev` & CLI/Masaüstü Artefaktları** | Bölüm 2.2, 4.1, 4.2, 4.4: `Makefile` `PREFIX`/`DESTDIR` + tek `VERSION` (`make check-version`), `flake.nix` uyumu, `contrib/` (`99-ctron.rules` + `ctron.tmpfiles.conf`, `ctron-ppt`, `sudoers.ctron.example`, `ctron.desktop`, `PKGBUILD`), `man/ctron.1`, shell completions (`bash`/`zsh`/`fish`), `CONTRIBUTING.md` + issue şablonu. |
+| **`v0.14.0`** | **Paketleme, `udev` & CLI/Masaüstü Artefaktları** — **[TAMAMLANDI]** | Bölüm 2.2, 4.1, 4.2, 4.4: kök `VERSION` + `make check-version`, `Makefile` `PREFIX`/`DESTDIR`/`STRIP`/`LDFLAGS`/`uninstall`, `man/ctron.1`, bash/zsh/fish tamamlamaları (`make comptest`), `contrib/` (`99-ctron.rules` + `ctron.tmpfiles.conf` — udev `GROUP`/`MODE` varsayımı ölçümle düzeltildi —, `ctron-ppt`, `sudoers.ctron.example`, `ctron.desktop`, `PKGBUILD`), `CONTRIBUTING.md` + donanım raporu şablonu. Saha: gerçek açılışta udev yolu (`NEXT.md` 8), tag ile `makepkg` (9), `flake.lock`. |
 | **`v0.15.0`** | **Offline Test Kalkanı, CI/CD & Modüler Temizlik** | Bölüm 2.3, 2.4, 4.3: Yeni TUI ve kısayol şeması üzerine `CTRON_SYSFS_ROOT` mock `/sys`+`/proc` testleri + `tui_smoke.py --offline`, `.github/workflows/ci.yml` (`gcc`+`clang`, `HARDEN=1`, UBSan/LSan, `clang --analyze`, `shellcheck`, offline smoke), `src/hw.c` ve UI modül bölünmesi + gizli `static` önbelleklerin `hw_state_t` içine alınması. |
 
 ---

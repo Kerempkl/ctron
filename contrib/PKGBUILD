@@ -12,7 +12,7 @@
 # SECURITY.md there.
 
 pkgname=ctron
-pkgver=0.13.0
+pkgver=0.14.0
 pkgrel=1
 pkgdesc='Lightweight ASUS laptop control center for Linux: fullscreen TUI and headless CLI'
 arch=('x86_64')

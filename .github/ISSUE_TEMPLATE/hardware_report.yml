@@ -31,7 +31,7 @@ body:
     attributes:
       label: ctron version and how it was installed
       description: "Output of `ctron --version`, and: make install, distro package, Nix flake, built from source."
-      placeholder: ctron 0.13.0 — make install
+      placeholder: ctron <version> — make install
     validations:
       required: true
   - type: textarea

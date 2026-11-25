@@ -9,7 +9,7 @@ see [docs/history/changelog-2026-09-11.md](docs/history/changelog-2026-09-11.md)
 
 ---
 
-## [Unreleased]
+## [0.14.0] — 2026-11-26
 
 Packaging release: one version source, a standard install layout, a man
 page, shell completions for three shells, and the privilege helpers that

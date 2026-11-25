@@ -5,7 +5,117 @@
 
 ---
 
-## Latest session — 2026-11-25 (`v0.13.0` release: Power `r` revert, honest PPT limits, same-boot memory & Boot snapshot)
+## Latest session — 2026-11-26 (`v0.14.0` release: packaging, man page, shell completions, privilege helpers)
+
+**GLM 5.4 / Kerempkl / FA608PP** — the user asked to start `v0.14.0`
+(`REVIEW.md` §2.2, 4.1, 4.2, 4.4). Everything in the planned scope landed
+and the release was cut. The privilege-reduction design was corrected on
+the way: two of its assumptions did not survive measurement.
+
+- **Build (`VERSION`, `Makefile`, `src/main.c`, `scripts/check-version.sh`,
+  `scripts/check-help.sh`, `flake.nix`):** the version is written once, in
+  the root `VERSION` file, and handed to the compiler as `-DCTRON_VERSION`
+  outside `CFLAGS` (a build outside `make` says `dev`). `make install`
+  honours `PREFIX`/`DESTDIR`/`BINDIR`/`MANDIR`/`DATADIR`, keeps the
+  user-local default and now also installs the man page and the three
+  completions; `STRIP=0`, `make uninstall`, `LDFLAGS` on the link rule.
+  `make check-version` (VERSION, README badge, `flake.nix`, `PKGBUILD`,
+  newest dated CHANGELOG heading) and `make check-help` (README flag block
+  == `ctron --help`). `flake.nix` changed in one comment only: the literal
+  `version` stays and is checked; reading `VERSION` from nix is not
+  verified (no nix on this machine).
+- **`man/ctron.1` and `completions/` (bash, zsh, fish), `make comptest`:**
+  the man page covers every flag of `--help`; the completions cover flags,
+  values, subcommands and the user's own mode / snapshot / fan-curve
+  names, read straight from the config directory. They never run ctron for
+  that: its subcommands initialise the hardware layer (an nvidia-smi
+  query) and can create files on a fresh machine (`modes_write_defaults`,
+  `profile_list` → `ut_mkdir_p`). `--dry-run` is offered for `apply` only —
+  under it, `delete` acts for real (see "Found on the way").
+- **Privilege helpers (`contrib/`), with the two measurements that changed
+  the design:**
+  1. **udev `GROUP=`/`MODE=` do not touch sysfs.** Measured on systemd 262:
+     `/dev/rtc0` is `root:clock 0660` (the default rule) while
+     `/sys/class/rtc/rtc0/*` stays `root:root`. The rule `REVIEW.md` §2.2
+     planned could not work; the grant has to be an explicit
+     `chgrp`/`chmod`.
+  2. **tmpfiles runs too early for the ASUS nodes.** Same boot:
+     `systemd-tmpfiles-setup` finished at 2.2 s, `asus_wmi` initialised at
+     5.1 s and created the fan-curve hwmon, the platform attributes, the
+     LED and the battery nodes after that. Some files are even created
+     after their device's "add" event (asus-armoury's attributes, the ASUS
+     battery extension's `charge_control_end_threshold`), read off the
+     kernel sources (`asus_wmi_add()` order, `asus_fw_attr_add()`).
+
+  Final shape: `ctron.tmpfiles.conf` holds the node list (`z` lines: cpufreq
+  ceilings + EPP, boost, platform profile, six asus-nb-wmi attributes,
+  armoury PPT `current_value`, battery threshold). `99-ctron.rules` grants
+  the fan-curve hwmon's own 34 files with `find`/`chgrp`/`chmod` (per
+  device: the sibling hwmon `asus` carries `pwmN_enable` with another
+  meaning) and starts a one-shot `systemd-run --on-active=1s` that re-runs
+  the tmpfiles file once the driver is done. The keyboard backlight is left
+  alone on purpose (OpenRGB's rule opens it to everyone where installed).
+  The group is one `ENV{CTRON_GROUP}="ctron"` line.
+- **`contrib/ctron-ppt`, `sudoers.ctron.example`, `ctron.desktop`,
+  `PKGBUILD`:** the 4.3 wrapper as a file, stricter than the snippet; the
+  4.2 ruleset to copy through `visudo`; a launcher entry that `make
+  install` deliberately does not place (a hand-edited
+  `~/.local/share/applications/ctron.desktop` must survive); an Arch
+  PKGBUILD with the unit tests as `check()`, the entry, the two optional
+  units (pointed at `/usr/bin/ctron`) and the helpers under
+  `/usr/share/doc/ctron/contrib`.
+- **Smaller fixes:** `ctron --help` says `mode show <name>` /
+  `delete <name>` (it said `<n>`; README block in step). `ctron-toggle`
+  finds a packaged `ctron` on `PATH` when `~/.local/bin/ctron` is absent
+  (the home copy still wins). `SECURITY.md` lost a stale note — `"no
+  sudo"` gates every privileged path since `v0.10.0`, not only
+  `ut_priv_write` — and README its stale sentence about PPT limits without
+  BIOS values (`v0.13.0` refuses `--ppt off` there).
+- **Verification:** `make` 0 warnings; `make test`; `make HARDEN=1 LTO=1`
+  and `make CC=clang` 0 warnings with tests green; `clang --analyze` 0
+  findings on all 23 units (the same command flags a planted bug); UBSan +
+  LSan build through `CFLAGS`/`LDFLAGS` in the environment, tests and
+  `--doctor` / `--status --json` / dry-runs clean; `make tuitest` all flows
+  pass (exit 0); `make comptest` 3 × 61/61 (bash 5.3, zsh 5.9.2, fish
+  4.9.3), each shell catching a planted mutation; `make check-version` and
+  `make check-help`. Both install layouts staged through `DESTDIR` plus
+  `uninstall` — which caught `install -s` being applied to the toggle
+  script, fixed before any commit. `makepkg` from a local git source: 0
+  warnings under the system flags, `check()` green, packaged files
+  byte-identical to the tree. `udevadm verify` Success; tmpfiles dry-run on
+  the live tree and real application on a scratch root including the
+  `--prefix=` calls; the `find` expression matching exactly 34 files; the
+  wrapper against a stand-in ryzenadj; the toggle with stubbed
+  `pgrep`/`pkill` in three scenarios; `visudo -cf` parsed OK;
+  `desktop-file-validate` clean. Each of the four commits before the
+  release commit was exported and built on its own (`make`, `make test`
+  and the checks that exist at that commit).
+- **Not verified (also in `CHANGELOG.md`, `NEXT.md` 8–11, `SECURITY.md`
+  4.6):** the udev rule's boot path (udev running `RUN`, the timer firing)
+  needs root; `PKGBUILD`'s `git+https://…#tag=` source needs the pushed
+  tag; `shellcheck` and `namcap` are not installed here; Nix is untouched
+  beyond a comment (Arcioth); the GitHub `hardware` label does not exist
+  yet.
+- **Found on the way, left open (`NEXT.md`):** `--dry-run` is ignored by
+  `snapshot|fancurve delete` and `mode add|delete`; `--ppt on` with nothing
+  saved is a silent no-op; `--tui` without a terminal exits 1 where the
+  no-argument path exits 2; live resize and the stdin hang-up spin are
+  still in `src/ui/ui.c`.
+- **Release (`v0.14.0`):** bumped `VERSION`, the `README.md` badge,
+  `flake.nix` and `contrib/PKGBUILD` in one commit with the `CHANGELOG.md`
+  heading, updated `NEXT.md`/`REVIEW.md`, annotated tag `v0.14.0` (local;
+  push is the user's).
+- **Next:** **`v0.15.0`** — offline test shield (`CTRON_SYSFS_ROOT`,
+  `tui_smoke.py --offline`), CI (`make check-version`, `make check-help`
+  and `make comptest` are ready to run there), the `src/hw.c` and UI module
+  split. Field first: the udev boot check after a reboot (`SECURITY.md`
+  4.6) and the tag-sourced `makepkg`.
+
+Signed: **GLM 5.4** — `v0.14.0` packaging release.
+
+---
+
+## Previous session — 2026-11-25 (`v0.13.0` release: Power `r` revert, honest PPT limits, same-boot memory & Boot snapshot)
 
 **Antigravity / Kerempkl / FA608PP** — closed the `1 Power` revert gaps, added honest same-boot memory (`boot_id`) for write-only PPT and GPU clock lock without auto-writing on TUI open, and added optional `Boot snapshot` selection in `,` Preferences + `ctron --apply-startup`:
 
