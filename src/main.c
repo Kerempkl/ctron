@@ -21,7 +21,13 @@
 #include "display/display.h"
 
 #define PROG "ctron"
-#define VERSION "0.13.0"
+/* Passed in by the Makefile from the root VERSION file — the one place
+ * the version is written down (make check-version verifies the copies
+ * that cannot read it: README badge, flake.nix, PKGBUILD). */
+#ifndef CTRON_VERSION
+#define CTRON_VERSION "dev"
+#endif
+#define VERSION CTRON_VERSION
 
 /* ---- output helpers ----------------------------------------------------- */
 
@@ -45,7 +51,7 @@ static void print_usage(const char *prog)
     printf("Modes, snapshots & fan curves:\n");
     printf("  --mode <name> [--dry-run]   apply (or preview) a shortcut bundle\n");
     printf("  --apply-startup [--dry-run] apply configured Boot snapshot (no-op if off)\n");
-    printf("  mode list|show <n>|add <name> <steps>|delete <n>\n");
+    printf("  mode list|show <name>|add <name> <steps>|delete <name>\n");
     printf("  snapshot list   (alias: profile)\n");
     printf("  snapshot apply [--dry-run]|diff|export|delete <name>\n");
     printf("  fancurve list|apply [--dry-run]|diff|export|delete <name>\n\n");

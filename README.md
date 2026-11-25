@@ -55,10 +55,29 @@ compositor; the row-by-row breakdown lives in
 # Nix           nix-shell -p gcc pkg-config notcurses gnumake
 make
 ./build/ctron --status
+make install
 ```
 
-`make install` copies the binary to `~/.local/bin/ctron` (plus the
-`ctron-toggle` helper — see [the M4 key section](#kde-armoury-crate-m4-key)).
+`make install` puts `ctron` and the `ctron-toggle` helper (see
+[the M4 key section](#kde-armoury-crate-m4-key)) in `~/.local/bin`, the
+man page (`man ctron`) in `~/.local/share/man`, and the bash, zsh and
+fish completions under `~/.local/share` — zsh needs
+`~/.local/share/zsh/site-functions` in its `fpath` before `compinit`,
+which the install prints. `make uninstall` removes exactly those files.
+
+Packagers get the usual variables:
+
+```bash
+make install PREFIX=/usr DESTDIR=$PWD/pkg STRIP=0   # staged tree, symbols left in
+```
+
+`contrib/PKGBUILD` builds the Arch package from a release tag (unit
+tests as `check()`; the launcher entry and the two optional systemd
+units are included), `flake.nix` builds the same Makefile under Nix.
+`contrib/ctron.desktop` is a ready launcher entry for the application
+menu; `make install` deliberately does not place one, so that a
+hand-edited `~/.local/share/applications/ctron.desktop` is never
+overwritten.
 
 Runtime tools are probed, never linked: `asusctl`, `nvidia-smi`,
 `ryzenadj`, `kscreen-doctor` / `hyprctl`. Missing ones simply grey out
@@ -189,7 +208,7 @@ Information:
 Modes, snapshots & fan curves:
   --mode <name> [--dry-run]   apply (or preview) a shortcut bundle
   --apply-startup [--dry-run] apply configured Boot snapshot (no-op if off)
-  mode list|show <n>|add <name> <steps>|delete <n>
+  mode list|show <name>|add <name> <steps>|delete <name>
   snapshot list   (alias: profile)
   snapshot apply [--dry-run]|diff|export|delete <name>
   fancurve list|apply [--dry-run]|diff|export|delete <name>
@@ -259,11 +278,20 @@ and goes through one chain:
 3. else `sudo -n` — passwordless sudo only; without it you get a clean
    error in the log, never a password prompt or a hang.
 
+The `sudo -n` step is only needed because sysfs nodes belong to root.
+[SECURITY.md §4.6](SECURITY.md) shows how to give one group write
+access to exactly the nodes ctron writes instead
+(`contrib/ctron.tmpfiles.conf` + `contrib/99-ctron.rules`), which
+leaves sudo for the CPU watt limits and the GPU clock lock only.
+`man ctron` documents every flag; the full flag list is below.
+
 PPT limits come from the `asus-armoury` firmware-attribute `min_value`/`max_value`
-files when the firmware exposes them; otherwise a generous physical
-ceiling is used and kernel rejections are surfaced. Values reported as
-`0`/`5` by the stale kernel cache are printed as `--` (unknown), never
-faked.
+files when the firmware exposes them. When it does not (the FA608PP
+answers `ENODEV`), ctron steps and clamps inside built-in windows
+(SPL 15–90 W, SPPT and FPPT 35–120 W) and refuses `--ppt off`, since
+lifting the limits needs the BIOS maxima — `1 Power` then says
+`-- (BIOS limits unavailable)`. Values reported as `0`/`5` by the stale
+kernel cache are printed as `--` (unknown), never faked.
 
 <a id="display-backends-compositor-refresh-rate-control"></a>
 <details>
@@ -336,7 +364,7 @@ itself never listens for the key (it is a TUI/CLI, not a daemon).
 
 ```
 src/
-  main.c        CLI parsing + VERSION; no args = TUI, any arg = headless
+  main.c        CLI parsing; no args = TUI, any arg = headless
   util.c        sysfs/exec/log helpers (single place for privilege writes)
   hw.c          read layer: fast poll (temp/RPM/battery) + full snapshot
   control.c     write layer: profile/EPP/PPT/battery/fan/kbd/Hz
@@ -350,7 +378,12 @@ src/
   daeboard.c    optional LED daemon client (AF_UNIX seqpacket socket)
   ui/           fullscreen TUI: layout engine + independent panels
   display/      compositor backends (see above)
+VERSION         the version, read by the Makefile (make check-version)
 tests/          unit tests (make test)
+man/            manual page (man ctron after make install)
+completions/    bash, zsh and fish completions (make comptest)
+contrib/        PKGBUILD, launcher entry, privilege helpers (SECURITY.md 4.6)
+scripts/        TUI smoke + screenshot harnesses, completion test, check-version
 ```
 
 </details>
@@ -376,10 +409,13 @@ daeboard daemon-side work (lives in the daeboard repo).
 | [NEXT.md](NEXT.md) | open field work, version policy, parked list |
 | [REVIEW.md](REVIEW.md) | code-verified critique & `0.x` engineering roadmap |
 | [AUDIT.md](AUDIT.md) | A–L error-class audit checklist |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | build, verify, commit and release conventions |
 | [HANDOFF.md](HANDOFF.md) / [AGENTS.md](AGENTS.md) | recent session handoffs & agent guidelines |
 | `docs/history/` | archived plans (`PLAN.md`, `PLANS.md`) & older session/change logs |
 
 Config lives in `~/.config/ctron/` (`settings.ini`, `modes.ini`,
 `profiles/*.ctr` snapshots, `fan_curves/*.fc` saved fan curves); the TUI
 keeps a ring buffer of the last 24 actions (press `L` or click the LIVE
-log line to inspect).
+log line to inspect). `man ctron` documents every flag, the exit codes
+and the environment variables; the issue tracker has a hardware-report
+form for anything that behaves differently on your machine.

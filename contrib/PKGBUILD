@@ -1,0 +1,64 @@
+# This PKGBUILD lives in the tree, so between a version bump and the
+# matching tag it points at a tag that does not exist yet; until the tag
+# is pushed, build with a local source, e.g.
+#   source=("$pkgname::git+file:///path/to/ctron#commit=<sha>")
+# For AUR: copy this file to its own directory, fill in the checksum if
+# you switch to a release tarball, and run makepkg there (a git source
+# is cloned next to the PKGBUILD).
+#
+# Nothing in the package needs root at install time: the privilege
+# helpers (udev rule, tmpfiles, ctron-ppt wrapper, sudoers example) are
+# shipped under /usr/share/doc/ctron/contrib for opt-in setup, see
+# SECURITY.md there.
+
+pkgname=ctron
+pkgver=0.13.0
+pkgrel=1
+pkgdesc='Lightweight ASUS laptop control center for Linux: fullscreen TUI and headless CLI'
+arch=('x86_64')
+url='https://github.com/Kerempkl/ctron'
+license=('MIT')
+depends=('glibc' 'notcurses')
+makedepends=('git')
+optdepends=(
+  'asusctl: fan curves, platform profiles and keyboard lighting through asusd'
+  'ryzenadj: CPU watt limits on laptops with locked PPT'
+  'nvidia-utils: GPU telemetry and the core-clock lock'
+  'kscreen: refresh-rate control on KDE Plasma'
+  'hyprland: refresh-rate control on Hyprland'
+)
+source=("$pkgname::git+https://github.com/Kerempkl/ctron.git#tag=v$pkgver")
+sha256sums=('SKIP')
+
+build() {
+	make -C "$pkgname"
+}
+
+check() {
+	make -C "$pkgname" test
+}
+
+package() {
+	# STRIP=0 keeps the symbols in: makepkg's strip/debug options split
+	# and strip them themselves
+	make -C "$pkgname" install PREFIX=/usr DESTDIR="$pkgdir" STRIP=0
+
+	install -Dm644 "$pkgname/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+	install -Dm644 "$pkgname/contrib/ctron.desktop" "$pkgdir/usr/share/applications/ctron.desktop"
+
+	# the two optional oneshot units, pointed at the packaged binary; the
+	# header comments describe the make-install layout and drop out
+	sed -e '/^#/d' -e 's|^ExecStart=.*|ExecStart=/usr/bin/ctron --apply-startup|' \
+		"$pkgname/contrib/ctron-startup.service" \
+		| install -Dm644 /dev/stdin "$pkgdir/usr/lib/systemd/user/ctron-startup.service"
+	sed -e '/^#/d' -e 's|^ExecStart=.*|ExecStart=/usr/bin/ctron --apply-startup|' \
+		"$pkgname/contrib/ctron-resume@.service" \
+		| install -Dm644 /dev/stdin "$pkgdir/usr/lib/systemd/system/ctron-resume@.service"
+
+	install -Dm644 "$pkgname/contrib/99-ctron.rules" \
+		"$pkgname/contrib/ctron.tmpfiles.conf" \
+		"$pkgname/contrib/ctron-ppt" \
+		"$pkgname/contrib/sudoers.ctron.example" \
+		"$pkgname/SECURITY.md" \
+		-t "$pkgdir/usr/share/doc/$pkgname/contrib"
+}

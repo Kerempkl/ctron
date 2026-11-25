@@ -13,8 +13,9 @@
         in {
           ctron = pkgs.stdenv.mkDerivation {
             pname = "ctron";
-            # keep in sync with src/main.c VERSION — bumps ride the
-            # release commit (see NEXT.md "Sürüm politikası")
+            # keep in sync with the root VERSION file — bumps ride the
+            # release commit, and `make check-version` verifies this line
+            # (see NEXT.md "Sürüm politikası")
             version = "0.13.0";
             src = self;
             nativeBuildInputs = [ pkgs.pkg-config ];
