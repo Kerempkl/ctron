@@ -9,6 +9,96 @@ see [docs/history/changelog-2026-09-11.md](docs/history/changelog-2026-09-11.md)
 
 ---
 
+## [Unreleased]
+
+Packaging release: one version source, a standard install layout, a man
+page, shell completions for three shells, and the privilege helpers that
+let a machine drop most of its `sudo` rules. Nothing changed in what the
+TUI can do.
+
+### Added
+- **Single `VERSION` file and a standard `Makefile` install (`VERSION`,
+  `Makefile`, `src/main.c`, `flake.nix`, `scripts/check-version.sh`,
+  `scripts/check-help.sh`):**
+  - The version is written once, in the `VERSION` file at the repository
+    root; the Makefile hands it to the compiler as `-DCTRON_VERSION`,
+    outside `CFLAGS`, so a `make CFLAGS=...` override cannot drop it. A
+    build outside `make` reports `dev` instead of guessing.
+  - `make install` honours `PREFIX`, `DESTDIR`, `BINDIR`, `MANDIR` and
+    `DATADIR`. The default stays the user-local layout and now also
+    installs the man page and the bash/zsh/fish completions under
+    `~/.local/share`. `STRIP=0` keeps the symbols for packagers, `make
+    uninstall` removes exactly what was installed, and the link rule
+    honours `LDFLAGS`.
+  - `make check-version` fails when `VERSION`, the README badge,
+    `flake.nix`, `contrib/PKGBUILD` or the newest dated `CHANGELOG.md`
+    heading disagree; `make check-help` fails when the README flag block
+    is no longer byte-identical to `ctron --help`.
+- **Man page (`man/ctron.1`):** every flag and subcommand with the shape
+  of its value, the exit codes, environment variables, files, the TUI
+  keys and examples. Plain ASCII roff; renders without warnings.
+- **Shell completions (`completions/`, `scripts/completion_test.py`):**
+  bash, zsh and fish complete the flags, their values, the `mode` /
+  `snapshot` / `fancurve` subcommands and the names of the user's own
+  modes, snapshots and saved fan curves. The names are read from the
+  config directory, never through ctron, whose subcommands initialise
+  the hardware layer (an nvidia-smi query) and can create files on a
+  fresh machine. `--dry-run` is offered for `apply` only, because under
+  it `delete` would act for real. `make comptest` drives all three shells
+  the way Tab reaches them (61 checks each) and takes the flag list from
+  the binary, so a flag without a completion fails the test.
+- **Privilege helpers (`contrib/`):**
+  - `99-ctron.rules` + `ctron.tmpfiles.conf` give one group write access
+    to exactly the sysfs nodes ctron writes — CPU ceilings and EPP,
+    boost, platform profile, the asus-nb-wmi PPT / overdrive / NVIDIA
+    nodes, the asus-armoury PPT values, the battery charge limit and the
+    fan-curve points — so those writes need no `sudo` rule. Two
+    measurements shaped the design (FA608PP, kernel 7.3.1, systemd 262):
+    udev's `GROUP=`/`MODE=` apply to the device node in `/dev` only,
+    never to sysfs attributes; and the ASUS nodes appear after
+    `systemd-tmpfiles-setup` has finished (2.2 s vs 5.1 s), so a udev
+    rule re-applies the list when the devices show up. Details and the
+    limits of what was verified: `SECURITY.md` 4.6.
+  - `ctron-ppt`: the three-integer wrapper of `SECURITY.md` 4.3 as a
+    file, stricter than the snippet (positive decimal integers of at
+    most six digits, ryzenadj named by absolute path).
+  - `sudoers.ctron.example`: the `SECURITY.md` 4.2 ruleset as a file to
+    copy through `visudo`, with the daeboard warning and a NixOS note.
+  - `ctron.desktop`: a launcher entry (`Terminal=true`). `make install`
+    deliberately places none, so a hand-edited
+    `~/.local/share/applications/ctron.desktop` is never overwritten.
+  - `PKGBUILD`: the Arch package from a release tag, with the unit tests
+    as `check()`, the launcher entry and the two optional systemd units
+    included, and the privilege helpers under
+    `/usr/share/doc/ctron/contrib`.
+- **`CONTRIBUTING.md` and a hardware-report issue form**
+  (`.github/ISSUE_TEMPLATE/hardware_report.yml`).
+
+### Changed
+- **`ctron --help` reads `mode list|show <name>|add <name> <steps>|delete
+  <name>`.** It said `<n>`; the subcommands take names.
+- **`ctron-toggle` finds ctron when it is not in `~/.local/bin`:** a home
+  copy still wins, otherwise the one on `PATH` — the packaged
+  `/usr/bin/ctron`.
+- **Documentation:** `SECURITY.md` gained section 4.6 and lost a stale
+  note (the `"no sudo"` setting has gated every privileged path since
+  v0.10.0, not only `ut_priv_write`); the README install and packaging
+  section was rewritten and its sentence about PPT limits without BIOS
+  values corrected (v0.13.0 refuses `--ppt off` there); `AGENTS.md`
+  gained rules 6–9; `NEXT.md` lists what is still open after this
+  release, including three findings verified against the code
+  (`--dry-run` is ignored by `delete` / `add`, `--ppt on` without saved
+  values is a silent no-op, live resize and the stdin hang-up spin).
+
+### Not verified here
+- The udev rule's boot path — udev running `RUN`, the one-second timer
+  firing — needs root and has not been exercised on a real boot.
+- `contrib/PKGBUILD` was built with `makepkg` from a local git source; the
+  `git+https://…#tag=` source can only be tried once the tag is pushed.
+  `shellcheck` and `namcap` are not installed on the build machine.
+
+---
+
 ## [0.13.0] — 2026-11-25
 
 ### Added

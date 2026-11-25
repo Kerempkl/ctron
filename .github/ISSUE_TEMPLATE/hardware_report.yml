@@ -1,0 +1,100 @@
+name: Hardware report
+description: Something in ctron does not work, or shows a wrong value, on your machine
+title: "[Hardware] <laptop model>: <what happens>"
+labels: ["hardware"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ctron degrades row by row: a missing tool or sysfs node turns its row
+        into `--` or a clean FAILED, never a guess. A report helps most when it
+        shows which row is wrong and what the machine really exposes.
+        Please paste the outputs as they are.
+  - type: input
+    id: model
+    attributes:
+      label: Laptop model
+      description: As printed by `ctron --status` on the first line.
+      placeholder: ASUS TUF Gaming A16 FA608PP
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Distribution and kernel
+      description: "From `/etc/os-release` and `uname -r`."
+      placeholder: CachyOS, kernel 7.3.1-1-cachyos
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: ctron version and how it was installed
+      description: "Output of `ctron --version`, and: make install, distro package, Nix flake, built from source."
+      placeholder: ctron 0.13.0 — make install
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of ctron --doctor
+      description: Paste the complete output. It names the OS, the machine, the tools and the sysfs interfaces it found; no serial number or hostname. The last line is your config path, which contains your user name — mask it if you prefer.
+      render: text
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Power (profiles, EPP, PPT, CPU ceilings)
+        - Fans (curves, presets, saved fan curves)
+        - Battery (charge limit)
+        - Display (refresh rate, panel overdrive)
+        - Lighting (keyboard backlight, colour)
+        - Snapshots, modes, fan curve files
+        - Telemetry (wrong or missing values)
+        - TUI (layout, keys, mouse)
+        - CLI (flags, exit codes, output)
+        - Installation and packaging (make install, PKGBUILD, flake, completions, man page)
+        - Privilege setup (sudoers, udev, tmpfiles, ctron-ppt)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: "What you expected, and what happened instead. For a write that failed: did ctron report FAILED, and what does the Event Log (L in the TUI) say?"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Commands or keys, from starting ctron to the problem. `--dry-run` shows what a command would write without writing it.
+      placeholder: |
+        ctron --ppt Q45 --dry-run
+        ctron --ppt Q45
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Relevant output
+      description: Terminal output of the commands above. Where root is involved, `sudo -n -l`; where asusd is involved, `journalctl -b -u asusd` from around the time.
+      render: text
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Other tools that control the same thing on this machine (asusctl, TLP, CoolerControl, Power-profiles-daemon, a vendor tool), since they can overwrite what ctron writes.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I ran the latest version, or the version field says why I could not.
+          required: true
+        - label: I checked that what I pasted contains nothing I do not want public (serial numbers, UUIDs, hostnames, Wi-Fi details).
+          required: true
