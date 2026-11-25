@@ -570,7 +570,7 @@ static void ppt_log_ok(const hw_state_t *hw, int spl, int sppt, int fppt)
     }
 }
 
-void ctrl_ppt_limits(const hw_state_t *hw,
+bool ctrl_ppt_limits(const hw_state_t *hw,
                      int *spl_min, int *spl_max,
                      int *sppt_min, int *sppt_max,
                      int *fppt_min, int *fppt_max)
@@ -582,6 +582,7 @@ void ctrl_ppt_limits(const hw_state_t *hw,
         { "ppt_pl2_sppt", sppt_min, sppt_max, 35, 120 },
         { "ppt_pl3_fppt", fppt_min, fppt_max, 35, 120 },
     };
+    int fw_max_n = 0;
     for (size_t i = 0; i < sizeof(req) / sizeof(req[0]); i++) {
         char path[384], buf[32];
         *req[i].min = req[i].dmin;
@@ -593,9 +594,12 @@ void ctrl_ppt_limits(const hw_state_t *hw,
         if (ut_read_file(path, buf, sizeof(buf)) == 0 && atoi(buf) > 0)
             *req[i].min = atoi(buf);
         snprintf(path, sizeof(path), "%s/%s/max_value", ARMOURY_ATTR, req[i].attr);
-        if (ut_read_file(path, buf, sizeof(buf)) == 0 && atoi(buf) > 0)
+        if (ut_read_file(path, buf, sizeof(buf)) == 0 && atoi(buf) > 0) {
             *req[i].max = atoi(buf);
+            fw_max_n++;
+        }
     }
+    return fw_max_n == 3;
 }
 
 void ctrl_ppt_order(int *spl, int *sppt, int *fppt,
@@ -622,6 +626,11 @@ int ctrl_set_ppt(hw_state_t *hw, int spl, int sppt, int fppt)
         hw->ppt_sppt = sppt;
         hw->ppt_fppt = fppt;
         hw->ppt_off = false;
+        hw->ppt_set_valid = true;
+        hw->ppt_set_spl = spl;
+        hw->ppt_set_sppt = sppt;
+        hw->ppt_set_fppt = fppt;
+        hw->ppt_set_off = false;
         ppt_log_ok(hw, spl, sppt, fppt);
     } else if (!ut_sudo_fallback_allowed()) {
         ut_log("ppt: FAILED (disabled by write_pref=no sudo)");
@@ -633,14 +642,19 @@ int ctrl_set_ppt(hw_state_t *hw, int spl, int sppt, int fppt)
 
 int ctrl_ppt_off(hw_state_t *hw)
 {
-    if (!hw->ppt_off) {
-        hw->ppt_saved_spl  = hw->ppt_spl;
-        hw->ppt_saved_sppt = hw->ppt_sppt;
-        hw->ppt_saved_fppt = hw->ppt_fppt;
+    int smin, smax, pmin, pmax, fmin, fmax;
+    if (!ctrl_ppt_limits(hw, &smin, &smax, &pmin, &pmax, &fmin, &fmax)) {
+        ut_log("ppt: cannot remove limits — BIOS exposes no safe maxima "
+               "(set SPL/SPPT/FPPT manually)");
+        return -1;
     }
 
-    int smin, smax, pmin, pmax, fmin, fmax;
-    ctrl_ppt_limits(hw, &smin, &smax, &pmin, &pmax, &fmin, &fmax);
+    if (!hw->ppt_off) {
+        hw->ppt_saved_spl  = hw->ppt_spl  > 0 ? hw->ppt_spl  : (hw->ppt_set_valid ? hw->ppt_set_spl  : 0);
+        hw->ppt_saved_sppt = hw->ppt_sppt > 0 ? hw->ppt_sppt : (hw->ppt_set_valid ? hw->ppt_set_sppt : 0);
+        hw->ppt_saved_fppt = hw->ppt_fppt > 0 ? hw->ppt_fppt : (hw->ppt_set_valid ? hw->ppt_set_fppt : 0);
+    }
+
     int rc = ppt_write(hw, smax, pmax, fmax);
 
     if (rc == 0) {
@@ -648,6 +662,11 @@ int ctrl_ppt_off(hw_state_t *hw)
         hw->ppt_sppt = pmax;
         hw->ppt_fppt = fmax;
         hw->ppt_off = true;
+        hw->ppt_set_valid = true;
+        hw->ppt_set_spl = smax;
+        hw->ppt_set_sppt = pmax;
+        hw->ppt_set_fppt = fmax;
+        hw->ppt_set_off = true;
         ut_log("ppt: limits removed (%d/%d/%d W maxima — now actually enforced "
                "where the interface works)", smax, pmax, fmax);
     } else if (!ut_sudo_fallback_allowed()) {
@@ -662,6 +681,8 @@ int ctrl_ppt_restore(hw_state_t *hw)
 {
     if (hw->ppt_saved_spl <= 0 && hw->ppt_saved_sppt <= 0 && hw->ppt_saved_fppt <= 0) {
         hw->ppt_off = false;
+        hw->ppt_set_off = false;
+        hw->ppt_set_valid = false;
         ut_log("ppt: no previous values — pick a preset (Q45/B60/P80)");
         return 0;
     }
@@ -867,6 +888,7 @@ int ctrl_gpu_clock_lock(hw_state_t *hw, int mhz)
         return -1;
     }
     hw->gpu_clock_lock = mhz;
+    hw->gpu_clock_from_mem = false;
     ut_log("gpu clock: locked %d MHz (verified: %s)", mhz, samples);
     return 0;
 }
@@ -894,6 +916,7 @@ int ctrl_gpu_clock_reset(hw_state_t *hw)
         return -1;
     }
     hw->gpu_clock_lock = 0;
+    hw->gpu_clock_from_mem = false;
     /* no driver flag marks "unlocked": rc + output is all we get */
     ut_log("gpu clock: lock reset (rc=0, not further verifiable)");
     return 0;

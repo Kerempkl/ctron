@@ -2532,9 +2532,23 @@ static void check_no_sudo(void)
     CHECK(strstr(ut_log_get(0), "write_pref=no sudo") != NULL,
           "no-sudo ppt logs honest reason");
 
-    CHECK(ctrl_ppt_off(&hw) != 0, "no-sudo blocks ppt_off");
-    CHECK(strstr(ut_log_get(0), "write_pref=no sudo") != NULL,
-          "no-sudo ppt_off logs honest reason");
+    {
+        int smin, smax, pmin, pmax, fmin, fmax;
+        bool bios_lim = ctrl_ppt_limits(&hw, &smin, &smax, &pmin, &pmax,
+                                        &fmin, &fmax);
+        char perr[128] = "";
+        CHECK(ctrl_ppt_off(&hw) != 0, "ctrl_ppt_off blocked");
+        if (bios_lim) {
+            CHECK(strstr(ut_log_get(0), "write_pref=no sudo") != NULL,
+                  "no-sudo ppt_off logs honest reason");
+        } else {
+            CHECK(strstr(ut_log_get(0), "BIOS exposes no safe maxima") != NULL,
+                  "ppt_off refuses without BIOS max_value");
+            CHECK(cmd_validate(&hw, "ppt", "off", perr, sizeof(perr)) != 0 &&
+                      strstr(perr, "BIOS exposes no safe maxima") != NULL,
+                  "dry-run ppt off refuses without BIOS max_value");
+        }
+    }
 
     if (ut_have_cmd("nvidia-smi")) {
         CHECK(ctrl_gpu_clock_lock(&hw, 1500) != 0, "no-sudo blocks gpu lock");
@@ -2909,6 +2923,134 @@ static void check_fcurves_and_fan_fixes(void)
     rmdir(tmp);
 }
 
+static void check_boot_memory_and_startup_snap(void)
+{
+    char tmp[] = "/tmp/ctron-test-boot-XXXXXX";
+    CHECK(mkdtemp(tmp) != NULL, "mkdtemp boot");
+    setenv("CTRON_CONFIG", tmp, 1);
+
+    /* 1. startup_snapshot validation & hostile path rejection */
+    settings_set_startup_snapshot("gaming");
+    CHECK(!strcmp(g_prefs.startup_snapshot, "gaming"), "valid startup_snapshot");
+    settings_set_startup_snapshot("oyun/sessiz_1.2");
+    CHECK(!strcmp(g_prefs.startup_snapshot, "oyun/sessiz_1.2"), "grouped startup_snapshot");
+    settings_set_startup_snapshot("../../etc/passwd");
+    CHECK(g_prefs.startup_snapshot[0] == '\0', "rejects .. traversal");
+    settings_set_startup_snapshot("/etc/shadow");
+    CHECK(g_prefs.startup_snapshot[0] == '\0', "rejects leading slash");
+    settings_set_startup_snapshot("foo/bar/");
+    CHECK(g_prefs.startup_snapshot[0] == '\0', "rejects trailing slash");
+    settings_set_startup_snapshot("a/../b");
+    CHECK(g_prefs.startup_snapshot[0] == '\0', "rejects embedded ..");
+    settings_set_startup_snapshot("bad space");
+    CHECK(g_prefs.startup_snapshot[0] == '\0', "rejects whitespace");
+
+    /* 2. Same-boot PPT & GPU clock memory + cpu_mhz_limit live protection */
+    char bid[SETTINGS_BOOT_ID_MAX] = "";
+    CHECK(settings_boot_id(bid, sizeof(bid)) == 0 && bid[0] != '\0',
+          "settings_boot_id reads kernel boot_id");
+
+    hw_state_t hw;
+    memset(&hw, 0, sizeof(hw));
+    hw.cpu_mhz_limit = 3600;
+    hw.ppt_set_valid = true;
+    hw.ppt_set_spl = 60;
+    hw.ppt_set_sppt = 75;
+    hw.ppt_set_fppt = 75;
+    hw.ppt_set_off = false;
+    hw.gpu_clock_lock = 1400;
+    settings_set_startup_snapshot("daily");
+    g_prefs.poll_ms = 500;
+    CHECK(settings_save(&hw) == 0, "settings_save with boot memory");
+
+    /* Loading onto live hw preserves live cpu_mhz_limit while restoring
+     * same-boot PPT/GPU memory without faking live hw->ppt_spl. */
+    hw_state_t live;
+    memset(&live, 0, sizeof(live));
+    live.cpu_mhz_limit = 5386;
+    live.ppt_spl = -1;
+    live.ppt_sppt = -1;
+    live.ppt_fppt = -1;
+    g_prefs.startup_snapshot[0] = '\0';
+    CHECK(settings_load(&live) == 0, "settings_load same boot");
+    CHECK(!strcmp(g_prefs.startup_snapshot, "daily"), "startup_snapshot roundtrip");
+    CHECK(live.cpu_mhz_limit == 5386, "settings_load preserves live cpu_mhz_limit");
+    CHECK(live.ppt_spl == -1, "settings_load never fabricates live ppt_spl");
+    CHECK(live.ppt_set_valid && live.ppt_set_spl == 60 &&
+              live.ppt_set_sppt == 75 && live.ppt_set_fppt == 75 && !live.ppt_set_off,
+          "same-boot PPT memory restored");
+    CHECK(live.gpu_clock_lock == 1400 && live.gpu_clock_from_mem,
+          "same-boot GPU clock memory restored");
+
+    /* 3. Simulated reboot (different boot_id) drops volatile PPT/GPU memory
+     * while preserving startup_snapshot and user prefs. */
+    char spath[500];
+    settings_file(spath, sizeof(spath));
+    FILE *rf = fopen(spath, "r");
+    CHECK(rf != NULL, "open settings.ini for boot_id rewrite");
+    if (rf) {
+        char buf[4096] = "";
+        size_t n = fread(buf, 1, sizeof(buf) - 1, rf);
+        fclose(rf);
+        buf[n] = '\0';
+        char *p = strstr(buf, "last_boot_id = ");
+        CHECK(p != NULL, "last_boot_id written to settings.ini");
+        if (p) {
+            char *nl = strchr(p, '\n');
+            FILE *wf = fopen(spath, "w");
+            CHECK(wf != NULL, "rewrite settings.ini");
+            if (wf) {
+                fwrite(buf, 1, (size_t)(p - buf), wf);
+                fputs("last_boot_id = 00000000-0000-0000-0000-000000000000\n", wf);
+                if (nl && nl[1])
+                    fputs(nl + 1, wf);
+                fclose(wf);
+            }
+        }
+    }
+    hw_state_t rebooted;
+    memset(&rebooted, 0, sizeof(rebooted));
+    rebooted.ppt_spl = -1;
+    CHECK(settings_load(&rebooted) == 0, "settings_load after reboot");
+    CHECK(!rebooted.ppt_set_valid && !rebooted.ppt_off &&
+              rebooted.gpu_clock_lock == 0 && !rebooted.gpu_clock_from_mem,
+          "mismatched boot_id ignores stale PPT/GPU memory");
+    CHECK(!strcmp(g_prefs.startup_snapshot, "daily") && g_prefs.poll_ms == 500,
+          "prefs and startup_snapshot survive reboot");
+
+    /* 4. profile_rename & profile_delete keep startup_snapshot in sync */
+    CHECK(profile_export("daily", &hw) == 0, "export daily snapshot");
+    CHECK(profile_exists("daily") && !profile_exists("nope"), "profile_exists");
+    CHECK(profile_rename("daily", "work/daily v2") == 0, "rename boot snapshot");
+    CHECK(!strcmp(g_prefs.startup_snapshot, "work/daily-v2"),
+          "startup_snapshot tracks rename in memory");
+    hw_state_t chk;
+    memset(&chk, 0, sizeof(chk));
+    g_prefs.startup_snapshot[0] = '\0';
+    CHECK(settings_load(&chk) == 0 &&
+              !strcmp(g_prefs.startup_snapshot, "work/daily-v2") &&
+              g_prefs.poll_ms == 500,
+          "renamed startup_snapshot persisted without clobbering other prefs");
+
+    CHECK(profile_delete("work/daily-v2") == 0, "delete boot snapshot");
+    CHECK(g_prefs.startup_snapshot[0] == '\0',
+          "startup_snapshot cleared to off on delete");
+    memset(&chk, 0, sizeof(chk));
+    settings_set_startup_snapshot("stale");
+    CHECK(settings_load(&chk) == 0 && g_prefs.startup_snapshot[0] == '\0',
+          "cleared startup_snapshot persisted on delete");
+
+    /* cleanup */
+    g_prefs.poll_ms = 250;
+    g_prefs.startup_snapshot[0] = '\0';
+    unlink(spath);
+    char sub[520];
+    snprintf(sub, sizeof(sub), "%s/modes.ini", tmp); unlink(sub);
+    snprintf(sub, sizeof(sub), "%s/profiles", tmp); rmdir(sub);
+    snprintf(sub, sizeof(sub), "%s/fan_curves", tmp); rmdir(sub);
+    rmdir(tmp);
+}
+
 int main(void)
 {
     check_fan_csv();
@@ -2952,6 +3094,7 @@ int main(void)
     check_no_sudo();
     check_tinput();
     check_fcurves_and_fan_fixes();
+    check_boot_memory_and_startup_snap();
 
     if (failures) {
         fprintf(stderr, "%d failure(s)\n", failures);

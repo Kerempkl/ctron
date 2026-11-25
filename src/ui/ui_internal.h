@@ -301,6 +301,7 @@ void panel_workspace_key(uint32_t key);
 void panel_workspace_act(int id);
 
 void pw_sync_from_hw(void);
+void pw_revert_all(void);
 void pw_recompute_dirty(void);
 int  pw_staged_count(void);
 const char *pw_selected_desc(void);

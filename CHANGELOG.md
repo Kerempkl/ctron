@@ -9,9 +9,28 @@ see [docs/history/changelog-2026-09-11.md](docs/history/changelog-2026-09-11.md)
 
 ---
 
-## [Unreleased]
+## [0.13.0] — 2026-11-25
 
 ### Added
+- **Boot Snapshot preference & `--apply-startup` (`settings.{h,c}`, `profile.{h,c}`,
+  `panel_settings.c`, `main.c`, `contrib/`):**
+  - Added **Boot snapshot** row under `,` Preferences (defaults to `off`,
+    cycles `off` + existing `.ctr` snapshots, shows `(missing!)` if removed
+    externally, persists immediately to `settings.ini`, and auto-syncs on
+    `profile_rename()` / clears to `off` on `profile_delete()`).
+  - Added `ctron --apply-startup [--dry-run]` (no-op exit `0` when `off`),
+    `boot snapshot` reporting in `--doctor` / `--doctor --json`, and optional
+    zero-daemon oneshot systemd templates `contrib/ctron-startup.service`
+    (`--user`, login) and `contrib/ctron-resume@.service` (system, post-suspend).
+- **Same-boot memory for write-only PPT & GPU clock lock (`hw.h`, `control.c`,
+  `settings.{h,c}`, `panel_workspace.c`, `ui.c`):**
+  - Successful PPT (`SPL`/`SPPT`/`FPPT` or `PPT limits off`) and NVIDIA GPU
+    clock lock writes are stored on `hw_state_t` (`ppt_set_*`, `gpu_clock_lock`)
+    and persisted in `settings.ini` tagged with Linux's `/proc/sys/kernel/random/boot_id`.
+  - Reopening `ctron` in the same boot honestly shows those remembered values
+    as `(set)` with zero auto-writes on startup; after a reboot (new `boot_id`),
+    volatile entries are ignored cleanly and `--status --json` never fabricates
+    live kernel reads.
 - **Saved Fan Curves (`~/.config/ctron/fan_curves/*.fc`) & Split `4 Snapshots`
   Workspace (`profile.{h,c}`, `settings.{h,c}`, `panel_profiles.c`,
   `editor_fan.c`, `cmds.c`, `main.c`, `ui.c`):**
@@ -101,6 +120,31 @@ see [docs/history/changelog-2026-09-11.md](docs/history/changelog-2026-09-11.md)
 - `docs/tui-snap.png` re-shot for the 15-field inspector.
 
 ### Fixed
+- **`1 Power` / `CORE LIMITS` / `3 Display & Light` `r` revert & honest PPT
+  (`panel_workspace.c`, `editor_corefreq.c`, `control.{h,c}`, `cmds.c`,
+  `settings.c`, `ui.c`, `main.c`):**
+  - `pw_sync_from_hw()` now reverts `SPL`/`SPPT`/`FPPT` and `Presets` back to
+    the real live or same-boot `(set)` baseline — or honest `--` (zero fake
+    `45/55/55 W` values or highlighted `Q45` pill) when no PPT limit has been
+    applied since boot; also reverts `Quick mode` (`ctl_mode_pick`) and
+    `cpu_mhz_limit`.
+  - Pressing `r` from either the Power list or the inline `CORE LIMITS` pane
+    now runs unified `pw_revert_all()` (`hw_refresh_live` + full Power & core
+    revert + toast/log), and `3 Display & Light` `r` now also resets `lt_eff`
+    with live refresh + toast/log.
+  - **Honest `PPT limits: off` lock when BIOS returns `ENODEV`:**
+    `ctrl_ppt_limits()` now reports whether all three `asus-armoury`
+    `max_value` files were actually read from BIOS. When unavailable (e.g.
+    FA608PP `ENODEV`), `1 Power` displays `-- (BIOS limits unavailable)` and
+    both TUI and CLI (`--ppt off` / `--dry-run`) refuse instead of writing
+    guessed `90/120/120 W` maxima; `--doctor` / `--doctor --json` report the
+    BIOS limits status explicitly.
+  - Added `-- → N W ●` / `(set) ●` staging indicators on unknown-live PPT rows,
+    empty `e` input when editing from `--`, and missing `pw_recompute_dirty()`
+    after `CORE LIMITS` exact `Enter` and `a`/`A` broadcasts.
+  - Fixed `settings_load()` overwriting live `hw->cpu_mhz_limit` with stale
+    values from `settings.ini` and removed the duplicate `settings_load()` call
+    in `ui_run()`.
 - **Fan curve subsystem overhaul (`fan.{h,c}`, `control.c`, `hw.c`,
   `editor_fan.c`):**
   - **Read-back verification & silent `asusctl` failure detection (`control.c`):**

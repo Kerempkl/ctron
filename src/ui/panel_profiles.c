@@ -1061,8 +1061,11 @@ static void commit_exact_edit(profile_meta_t *m, const hw_state_t *hw, int f)
     case SF_PPT: {
         int a = 0, b = 0, c = 0;
         if (ut_ascii_ieq(s, "off")) {
+            int smin, smax, pmin, pmax, fmin, fmax;
             m->ppt_off = 1; m->ppt_spl = m->ppt_sppt = m->ppt_fppt = 0;
             g_ui.prof_edit_dirty = true;
+            if (!ctrl_ppt_limits(hw, &smin, &smax, &pmin, &pmax, &fmin, &fmax))
+                ut_log("note: 'ppt = off' needs BIOS max_value (unavailable on this machine)");
         } else if (ut_ascii_ieq(s, "Q45")) {
             m->ppt_off = -1; m->ppt_spl = 45; m->ppt_sppt = 55; m->ppt_fppt = 55;
             g_ui.prof_edit_dirty = true;

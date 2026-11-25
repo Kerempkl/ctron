@@ -60,8 +60,14 @@ static int cmd_ppt(hw_state_t *hw, const char *val, bool dry,
         return dry ? 0 : ctrl_set_ppt(hw, 60, 75, 75);
     if (!strcasecmp(val, "P80"))
         return dry ? 0 : ctrl_set_ppt(hw, 80, 80, 80);
-    if (!strcasecmp(val, "off"))
+    if (!strcasecmp(val, "off")) {
+        int smin, smax, pmin, pmax, fmin, fmax;
+        if (!ctrl_ppt_limits(hw, &smin, &smax, &pmin, &pmax, &fmin, &fmax)) {
+            errf(err, errn, "ppt off: BIOS exposes no safe maxima (set explicit SPL,SPPT,FPPT)");
+            return -1;
+        }
         return dry ? 0 : ctrl_ppt_off(hw);
+    }
     if (!strcasecmp(val, "on"))
         return dry ? 0 : ctrl_ppt_restore(hw);
     int a, b, c;

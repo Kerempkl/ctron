@@ -6,7 +6,7 @@
 
 One C binary. One dependency ([notcurses](https://github.com/dankamongmen/notcurses)). No daemon.
 
-![version](https://img.shields.io/badge/version-v0.12.0-0072c6)
+![version](https://img.shields.io/badge/version-v0.13.0-0072c6)
 ![license](https://img.shields.io/badge/license-MIT-0072c6)
 ![language](https://img.shields.io/badge/language-C-659ad2)
 ![deps](https://img.shields.io/badge/dependency-notcurses%20only-2ea043)
@@ -88,7 +88,7 @@ ctron --battery 80
 | `e` | edit exact numeric or hex value (cursor-aware) |
 | `w` / `r` | apply all staged edits · revert staged edits to live |
 | `Enter` | apply / open detail (`c` Core Limits in Power, `b` daeboard in Display & Light) |
-| `,` | Preferences & CLI shortcuts (`modes.ini`, startup view, terminal-native themes) |
+| `,` | Preferences & CLI shortcuts (`modes.ini`, startup view, optional **Boot snapshot**, terminal-native themes) |
 | `L` / `?` | Event Log overlay (last 24 entries; or click bottom log) · Keymap Help overlay |
 | `Esc` | strictly back / cancel / close modal (never opens a menu) |
 | `q` | quit (asks twice when staged edits are pending) |
@@ -188,6 +188,7 @@ Information:
 
 Modes, snapshots & fan curves:
   --mode <name> [--dry-run]   apply (or preview) a shortcut bundle
+  --apply-startup [--dry-run] apply configured Boot snapshot (no-op if off)
   mode list|show <n>|add <name> <steps>|delete <n>
   snapshot list   (alias: profile)
   snapshot apply [--dry-run]|diff|export|delete <name>
@@ -238,6 +239,12 @@ steps = profile performance, ppt P80, fan cool, hz max
 PPT notes: on locked-PPT laptops writing needs `ryzenadj` (the sudoers
 rule must name the literal path, e.g. `/usr/bin/ryzenadj`), and SMU
 limits are **volatile** — re-apply after reboot / profile changes.
+Within the same boot (`boot_id`), `ctron` remembers the last applied PPT
+and GPU clock lock and displays them as `(set)` without auto-writing on
+TUI open; to apply a snapshot automatically at login or resume, select a
+**Boot snapshot** in `,` Preferences (off by default) and enable the
+optional oneshot unit `contrib/ctron-startup.service` (or
+`contrib/ctron-resume@.service`).
 `--gpu-clock` similarly needs sudoers for `nvidia-smi`. See
 [SECURITY.md](SECURITY.md) for the privilege model and recommended
 sudoers rules.

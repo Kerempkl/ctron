@@ -229,6 +229,14 @@ typedef struct hw_state {
     int ppt_mode;                      /* hw_ppt_mode_t */
     bool ppt_off;                       /* limits removed (platform maxima) */
     int ppt_saved_spl, ppt_saved_sppt, ppt_saved_fppt; /* to restore */
+    /* Same-boot memory for write-only PPT (Dragon Range ryzenadj exposes no
+     * read-back, and hw_refresh_live resets ppt_spl/sppt/fppt to -1).
+     * Persisted in settings.ini tagged with Linux boot_id so reopening ctron
+     * in the same boot honestly shows what was applied as "(set)" without
+     * fabricating live kernel reads in --status/--json. */
+    bool ppt_set_valid;
+    int ppt_set_spl, ppt_set_sppt, ppt_set_fppt;
+    bool ppt_set_off;
     int nv_boost;          /* W, -1 unknown */
     int nv_temp;           /* °C, -1 unknown */
 
@@ -288,9 +296,11 @@ typedef struct hw_state {
 
     /* GPU core-clock lock (nvidia-smi -lgc), session-tracked: the
      * driver exposes no way to read the lock back, so this is what
-     * ctron itself set. 0 = driver default. gpu_mhz_max = hardware
-     * maximum, read once at init. */
+     * ctron itself set. 0 = driver default. gpu_clock_from_mem is true
+     * when restored from settings.ini via a matching boot_id.
+     * gpu_mhz_max = hardware maximum, read once at init. */
     int gpu_clock_lock;
+    bool gpu_clock_from_mem;
     int gpu_mhz_max;
 
     /* asusd power-source profile takeover (from /etc/asusd/asusd.ron):

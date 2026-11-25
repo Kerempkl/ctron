@@ -22,6 +22,7 @@ void profile_gen_name(char *out, size_t n);
 void profile_sanitize_name(const char *in, char *out, size_t n);
 
 int profile_list(char list[][PROFILE_NAME_MAX], int max);
+bool profile_exists(const char *name);
 int profile_export(const char *name, const hw_state_t *hw);
 int profile_import(const char *name, hw_state_t *hw, char *err, size_t errn);
 int profile_dry_run(const char *name, const hw_state_t *hw, FILE *out,

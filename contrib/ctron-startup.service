@@ -1,0 +1,26 @@
+# ctron — Optional boot/login snapshot apply service (systemd --user oneshot)
+#
+# Runs once when your desktop session starts, applies the snapshot selected
+# under Preferences (',') -> Boot snapshot (no-op when set to "off"), and
+# exits immediately (zero background daemon).
+#
+# Install & enable:
+#   mkdir -p ~/.config/systemd/user
+#   cp contrib/ctron-startup.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now ctron-startup.service
+#
+# Adjust ExecStart below if ctron is installed under /usr/bin/ctron instead
+# of ~/.local/bin/ctron.
+
+[Unit]
+Description=Apply configured ctron boot snapshot
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+Restart=no
+ExecStart=%h/.local/bin/ctron --apply-startup
+
+[Install]
+WantedBy=graphical-session.target

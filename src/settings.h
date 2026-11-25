@@ -13,12 +13,16 @@ enum {
     PREF_NO_SUDO          /* never escalate; sysfs writes only */
 };
 
+#define SETTINGS_SNAP_MAX    48
+#define SETTINGS_BOOT_ID_MAX 64
+
 typedef struct {
     int poll_ms;       /* telemetry refresh, 100..2000 */
     int write_pref;    /* enum above */
     int theme;         /* palette index, 0..4 */
     bool gpu_temp;     /* query nvidia-smi */
     int startup_view;  /* initial TUI view, 0..4 (Power..Telemetry) */
+    char startup_snapshot[SETTINGS_SNAP_MAX]; /* "" = off (default), else .ctr name */
     /* legacy layout fields kept for backward-compatible settings.ini */
     bool swap_left;
     bool telem_top;
@@ -36,8 +40,22 @@ const char *settings_profiles_dir(char *out, size_t n);
 const char *settings_fancurves_dir(char *out, size_t n);
 const char *settings_modes_file(char *out, size_t n);
 
-/* Load prefs + persisted hardware state (fan curves, cpu limit).
- * Missing file keeps defaults. Returns 0 when the file existed. */
+/* Read current kernel boot UUID (/proc/sys/kernel/random/boot_id).
+ * Returns 0 on success, -1 if unavailable. */
+int settings_boot_id(char *out, size_t n);
+
+/* Validate and set g_prefs.startup_snapshot ("" = off). Rejects path
+ * traversal ("..", leading/trailing '/', disallowed characters). */
+void settings_set_startup_snapshot(const char *name);
+
+/* Keep startup_snapshot in sync when a snapshot is renamed or deleted.
+ * Patches settings.ini atomically only when startup_snapshot matched. */
+void settings_on_snapshot_renamed(const char *old_name, const char *new_name);
+void settings_on_snapshot_deleted(const char *name);
+
+/* Load prefs + persisted hardware state (fan curves, cpu limit, same-boot
+ * PPT/GPU-clock memory). Missing file keeps defaults. Returns 0 when the
+ * file existed. */
 int settings_load(hw_state_t *hw);
 
 /* Persist prefs + hardware state. */

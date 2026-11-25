@@ -667,13 +667,24 @@ int profile_dry_run(const char *name, const hw_state_t *hw, FILE *out,
 
 /* ---- delete / rename / note -------------------------------------------- */
 
-int profile_delete(const char *name)
+bool profile_exists(const char *name)
 {
+    if (!name || !name[0])
+        return false;
     char path[520];
     profile_path(name, path, sizeof(path));
+    return ut_path_exists(path);
+}
+
+int profile_delete(const char *name)
+{
+    char safe[PROFILE_NAME_MAX], path[520];
+    sanitize_name(name, safe, sizeof(safe));
+    profile_path(safe, path, sizeof(path));
     if (unlink(path) == 0) {
         cleanup_empty_group_dir(path);
-        ut_log("snapshot deleted: %s", name);
+        settings_on_snapshot_deleted(safe);
+        ut_log("snapshot deleted: %s", safe);
         return 0;
     }
     return -1;
@@ -681,8 +692,10 @@ int profile_delete(const char *name)
 
 int profile_rename(const char *old_name, const char *new_name)
 {
-    char oldp[520], newp[520], safe[PROFILE_NAME_MAX];
-    profile_path(old_name, oldp, sizeof(oldp));
+    char old_safe[PROFILE_NAME_MAX], safe[PROFILE_NAME_MAX];
+    char oldp[520], newp[520];
+    sanitize_name(old_name, old_safe, sizeof(old_safe));
+    profile_path(old_safe, oldp, sizeof(oldp));
     sanitize_name(new_name, safe, sizeof(safe));
     profile_path(safe, newp, sizeof(newp));
     if (ut_path_exists(newp)) {
@@ -693,7 +706,8 @@ int profile_rename(const char *old_name, const char *new_name)
     if (rename(oldp, newp) != 0)
         return -1;
     cleanup_empty_group_dir(oldp);
-    ut_log("snapshot renamed: %s -> %s", old_name, safe);
+    settings_on_snapshot_renamed(old_safe, safe);
+    ut_log("snapshot renamed: %s -> %s", old_safe, safe);
     return 0;
 }
 

@@ -955,6 +955,167 @@ def flow_saved_fan_curves():
             s.close()
 
 
+def flow_power_revert_and_boot_snap():
+    """Unapplied PPT stays honest '--' on open and 'r' (zero fake 45 W),
+    BIOS-unavailable PPT limits refuses cleanly, same-boot PPT/GPU memory
+    shows (set), 'r' reverts Power + CORE LIMITS, and Preferences Boot snapshot."""
+    # Part A: clean boot (no PPT set yet) -> no fake 45 W, PPT limits unavailable,
+    # stage Q45 -> '-- → 45 W ●', 'r' reverts cleanly back to '--' (synced).
+    with IsolatedConfig():
+        s0 = Session("power_unset")
+        try:
+            if not s0.wait_render(6.0):
+                fail("power_unset", "no frame rendered")
+                return
+            f0 = s0.bytes_since(0)
+            if b"45 W" in f0 or b"55 W" in f0:
+                fail("power_unset", "fresh Power screen must not show fake 45/55 W")
+                return
+            if b"BIOS limits unavailable" not in f0:
+                fail("power_unset", "PPT limits row must show BIOS limits unavailable")
+                return
+            ok("power_unset", "fresh Power screen has no fake PPT values and locks PPT limits off")
+
+            # Move to Presets (row 5), stage Q45 -> '-- → 45 W ●'
+            for _ in range(5):
+                s0.key(b"j")
+            m_q = s0.mark()
+            s0.key(b"l")
+            if not s0.wait_for(b"45 W", since=m_q, timeout=6.0):
+                fail("power_unset", "stepping Presets from unset did not stage 45 W")
+                return
+            # Move to PPT limits (row 9: 4x j) and try toggling off -> must refuse cleanly
+            for _ in range(4):
+                s0.key(b"j")
+            m_lim = s0.mark()
+            s0.key(b"l")
+            if not s0.wait_for(b"no safe maxima", since=m_lim, timeout=6.0):
+                fail("power_unset", "PPT limits toggle did not log honest BIOS refusal")
+                return
+            ok("power_unset", "PPT limits off refuses without fabricating 90/120/120 W")
+
+            # Press 'r' -> reverts back to honest '--' (zero fake 45 W) + synced
+            m_r = s0.mark()
+            s0.key(b"r")
+            if not s0.wait_for(b"reverted", since=m_r, timeout=6.0) or \
+               not s0.wait_for(b"synced", since=m_r, timeout=6.0):
+                fail("power_unset", "'r' did not revert unset PPT cleanly to synced")
+                return
+            if b"45 W" in s0.bytes_since(m_r):
+                fail("power_unset", "'r' repainted fake 45 W on unset PPT")
+                return
+            ok("power_unset", "'r' reverts unset PPT back to honest '--' (no fake values)")
+            rc0 = s0.quit_expect0()
+            if rc0 != 0:
+                fail("power_unset", f"q exit {rc0!r}")
+                return
+        finally:
+            s0.close()
+
+    # Part B: same-boot PPT/GPU memory display, Power + CORE LIMITS 'r' revert,
+    # and Preferences -> Boot snapshot selection + --apply-startup --dry-run.
+    with open("/proc/sys/kernel/random/boot_id", "r") as bf:
+        boot_id = bf.read().strip()
+    seed_ini = (
+        "poll_ms = 250\n"
+        f"last_boot_id = {boot_id}\n"
+        "last_ppt_spl = 60\n"
+        "last_ppt_sppt = 75\n"
+        "last_ppt_fppt = 75\n"
+        "last_ppt_off = 0\n"
+        "last_gpu_clock = 1400\n"
+    )
+    with IsolatedConfig(seed_ini) as cfg:
+        pdir = os.path.join(cfg, "profiles")
+        os.makedirs(pdir, exist_ok=True)
+        with open(os.path.join(pdir, "daily.ctr"), "w") as pf:
+            pf.write(
+                "# ctron snapshot\n"
+                "[perf]\nprofile = balanced\nepp = balance_performance\n"
+                "[power]\nppt = 60,75,75\n"
+            )
+        s = Session("power_boot")
+        try:
+            if not s.wait_render(6.0):
+                fail("power_boot", "no frame rendered")
+                return
+            frame = s.bytes_since(0)
+            if b"60 W (set)" not in frame or b"1400 MHz (set)" not in frame:
+                fail("power_boot", "same-boot PPT/GPU memory not shown as (set)")
+                return
+            if b"synced" not in frame:
+                fail("power_boot", "remembered boot memory must not mark edits dirty")
+                return
+            ok("power_boot", "same-boot PPT/GPU memory displayed honestly as (set) and synced")
+
+            # Stage P80 preset on left Power list, then stage a core in CORE LIMITS,
+            # then press 'r' inside CORE LIMITS -> BOTH must revert to baseline.
+            for _ in range(5):     # PW_PRESET
+                s.key(b"j")
+            m_st = s.mark()
+            s.key(b"l")            # B60 -> P80 (80/80/80)
+            if not s.wait_for(b"80 W", since=m_st, timeout=6.0):
+                fail("power_boot", "staging P80 did not update SPL to 80 W")
+                return
+            s.key(b"c")            # focus inline CORE LIMITS
+            s.key(b"j")            # core 0
+            s.key(b"h")            # stage -100 MHz
+            time.sleep(0.25)
+            m_rv = s.mark()
+            s.key(b"r")            # revert ALL from inside CORE LIMITS
+            if not s.wait_for(b"reverted", since=m_rv, timeout=6.0):
+                fail("power_boot", "'r' inside CORE LIMITS did not show revert toast")
+                return
+            # notcurses only repaints changed cells: "60 W → 80 W ●" -> "60 W (set) (15–90)"
+            # keeps the "60 W " prefix and repaints "(set)" + rail "synced"
+            if not s.wait_for(b"(set)", since=m_rv, timeout=6.0) or \
+               not s.wait_for(b"synced", since=m_rv, timeout=6.0):
+                fail("power_boot", "'r' did not revert PPT back to (set) and rail to synced")
+                return
+            ok("power_boot", "'r' reverts both Power PPT/Presets and CORE LIMITS to baseline")
+
+            # Preferences (',') -> Boot snapshot (default off -> select daily)
+            s.key(b"\x1b")         # leave CORE LIMITS
+            time.sleep(0.2)
+            m_pr = s.mark()
+            s.key(b",")
+            if not s.wait_for(b"Boot snapshot", since=m_pr, timeout=6.0):
+                fail("power_boot", "'Boot snapshot' row missing in Preferences")
+                return
+            s.key(b"j")            # row 1 = Boot snapshot
+            m_bs = s.mark()
+            s.key(b"l")            # off -> daily
+            if not s.wait_for(b"daily (--apply-startup)", since=m_bs, timeout=6.0):
+                fail("power_boot", "could not select 'daily' as Boot snapshot")
+                return
+            ok("power_boot", "Preferences selects 'daily' as Boot snapshot")
+            s.key(b"\x1b")
+            time.sleep(0.2)
+            rc = s.quit_expect0()
+            if rc != 0:
+                fail("power_boot", f"q exit {rc!r}")
+                return
+        finally:
+            s.close()
+
+        with open(os.path.join(cfg, "settings.ini"), "r") as sf:
+            sbody = sf.read()
+        if "\nstartup_snapshot = daily\n" not in sbody:
+            fail("power_boot", f"startup_snapshot not persisted: {sbody!r}")
+            return
+        ok("power_boot", "startup_snapshot = daily persisted in settings.ini")
+
+        # Verify CLI --apply-startup --dry-run reads the configured Boot snapshot
+        proc = subprocess.run(
+            [BIN, "--config-dir", cfg, "--apply-startup", "--dry-run"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if proc.returncode != 0 or "boot snapshot: daily" not in proc.stdout or "ppt = 60,75,75" not in proc.stdout:
+            fail("power_boot", f"--apply-startup --dry-run failed: rc={proc.returncode} out={proc.stdout!r} err={proc.stderr!r}")
+            return
+        ok("power_boot", "--apply-startup --dry-run validates configured Boot snapshot")
+
+
 def main():
     if not os.access(BIN, os.X_OK):
         print(f"no executable at {BIN} (run make first)")
@@ -966,6 +1127,7 @@ def main():
         flow_startup_view,
         flow_views_and_tab,
         flow_power_stage_apply,
+        flow_power_revert_and_boot_snap,
         flow_corefreq_overlay,
         flow_system_view,
         flow_fan_staging_and_presets,

@@ -98,6 +98,33 @@ static void fmt_val_int(char *out, size_t n, int live, int staged,
         snprintf(out, n, "%s", lb);
 }
 
+static void fmt_val_ppt(char *out, size_t n, int live, int set_val,
+                        bool set_valid, int staged, bool touched,
+                        const char *range)
+{
+    if (live > 0) {
+        fmt_val_int(out, n, live, staged, " W", range);
+        return;
+    }
+    if (set_valid && set_val > 0) {
+        if (touched && staged != set_val)
+            snprintf(out, n, "%d W → %d W ●", set_val, staged);
+        else if (touched)
+            snprintf(out, n, "%d W (set) ●", staged);
+        else if (range && range[0])
+            snprintf(out, n, "%d W (set) (%s)", set_val, range);
+        else
+            snprintf(out, n, "%d W (set)", set_val);
+        return;
+    }
+    if (touched && staged > 0)
+        snprintf(out, n, "-- → %d W ●", staged);
+    else if (range && range[0])
+        snprintf(out, n, "-- (%s)", range);
+    else
+        snprintf(out, n, "--");
+}
+
 static void fmt_val_bool(char *out, size_t n, bool live, bool staged)
 {
     if (staged != live)
@@ -175,7 +202,7 @@ static const char *const PW_DESCS[PW_ROWS] = {
     "long-term watt ceiling — main knob for thermals and battery",
     "watt ceiling during longer boosts (seconds-scale)",
     "watt ceiling for short bursts (sub-second)",
-    "off removes the SMU caps (platform maxima) until reboot",
+    "off lifts SMU caps to BIOS-reported maxima (requires asus-armoury limits)",
     "dGPU clock lock; driver default = no lock (session-only)",
     "off disables turbo frequencies entirely",
     "MHz ceiling for all cores; per-core / CCD ceilings via 'c' or Enter",
@@ -249,6 +276,20 @@ enum {
     PW_W_CORES   = 1 << 10,
 };
 
+static int pw_smin, pw_smax, pw_pmin, pw_pmax, pw_fmin, pw_fmax;
+static bool pw_lim_known;
+static long pw_lim_ms;
+
+static void pw_refresh_limits(void)
+{
+    long t = ut_mono_ms();
+    if (pw_lim_ms != 0 && t - pw_lim_ms <= 1000)
+        return;
+    pw_lim_known = ctrl_ppt_limits(g_ui.hw, &pw_smin, &pw_smax,
+                                   &pw_pmin, &pw_pmax, &pw_fmin, &pw_fmax);
+    pw_lim_ms = t;
+}
+
 static unsigned pw_write_mask(const hw_state_t *hw)
 {
     unsigned m = 0;
@@ -260,9 +301,10 @@ static unsigned pw_write_mask(const hw_state_t *hw)
         m |= PW_W_BAT;
     if (g_ui.pwv_epp != (int)hw->epp)
         m |= PW_W_EPP;
-    if (g_ui.pwv_ppt_off != hw->ppt_off)
+    if (pw_lim_known && g_ui.pwv_ppt_off != hw->ppt_off)
         m |= PW_W_PPT_OFF;
     if (!g_ui.pwv_ppt_off &&
+        g_ui.pwv_spl > 0 && g_ui.pwv_sppt > 0 && g_ui.pwv_fppt > 0 &&
         ((g_ui.pw_touched & PW_T_PPT) ||
          (hw->ppt_spl > 0 && g_ui.pwv_spl != hw->ppt_spl) ||
          (hw->ppt_sppt > 0 && g_ui.pwv_sppt != hw->ppt_sppt) ||
@@ -296,33 +338,61 @@ const char *pw_selected_desc(void)
     return PW_DESCS[ut_clamp_i(g_ui.pw_sel, 0, PW_ROWS - 1)];
 }
 
+static void pw_ppt_base(const hw_state_t *hw, int *spl, int *sppt, int *fppt)
+{
+    if (hw->ppt_spl > 0 && hw->ppt_sppt > 0 && hw->ppt_fppt > 0) {
+        *spl = hw->ppt_spl;
+        *sppt = hw->ppt_sppt;
+        *fppt = hw->ppt_fppt;
+    } else if (hw->ppt_set_valid && hw->ppt_set_spl > 0 &&
+               hw->ppt_set_sppt > 0 && hw->ppt_set_fppt > 0) {
+        *spl = hw->ppt_set_spl;
+        *sppt = hw->ppt_set_sppt;
+        *fppt = hw->ppt_set_fppt;
+    } else {
+        /* Never fabricate watt values when kernel read-back is unknown and
+         * no PPT limit has been applied in this boot. */
+        *spl = 0;
+        *sppt = 0;
+        *fppt = 0;
+    }
+}
+
 void pw_sync_from_hw(void)
 {
     const hw_state_t *hw = g_ui.hw;
+    pw_refresh_limits();
     g_ui.pwv_profile = (int)hw->profile;
     if (hw->asusd_ac != -2)
         g_ui.pwv_asusd_ac = hw->asusd_ac;
     if (hw->asusd_bat != -2)
         g_ui.pwv_asusd_bat = hw->asusd_bat;
     g_ui.pwv_epp = (int)hw->epp;
-    g_ui.pwv_spl  = hw->ppt_spl  > 0 ? hw->ppt_spl
-                  : (g_ui.pwv_spl  > 0 ? g_ui.pwv_spl  : 45);
-    g_ui.pwv_sppt = hw->ppt_sppt > 0 ? hw->ppt_sppt
-                  : (g_ui.pwv_sppt > 0 ? g_ui.pwv_sppt : 55);
-    g_ui.pwv_fppt = hw->ppt_fppt > 0 ? hw->ppt_fppt
-                  : (g_ui.pwv_fppt > 0 ? g_ui.pwv_fppt : 55);
+    pw_ppt_base(hw, &g_ui.pwv_spl, &g_ui.pwv_sppt, &g_ui.pwv_fppt);
     g_ui.pwv_gpuclock = hw->gpu_clock_lock;
-    g_ui.pwv_mhz = hw->cpu_mhz_limit > 0 ? hw->cpu_mhz_limit
-                 : (g_ui.pwv_mhz > 0 ? g_ui.pwv_mhz : hw->cpu_mhz_max);
+    g_ui.pwv_mhz = hw->cpu_mhz_limit > 0 ? hw->cpu_mhz_limit : hw->cpu_mhz_max;
     g_ui.pwv_cpuboost = hw->cpu_boost;
-    g_ui.pwv_ppt_off = hw->ppt_off;
+    g_ui.pwv_ppt_off = pw_lim_known ? hw->ppt_off : false;
+    g_ui.ctl_mode_pick = false;
     g_ui.pw_quit_warned = false;
     g_ui.pw_touched = 0;
     {
         int m = pw_preset_match(g_ui.pwv_spl, g_ui.pwv_sppt, g_ui.pwv_fppt);
-        g_ui.pw_preset_sel = m >= 0 ? m : g_ui.pw_preset_sel;
+        g_ui.pw_preset_sel = m >= 0 ? m : -1;
     }
     pw_recompute_dirty();
+}
+
+void pw_revert_all(void)
+{
+    hw_refresh_live(g_ui.hw);
+    pw_sync_from_hw();
+    cf_reset_staging();
+    snprintf(g_ui.pw_msg, sizeof(g_ui.pw_msg),
+             "✓ power settings reverted to live values");
+    g_ui.pw_msg_fail = false;
+    g_ui.pw_msg_ms = ut_mono_ms();
+    ut_log("power settings reverted");
 }
 
 static void pw_stage_preset(int spl, int sppt, int fppt)
@@ -387,12 +457,18 @@ static void pw_nudge_row(int row, int dir)
     case PW_SPL: case PW_SPPT: case PW_FPPT: {
         int smin, smax, pmin, pmax, fmin, fmax;
         ctrl_ppt_limits(hw, &smin, &smax, &pmin, &pmax, &fmin, &fmax);
-        if (row == PW_SPL)
+        if (g_ui.pwv_spl <= 0 || g_ui.pwv_sppt <= 0 || g_ui.pwv_fppt <= 0) {
+            /* First step from unset ("--"): seed a conservative triple */
+            g_ui.pwv_spl = 45;
+            g_ui.pwv_sppt = 55;
+            g_ui.pwv_fppt = 55;
+        } else if (row == PW_SPL) {
             g_ui.pwv_spl += 5 * dir;
-        else if (row == PW_SPPT)
+        } else if (row == PW_SPPT) {
             g_ui.pwv_sppt += 5 * dir;
-        else
+        } else {
             g_ui.pwv_fppt += 5 * dir;
+        }
         g_ui.pwv_ppt_off = false;
         ctrl_ppt_order(&g_ui.pwv_spl, &g_ui.pwv_sppt, &g_ui.pwv_fppt,
                        smin, smax, pmin, pmax, fmin, fmax);
@@ -400,10 +476,19 @@ static void pw_nudge_row(int row, int dir)
         break;
     }
     case PW_PRESET:
-        g_ui.pw_preset_sel = (g_ui.pw_preset_sel + (dir > 0 ? 1 : 2)) % 3;
+        if (g_ui.pw_preset_sel < 0)
+            g_ui.pw_preset_sel = dir > 0 ? 0 : 2;
+        else
+            g_ui.pw_preset_sel = (g_ui.pw_preset_sel + (dir > 0 ? 1 : 2)) % 3;
         pw_stage_preset_idx(g_ui.pw_preset_sel);
         return;
     case PW_PPT_LIMITS:
+        pw_refresh_limits();
+        if (!pw_lim_known) {
+            ut_log("ppt limits: unavailable — BIOS exposes no safe maxima "
+                   "(set SPL/SPPT/FPPT manually)");
+            return;
+        }
         if (!g_ui.pwv_ppt_off) {
             int smin, smax, pmin, pmax, fmin, fmax;
             ctrl_ppt_limits(hw, &smin, &smax, &pmin, &pmax, &fmin, &fmax);
@@ -413,6 +498,14 @@ static void pw_nudge_row(int row, int dir)
             g_ui.pwv_ppt_off = true;
         } else {
             g_ui.pwv_ppt_off = false;
+            if (!hw->ppt_off) {
+                pw_ppt_base(hw, &g_ui.pwv_spl, &g_ui.pwv_sppt, &g_ui.pwv_fppt);
+            } else if (hw->ppt_saved_spl > 0 && hw->ppt_saved_sppt > 0 &&
+                       hw->ppt_saved_fppt > 0) {
+                g_ui.pwv_spl = hw->ppt_saved_spl;
+                g_ui.pwv_sppt = hw->ppt_saved_sppt;
+                g_ui.pwv_fppt = hw->ppt_saved_fppt;
+            }
         }
         g_ui.pw_touched |= PW_T_PPT_OFF;
         break;
@@ -479,19 +572,22 @@ static void pw_diff_summary(char *out, size_t n)
         sum_app(out, n, &off, g_ui.pwv_ppt_off ? "PPT limits off" : "PPT limits on");
     } else if (wm & PW_W_PPT) {
         int watts = 0;
-        if (hw->ppt_spl > 0 && g_ui.pwv_spl != hw->ppt_spl) {
-            snprintf(e, sizeof(e), "SPL %d→%d W", hw->ppt_spl, g_ui.pwv_spl);
+        int bspl  = hw->ppt_spl  > 0 ? hw->ppt_spl  : (hw->ppt_set_valid ? hw->ppt_set_spl  : 0);
+        int bsppt = hw->ppt_sppt > 0 ? hw->ppt_sppt : (hw->ppt_set_valid ? hw->ppt_set_sppt : 0);
+        int bfppt = hw->ppt_fppt > 0 ? hw->ppt_fppt : (hw->ppt_set_valid ? hw->ppt_set_fppt : 0);
+        if (bspl > 0 && g_ui.pwv_spl != bspl) {
+            snprintf(e, sizeof(e), "SPL %d→%d W", bspl, g_ui.pwv_spl);
             sum_app(out, n, &off, e); watts++;
-        } else if (hw->ppt_spl <= 0 && g_ui.pwv_spl > 0) {
+        } else if (bspl <= 0 && g_ui.pwv_spl > 0) {
             snprintf(e, sizeof(e), "SPL →%d W", g_ui.pwv_spl);
             sum_app(out, n, &off, e); watts++;
         }
-        if (hw->ppt_sppt > 0 && g_ui.pwv_sppt != hw->ppt_sppt) {
-            snprintf(e, sizeof(e), "SPPT %d→%d W", hw->ppt_sppt, g_ui.pwv_sppt);
+        if (bsppt > 0 && g_ui.pwv_sppt != bsppt) {
+            snprintf(e, sizeof(e), "SPPT %d→%d W", bsppt, g_ui.pwv_sppt);
             sum_app(out, n, &off, e); watts++;
         }
-        if (hw->ppt_fppt > 0 && g_ui.pwv_fppt != hw->ppt_fppt) {
-            snprintf(e, sizeof(e), "FPPT %d→%d W", hw->ppt_fppt, g_ui.pwv_fppt);
+        if (bfppt > 0 && g_ui.pwv_fppt != bfppt) {
+            snprintf(e, sizeof(e), "FPPT %d→%d W", bfppt, g_ui.pwv_fppt);
             sum_app(out, n, &off, e); watts++;
         }
         if (!watts) {
@@ -585,19 +681,6 @@ void pw_apply_writes(hw_state_t *hw, int *fails_out, char *sum, size_t sumn)
     *fails_out = fails;
 }
 
-static int pw_smin, pw_smax, pw_pmin, pw_pmax, pw_fmin, pw_fmax;
-static long pw_lim_ms;
-
-static void pw_refresh_limits(void)
-{
-    long t = ut_mono_ms();
-    if (pw_lim_ms != 0 && t - pw_lim_ms <= 1000)
-        return;
-    ctrl_ppt_limits(g_ui.hw, &pw_smin, &pw_smax,
-                    &pw_pmin, &pw_pmax, &pw_fmin, &pw_fmax);
-    pw_lim_ms = t;
-}
-
 static void pw_row_range(int row, char *out, size_t n)
 {
     switch (row) {
@@ -654,6 +737,9 @@ static void pw_commit_typed(void)
     case PW_SPL: case PW_SPPT: case PW_FPPT: {
         int smin, smax, pmin, pmax, fmin, fmax;
         ctrl_ppt_limits(hw, &smin, &smax, &pmin, &pmax, &fmin, &fmax);
+        if (g_ui.pwv_spl <= 0)  g_ui.pwv_spl = v;
+        if (g_ui.pwv_sppt <= 0) g_ui.pwv_sppt = v;
+        if (g_ui.pwv_fppt <= 0) g_ui.pwv_fppt = v;
         if (g_ui.pw_sel == PW_SPL) g_ui.pwv_spl = v;
         else if (g_ui.pw_sel == PW_SPPT) g_ui.pwv_sppt = v;
         else g_ui.pwv_fppt = v;
@@ -693,24 +779,36 @@ static void draw_power_list(struct ncplane *n, const rect_t *r)
     char cb[32], lim[48], modev[80];
     char rspl[24], rsppt[24], rfppt[24], rcfq[32];
     pw_refresh_limits();
-    snprintf(rspl,  sizeof(rspl),  "%d–%d", pw_smin, pw_smax);
-    snprintf(rsppt, sizeof(rsppt), "%d–%d", pw_pmin, pw_pmax);
-    snprintf(rfppt, sizeof(rfppt), "%d–%d", pw_fmin, pw_fmax);
+    if (pw_lim_known) {
+        snprintf(rspl,  sizeof(rspl),  "%d–%d", pw_smin, pw_smax);
+        snprintf(rsppt, sizeof(rsppt), "%d–%d", pw_pmin, pw_pmax);
+        snprintf(rfppt, sizeof(rfppt), "%d–%d", pw_fmin, pw_fmax);
+    } else {
+        rspl[0] = rsppt[0] = rfppt[0] = '\0';
+    }
     if (hw->cpu_mhz_max > 0)
         snprintf(rcfq, sizeof(rcfq), "%d–%d", hw->cpu_mhz_min, hw->cpu_mhz_max);
     else
         rcfq[0] = '\0';
 
-    fmt_val_int(spl,  sizeof(spl),  hw->ppt_spl,  g_ui.pwv_spl,  " W",  rspl);
-    fmt_val_int(sppt, sizeof(sppt), hw->ppt_sppt, g_ui.pwv_sppt, " W", rsppt);
-    fmt_val_int(fppt, sizeof(fppt), hw->ppt_fppt, g_ui.pwv_fppt, " W", rfppt);
+    bool ppt_touch = (g_ui.pw_touched & PW_T_PPT) != 0;
+    fmt_val_ppt(spl,  sizeof(spl),  hw->ppt_spl,  hw->ppt_set_spl,
+                hw->ppt_set_valid, g_ui.pwv_spl,  ppt_touch, rspl);
+    fmt_val_ppt(sppt, sizeof(sppt), hw->ppt_sppt, hw->ppt_set_sppt,
+                hw->ppt_set_valid, g_ui.pwv_sppt, ppt_touch, rsppt);
+    fmt_val_ppt(fppt, sizeof(fppt), hw->ppt_fppt, hw->ppt_set_fppt,
+                hw->ppt_set_valid, g_ui.pwv_fppt, ppt_touch, rfppt);
     {
         char lg[24], sg[24];
         if (hw->gpu_clock_lock > 0) snprintf(lg, sizeof(lg), "%d MHz", hw->gpu_clock_lock);
         else snprintf(lg, sizeof(lg), "driver default");
         if (g_ui.pwv_gpuclock > 0) snprintf(sg, sizeof(sg), "%d MHz", g_ui.pwv_gpuclock);
         else snprintf(sg, sizeof(sg), "driver default");
-        fmt_val_enum(gclk, sizeof(gclk), lg, sg);
+        if (hw->gpu_clock_lock > 0 && hw->gpu_clock_from_mem &&
+            g_ui.pwv_gpuclock == hw->gpu_clock_lock)
+            snprintf(gclk, sizeof(gclk), "%d MHz (set)", hw->gpu_clock_lock);
+        else
+            fmt_val_enum(gclk, sizeof(gclk), lg, sg);
     }
     fmt_val_int(cfq, sizeof(cfq), hw->cpu_mhz_limit, g_ui.pwv_mhz, " MHz", rcfq);
     {
@@ -728,10 +826,14 @@ static void draw_power_list(struct ncplane *n, const rect_t *r)
         }
     }
     fmt_val_bool(cb, sizeof(cb), hw->cpu_boost, g_ui.pwv_cpuboost);
-    if (g_ui.pwv_ppt_off != hw->ppt_off)
+    if (!pw_lim_known)
+        snprintf(lim, sizeof(lim), "-- (BIOS limits unavailable)");
+    else if (g_ui.pwv_ppt_off != hw->ppt_off)
         snprintf(lim, sizeof(lim), "%s → %s ●",
                  hw->ppt_off ? "removed (max)" : "on",
                  g_ui.pwv_ppt_off ? "removed (max)" : "on");
+    else if (hw->ppt_off && hw->ppt_set_valid && hw->ppt_set_off)
+        snprintf(lim, sizeof(lim), "removed (max) (set)");
     else
         snprintf(lim, sizeof(lim), "%s", hw->ppt_off ? "removed (max)" : "on");
 
@@ -839,7 +941,7 @@ static void draw_power_list(struct ncplane *n, const rect_t *r)
                                          TGT(TGT_PANEL_WORKSPACE,
                                              ACT_WS_PW_PRESET_BASE + b) };
             int cx = ui_btn_row(n, y, x + lw, w - lw, btns, 3);
-            if (armed < 0 && cx + 7 <= x + w)
+            if (armed < 0 && g_ui.pwv_spl > 0 && cx + 7 <= x + w)
                 ui_putln(n, cx, y, 7, "custom", pal->muted, false);
             tgt_register(x, y, lw, 1, TGT(TGT_PANEL_WORKSPACE, ACT_WS_PW_BASE + i));
         } else {
@@ -1041,6 +1143,7 @@ void sys_sync_from_hw(void)
     g_ui.sys_bat = hw->bat_limit > 0 ? hw->bat_limit : 80;
     g_ui.sys_kbd_idx = (int)hw->kbd;
     /* the colour rows start from what the keyboard actually shows */
+    g_ui.lt_eff = 0;
     g_ui.lt_col = 0;
     if (hw->has_aura && hw->aura_mode == HW_AURA_MODE_STATIC && hw->aura_rgb >= 0) {
         char hex[12];
@@ -1412,17 +1515,21 @@ void panel_workspace_key(uint32_t key)
             }
             return;
         case 'r': case 'R':
-            pw_sync_from_hw();
-            cf_reset_staging();
+            pw_revert_all();
             return;
         case 'c': case 'C':
             editor_corefreq_open();
             return;
         case 'e': case 'E':
             if (pw_row_numeric(g_ui.pw_sel)) {
-                char seed[16];
-                snprintf(seed, sizeof(seed), "%d", pw_staged_value(g_ui.pw_sel));
-                tin_set(&g_ui.pw_input, seed);
+                int cur = pw_staged_value(g_ui.pw_sel);
+                if (cur > 0) {
+                    char seed[16];
+                    snprintf(seed, sizeof(seed), "%d", cur);
+                    tin_set(&g_ui.pw_input, seed);
+                } else {
+                    tin_clear(&g_ui.pw_input);
+                }
                 g_ui.pw_typing = true;
                 g_ui.pw_msg_ms = 0;
             }
@@ -1482,7 +1589,13 @@ void panel_workspace_key(uint32_t key)
                 ut_log("system: nothing staged");
             return;
         case 'r': case 'R':
+            hw_refresh_live(g_ui.hw);
             sys_sync_from_hw();
+            snprintf(g_ui.pw_msg, sizeof(g_ui.pw_msg),
+                     "✓ display & lighting reverted to live values");
+            g_ui.pw_msg_fail = false;
+            g_ui.pw_msg_ms = ut_mono_ms();
+            ut_log("display & lighting reverted");
             return;
         case 'e': case 'E':
             if (g_ui.sys_sel == SYS_HEX) {

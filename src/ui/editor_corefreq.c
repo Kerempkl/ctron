@@ -601,7 +601,7 @@ void editor_corefreq_draw(struct ncplane *n, const rect_t *r)
         if (snap)
             foot = "h/l ±100 · e exact · x clear · a CCD · A all · o max · r undo · Esc/c back";
         else if (foc)
-            foot = "h/l ±100 · e exact · a CCD · A all · o max · Esc power";
+            foot = "h/l ±100 · e exact · a CCD · A all · o max · r revert · Esc power";
         else
             foot = "press c or click a core to edit per-core ceilings";
         ui_putln(n, x, r->y + r->h - 1, w, foot, pal->muted, false);
@@ -627,6 +627,8 @@ void editor_corefreq_key(uint32_t key)
                 else if (g_ui.cf_sel >= 0 && g_ui.cf_sel < hw->cpu_n)
                     cf_pool()[hw->cpu_ids[g_ui.cf_sel]] =
                         cf_clamp(atoi(g_ui.cf_input.buf));
+                if (!cf_snapshot_mode())
+                    pw_recompute_dirty();
             }
             g_ui.cf_input_active = 0;
             return;
@@ -686,6 +688,8 @@ void editor_corefreq_key(uint32_t key)
                 for (int i = 0; i < hw->core_n; i++)
                     cf_scope_stage(i, v);
             }
+            if (!cf_snapshot_mode())
+                pw_recompute_dirty();
             (void)k;
             return;
         }
@@ -698,8 +702,7 @@ void editor_corefreq_key(uint32_t key)
                 panel_profiles_cores_reload();
                 return;
             }
-            cf_revert();
-            pw_recompute_dirty();
+            pw_revert_all();
             return;
         case 'w': case 'W':
         case NCKEY_ENTER: case '\r': case '\n': case ' ':
@@ -762,8 +765,7 @@ void editor_corefreq_key(uint32_t key)
             panel_profiles_cores_reload();
             return;
         }
-        cf_revert();
-        pw_recompute_dirty();
+        pw_revert_all();
         return;
     case 'w': case 'W':
     case NCKEY_ENTER: case '\r': case '\n': case ' ':
@@ -804,7 +806,12 @@ void editor_corefreq_act(int id_)
         g_ui.pw_in_cores = false;
         ui_spawn_apply(APPLY_POWER, "power settings", "");
         break;
-    case ACT_CF_REVERT: cf_revert(); break;
+    case ACT_CF_REVERT:
+        if (cf_snapshot_mode())
+            panel_profiles_cores_reload();
+        else
+            pw_revert_all();
+        break;
     default:
         break;
     }

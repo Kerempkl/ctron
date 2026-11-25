@@ -1,0 +1,29 @@
+# ctron — Optional post-suspend/resume snapshot re-apply service (system oneshot)
+#
+# Volatile hardware limits (Ryzen SMU PPT via ryzenadj, CPU/per-core ceilings,
+# NVIDIA GPU clock lock) can reset after suspend/hibernate. This optional
+# system template re-runs `ctron --apply-startup` as your user on resume and
+# exits immediately (zero background daemon).
+#
+# Note: system-level resume units run without WAYLAND_DISPLAY, so if your
+# selected Boot snapshot sets a display refresh rate (`hz = ...`), omit `hz`
+# from that snapshot (press 'x' on Refresh rate in 4 Snapshots -> Edit) or
+# rely on your compositor (KDE/Hyprland already persists display Hz).
+#
+# Install & enable (replace <user> with your Linux username):
+#   sudo cp contrib/ctron-resume@.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable ctron-resume@<user>.service
+
+[Unit]
+Description=Re-apply configured ctron boot snapshot after resume (%i)
+After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
+
+[Service]
+Type=oneshot
+Restart=no
+User=%i
+ExecStart=/home/%i/.local/bin/ctron --apply-startup
+
+[Install]
+WantedBy=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target

@@ -1213,6 +1213,7 @@ static void finalize_apply(void)
         sys_sync_from_hw();
         cf_reset_staging();
         panel_profiles_reload();
+        settings_save(g_ui.hw);
         break;
     case APPLY_FAN_CURVE:
         if (g_ui.apply_ok) {
@@ -1240,8 +1241,10 @@ static void finalize_apply(void)
         const char *tag = g_ui.apply_kind == APPLY_POWER ? "power" : "system";
         pw_sync_from_hw();
         sys_sync_from_hw();
-        if (g_ui.apply_kind == APPLY_POWER)
+        if (g_ui.apply_kind == APPLY_POWER) {
             cf_reset_staging();
+            settings_save(g_ui.hw);
+        }
         ut_log("%s apply: %s · %ld.%ld s", tag,
                g_ui.apply_fails ? "some fields FAILED (privilege?)" : "ok",
                took / 10, took % 10);
@@ -1273,6 +1276,7 @@ static void finalize_apply(void)
         sys_sync_from_hw();
         cf_reset_staging();
         panel_profiles_reload();
+        settings_save(g_ui.hw);
         break;
     }
     default:
@@ -1565,7 +1569,6 @@ int ui_run(hw_state_t *hw)
     tin_set(&g_ui.fe_save_name, "my-fan");
 
     hw_refresh_live(hw);
-    settings_load(hw);
     panel_profiles_reload();
     editor_fan_sync_bufs();
     g_ui.view = (ui_view_t)ut_clamp_i(g_prefs.startup_view, 0, VIEW_COUNT - 1);

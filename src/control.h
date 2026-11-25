@@ -24,8 +24,10 @@ int ctrl_set_cpu_boost(hw_state_t *hw, bool on);
 /* ---- power ------------------------------------------------------------ */
 
 /* Watts. Values are clamped to the resolved limits; invariant
- * fppt >= sppt >= spl is enforced. */
-void ctrl_ppt_limits(const hw_state_t *hw,
+ * fppt >= sppt >= spl is enforced. Returns true ONLY when BIOS
+ * (asus-armoury) explicitly exposed all three max_value attributes
+ * (safe for ctrl_ppt_off); false means generic clamp ceilings were used. */
+bool ctrl_ppt_limits(const hw_state_t *hw,
                      int *spl_min, int *spl_max,
                      int *sppt_min, int *sppt_max,
                      int *fppt_min, int *fppt_max);

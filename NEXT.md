@@ -13,20 +13,23 @@
 - `src/main.c` `VERSION`, `README.md` sürüm rozeti ve `flake.nix` `version`
   aynı release commit'inde birlikte güncellenir (`vX.Y.Z` annotated tag o
   commit'i gösterir; push kullanıcı tarafındadır).
-- Güncel sürüm: **`v0.12.0`** (geçmiş kesimler: `CHANGELOG.md`).
+- Güncel sürüm: **`v0.13.0`** (geçmiş kesimler: `CHANGELOG.md`).
 
 ## Planlanan sürümler (`0.x` evrimi — `v1` hedefi şimdilik yok)
 
 Ayrıntılı teknik gerekçeler ve kod referansları için bkz. [REVIEW.md](REVIEW.md)
-(`v0.10.0` P0 doğruluk/hata kapanışı, `v0.11.0` CLI/JSON/sıfır-shell ve
-`v0.12.0` Konsept C TUI + birleşik kısayol yenilemesi tamamlandı):
+(`v0.10.0` P0 doğruluk/hata kapanışı, `v0.11.0` CLI/JSON/sıfır-shell,
+`v0.12.0` Konsept C TUI + birleşik kısayol yenilemesi ve `v0.13.0` iki panelli
+Snapshot Editor, AURA okuma/doğrulama, Fan Eğrisi altyapısı + Kayıtlı Fan
+Eğrileri, dürüst PPT/revert + `Boot snapshot` tamamlandı):
 
-- **`v0.13.0` (Paketleme, `udev` Ayrıcalık Azaltma & Masaüstü/CLI Artefaktları):**
+- **`v0.14.0` (Paketleme, `udev` Ayrıcalık Azaltma & Masaüstü/CLI Artefaktları):**
   `Makefile` (`PREFIX`/`DESTDIR`, tek `VERSION`, `make check-version`) +
   `flake.nix` uyumu, `contrib/` (`99-ctron.rules` + `ctron.tmpfiles.conf`,
-  `ctron-ppt`, `sudoers.ctron.example`, `ctron.desktop`, `PKGBUILD`),
+  `ctron-ppt`, `sudoers.ctron.example`, `ctron.desktop`, `PKGBUILD` —
+  `ctron-startup.service` ve `ctron-resume@.service` `v0.13.0`'da eklendi),
   `man/ctron.1`, shell completions (`bash`, `zsh`, `fish`), `CONTRIBUTING.md`.
-- **`v0.14.0` (Offline Test Kalkanı, CI/CD & Modüler Temizlik):**
+- **`v0.15.0` (Offline Test Kalkanı, CI/CD & Modüler Temizlik):**
   `CTRON_SYSFS_ROOT` sahte `/sys`+`/proc` testleri +
   `scripts/tui_smoke.py --offline`, `.github/workflows/ci.yml`
   (`gcc`+`clang`, `HARDEN=1`, UBSan/LSan, `clang --analyze`, `shellcheck`,

@@ -5,7 +5,29 @@
 
 ---
 
-## Latest session — 2026-11-25 (Fan curve subsystem overhaul & Saved Fan Curves in `4 Snapshots`)
+## Latest session — 2026-11-25 (`v0.13.0` release: Power `r` revert, honest PPT limits, same-boot memory & Boot snapshot)
+
+**Antigravity / Kerempkl / FA608PP** — closed the `1 Power` revert gaps, added honest same-boot memory (`boot_id`) for write-only PPT and GPU clock lock without auto-writing on TUI open, and added optional `Boot snapshot` selection in `,` Preferences + `ctron --apply-startup`:
+
+- **`1 Power` / `CORE LIMITS` / `3 Display & Light` revert & honest PPT (`panel_workspace.c`, `editor_corefreq.c`, `control.{h,c}`, `cmds.c`, `panel_profiles.c`, `ui_internal.h`):**
+  - Added `pw_ppt_base()` and unified `pw_revert_all()` (`hw_refresh_live` + full Power + `CORE LIMITS` revert + toast/log), wired to `r` in both `1 Power` and inline `CORE LIMITS` (Snapshot Editor's `prof_in_cores` keeps `panel_profiles_cores_reload()`).
+  - When no PPT has been applied since boot and kernel read-back is unknown, `pw_ppt_base()` returns `0/0/0` so startup and `r` show honest `--` (no fake `45/55/55 W` or highlighted `Q45` pill); stepping from `--` seeds `45/55/55` and displays `-- → 45 W ●`, `e` opens an empty input instead of `"0"`, and `r` reverts cleanly back to `--`.
+  - `ctrl_ppt_limits()` now returns `bool` (`true` only when all three `asus-armoury` `max_value` attributes are readable from BIOS). When BIOS returns `ENODEV` (confirmed in live `7.3.1-1-cachyos` `asus-armoury.ko.zst` — `FA608PP` is absent from its DMI table), `PPT limits` displays `-- (BIOS limits unavailable)` and both TUI (`PW_PPT_LIMITS`) and CLI (`--ppt off` / `--dry-run`) refuse instead of writing guessed `90/120/120 W`; `--doctor` / `--doctor --json` report `ppt limits` status.
+  - Cleared `ctl_mode_pick` on revert, added `fmt_val_ppt()` showing `(set)` / `-- → N W ●`, fixed `PPT limits` `on → off → on` restoring baseline watts when BIOS limits exist, fixed missing `pw_recompute_dirty()` in `editor_corefreq_key()` (`Enter` exact and `a`/`A`), and added `lt_eff = 0` + `hw_refresh_live` + toast/log to `3 Display & Light` `r`.
+- **Same-boot memory & `Boot snapshot` (`hw.h`, `control.c`, `settings.{h,c}`, `profile.{h,c}`, `panel_settings.c`, `ui.c`, `main.c`, `contrib/`):**
+  - Added `hw->ppt_set_{valid,spl,sppt,fppt,off}` and `hw->gpu_clock_from_mem` on `hw_state_t` (updated only on `rc == 0` in `control.c` — zero worker/UI data race, never wiped by `hw_refresh_live()`, and never fabricating live `hw->ppt_spl` in `--status --json`).
+  - Added `settings_boot_id()` (`/proc/sys/kernel/random/boot_id`), `g_prefs.startup_snapshot` (default `""` = `off`, strict path-traversal rejection in `settings_set_startup_snapshot()`), atomic `settings_on_snapshot_renamed()` / `settings_on_snapshot_deleted()` hooks in `profile_rename()`/`profile_delete()`, and `if (hw->cpu_mhz_limit <= 0)` guard in `settings_load()` (plus removed duplicate `settings_load()` in `ui_run()`).
+  - Added `Boot snapshot` row in `,` Preferences (`off` + reloaded `.ctr` list + `(missing!)` indicator, persisted immediately), `settings_save()` in `finalize_apply()` / CLI `snapshot apply` / `--mode` / `fancurve apply`, `ctron --apply-startup [--dry-run]`, `--doctor` / `--doctor --json` reporting, `contrib/ctron-startup.service` (`--user`), and `contrib/ctron-resume@.service` (system).
+- **Verification:** `make clean && make HARDEN=1 && make test` and standard `make clean && make && make test` 0 warnings (including `check_boot_memory_and_startup_snap()` and BIOS-unavailable `ppt off` checks in `tests/test_core.c`); UBSan clean; `clang --analyze` 0 findings on all modified C files; `nm -u build/ctron` 0 `popen`/`pclose`/`system` symbols; `--doctor` / `--doctor --json` valid JSON; `README.md` `--help` block byte-identical; `make tuitest` **15/15 flows (65/65 assertions) PASS** (exit 0, including clean-boot unset PPT `--` + BIOS refusal + same-boot `(set)` + `Boot snapshot`).
+
+- **Release (`v0.13.0`):** bumped `VERSION` (`src/main.c`, `README.md`, `flake.nix`) to `0.13.0`, cut `CHANGELOG.md` `[0.13.0] — 2026-11-25`, shifted Packaging/`udev` to `v0.14.0` and Offline CI/Modular cleanup to `v0.15.0` in `NEXT.md`/`REVIEW.md`, and created annotated tag `v0.13.0` (ready for user to push).
+- **Next:** **`v0.14.0`** — Packaging, `udev` + `tmpfiles.d` privilege reduction, `man/ctron.1`, shell completions (`bash`/`zsh`/`fish`), `CONTRIBUTING.md`.
+
+Signed: **Antigravity** — `v0.13.0` release (Power `r` revert, honest PPT limits, same-boot memory & Boot snapshot).
+
+---
+
+## Previous session — 2026-11-25 (Fan curve subsystem overhaul & Saved Fan Curves in `4 Snapshots`)
 
 **Antigravity / Kerempkl / FA608PP** — audited the entire fan curve subsystem end-to-end against live FA608PP hardware (`/etc/asusd/fan_curves.ron` + `asus_custom_fan_curve` `hwmon11`), fixed 9 root-cause reliability/UX bugs, and added first-class **Saved Fan Curves** (`~/.config/ctron/fan_curves/*.fc`) with a split `4 Snapshots` workspace:
 

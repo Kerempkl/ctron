@@ -21,7 +21,7 @@
 #include "display/display.h"
 
 #define PROG "ctron"
-#define VERSION "0.12.0"
+#define VERSION "0.13.0"
 
 /* ---- output helpers ----------------------------------------------------- */
 
@@ -44,6 +44,7 @@ static void print_usage(const char *prog)
     printf("  --version, -V           version\n\n");
     printf("Modes, snapshots & fan curves:\n");
     printf("  --mode <name> [--dry-run]   apply (or preview) a shortcut bundle\n");
+    printf("  --apply-startup [--dry-run] apply configured Boot snapshot (no-op if off)\n");
     printf("  mode list|show <n>|add <name> <steps>|delete <n>\n");
     printf("  snapshot list   (alias: profile)\n");
     printf("  snapshot apply [--dry-run]|diff|export|delete <name>\n");
@@ -668,6 +669,8 @@ static int cmd_doctor(hw_state_t *hw, bool as_json)
     settings_dir(dir, sizeof(dir));
     const display_ops_t *d = display_get();
     bool ppt_sysfs = ut_path_exists("/sys/devices/platform/asus-nb-wmi/ppt_pl1_spl");
+    int smin, smax, pmin, pmax, fmin, fmax;
+    bool ppt_bios_lim = ctrl_ppt_limits(hw, &smin, &smax, &pmin, &pmax, &fmin, &fmax);
     const char *ppt_iface = hw->ppt_mode == HW_PPT_ARMOURY ? "armoury"
                           : hw->ppt_mode == HW_PPT_RYZENADJ ? "ryzenadj"
                           : "legacy";
@@ -694,8 +697,11 @@ static int cmd_doctor(hw_state_t *hw, bool as_json)
         printf(", \"aura\": %s", hw->has_aura ? "true" : "false");
         printf(", \"ppt_sysfs\": %s", ppt_sysfs ? "true" : "false");
         printf(", \"ppt_iface\": "); json_str(ppt_iface);
+        printf(", \"ppt_limits_bios\": %s", ppt_bios_lim ? "true" : "false");
         printf(", \"display_backend\": "); json_str(d ? d->name : NULL);
         printf(", \"sudo_nopass\": %s}", sudo_ok ? "true" : "false");
+        printf(",\n  \"startup_snapshot\": ");
+        json_str(g_prefs.startup_snapshot[0] ? g_prefs.startup_snapshot : NULL);
         printf(",\n  \"config_dir\": "); json_str(dir);
         printf("\n}\n");
         return 0;
@@ -737,8 +743,18 @@ static int cmd_doctor(hw_state_t *hw, bool as_json)
            hw->ppt_mode == HW_PPT_ARMOURY ? "armoury firmware-attributes"
            : hw->ppt_mode == HW_PPT_RYZENADJ ? "ryzenadj (sudo -n; no read-back)"
            : "legacy nb-wmi (unverifiable)");
+    if (ppt_bios_lim)
+        printf("  ppt limits    : armoury BIOS (%d–%d / %d–%d / %d–%d W)\n",
+               smin, smax, pmin, pmax, fmin, fmax);
+    else
+        printf("  ppt limits    : unavailable from BIOS (asus-armoury ENODEV; ppt off disabled)\n");
     printf("  display       : %s\n", d ? d->name : "no backend detected");
     printf("  sudo -n       : %s\n", sudo_ok ? "passwordless" : "unavailable");
+    if (!g_prefs.startup_snapshot[0])
+        printf("  boot snapshot : off\n");
+    else
+        printf("  boot snapshot : %s%s\n", g_prefs.startup_snapshot,
+               profile_exists(g_prefs.startup_snapshot) ? "" : " (missing!)");
     printf("  config        : %s\n", dir);
     return 0;
 }
@@ -873,8 +889,10 @@ static int cmd_profile(int argc, char **argv, hw_state_t *hw, bool dry_run)
         }
         if (rc != 0)
             fprintf(stderr, "%s\n", err[0] ? err : "apply failed");
-        if (rc == 0)
+        if (rc == 0) {
+            settings_save(hw);
             return 0;
+        }
         return ut_priv_denied() ? 3 : 1;
     }
     if (!strcmp(sub, "export")) {
@@ -933,8 +951,10 @@ static int cmd_fancurve(int argc, char **argv, hw_state_t *hw, bool dry_run)
         int rc = fcurve_apply(name, hw, err, sizeof(err));
         if (rc != 0)
             fprintf(stderr, "%s\n", err[0] ? err : "apply failed");
-        if (rc == 0)
+        if (rc == 0) {
+            settings_save(hw);
             return 0;
+        }
         return ut_priv_denied() ? 3 : 1;
     }
     if (!strcmp(sub, "export")) {
@@ -946,6 +966,45 @@ static int cmd_fancurve(int argc, char **argv, hw_state_t *hw, bool dry_run)
 
     fprintf(stderr, "unknown fancurve subcommand: %s\n", sub);
     return 2;
+}
+
+static int cmd_apply_startup(hw_state_t *hw, bool dry_run)
+{
+    if (!g_prefs.startup_snapshot[0]) {
+        if (dry_run)
+            printf("boot snapshot: off (nothing to apply)\n");
+        return 0;
+    }
+    const char *name = g_prefs.startup_snapshot;
+    if (!profile_exists(name)) {
+        fprintf(stderr, "ctron: boot snapshot '%s' not found\n", name);
+        return 1;
+    }
+    char err[128] = "";
+    if (dry_run) {
+        printf("boot snapshot: %s\n", name);
+        int rc = profile_dry_run(name, hw, stdout, err, sizeof(err));
+        if (rc != 0)
+            fprintf(stderr, "ctron: %s\n", err[0] ? err : "dry-run failed");
+        return rc == 0 ? 0 : 1;
+    }
+    ut_priv_denied_clear();
+    hw->fan_staged = false;
+    int rc = profile_import(name, hw, err, sizeof(err));
+    if (rc == 0 && hw->fan_staged) {
+        if (ctrl_fan_write(hw) != 0) {
+            rc = -1;
+            snprintf(err, sizeof(err), "fan curve write failed");
+        }
+    }
+    settings_save(hw);
+    if (rc != 0) {
+        fprintf(stderr, "ctron: boot snapshot '%s': %s\n",
+                name, err[0] ? err : "apply failed");
+        return ut_priv_denied() ? 3 : 1;
+    }
+    printf("boot snapshot '%s' applied\n", name);
+    return 0;
 }
 
 /* ---- flag → cmd_run bridge ------------------------------------------------ */
@@ -1083,6 +1142,8 @@ int main(int argc, char *argv[])
         hw_refresh_live(&hw);
         return cmd_doctor(&hw, opt_json);
     }
+    if (!strcmp(argv[1], "--apply-startup"))
+        return cmd_apply_startup(&hw, opt_dry_run);
     if (!strcmp(argv[1], "--mode") && argc > 2) {
         /* documented in the help text but never wired: the generic
          * flag path would call cmd_run("mode") which is not a key */
@@ -1110,8 +1171,10 @@ int main(int argc, char *argv[])
         else
             fprintf(stderr, "ctron: mode '%s' failed: %s\n", argv[2],
                     err[0] ? err : "?");
-        if (rc == 0)
+        if (rc == 0) {
+            settings_save(&hw);
             return 0;
+        }
         return ut_priv_denied() ? 3 : 1;
     }
     if (!strcmp(argv[1], "--setup")) {

@@ -9,12 +9,13 @@
 
 /* Preferences & CLI shortcuts modal (','). Esc or ',' closes.
  *
- *   PREFERENCES       startup view / theme / poll interval / write method / gpu temp
+ *   PREFERENCES       startup view / boot snapshot / theme / poll / write / gpu temp
  *   CLI SHORTCUTS     modes.ini list — Enter apply, n new, e edit, dd del
  *   MODE EDITOR       name + steps fields (runs inside the modal) */
 
 enum {
     SET_STARTUP = 0,
+    SET_BOOT_SNAP,
     SET_THEME,
     SET_POLL,
     SET_WRITE,
@@ -37,6 +38,7 @@ static const char *onoff(bool v) { return v ? "on" : "off"; }
 
 void settings_open(void)
 {
+    panel_profiles_reload();
     g_ui.mode_n = modes_load(g_ui.modes, MODES_MAX);
     if (g_ui.mode_n <= 0) {
         g_ui.set_mode_sel = 0;
@@ -69,6 +71,30 @@ static void row_apply(int row, int dir)
         g_prefs.startup_view = (g_prefs.startup_view + dir + VIEW_COUNT) % VIEW_COUNT;
         ut_log("startup view: %s", VIEW_NAMES[g_prefs.startup_view]);
         break;
+    case SET_BOOT_SNAP: {
+        int total = 1 + g_ui.prof_n;
+        int cur = 0;
+        bool found = !g_prefs.startup_snapshot[0];
+        if (!found) {
+            for (int i = 0; i < g_ui.prof_n; i++) {
+                if (!strcmp(g_ui.profs[i], g_prefs.startup_snapshot)) {
+                    cur = i + 1;
+                    found = true;
+                    break;
+                }
+            }
+        }
+        if (total == 1 && found) {
+            ut_log("boot snapshot: off (save a snapshot in 4 Snapshots first)");
+            break;
+        }
+        int next = !found ? 0 : (cur + dir + total) % total;
+        settings_set_startup_snapshot(next == 0 ? "" : g_ui.profs[next - 1]);
+        settings_save(g_ui.hw);
+        ut_log("boot snapshot: %s",
+               g_prefs.startup_snapshot[0] ? g_prefs.startup_snapshot : "off");
+        break;
+    }
     case SET_THEME:
         g_prefs.theme = (g_prefs.theme + dir + THEME_COUNT) % THEME_COUNT;
         break;
@@ -109,35 +135,59 @@ static void draw_settings(struct ncplane *n, const rect_t *r)
 
     ui_window(n, r, "PREFERENCES");
 
-    char pollv[16];
+    char pollv[16], bootv[80];
     snprintf(pollv, sizeof(pollv), "%d ms", g_prefs.poll_ms);
+    if (!g_prefs.startup_snapshot[0]) {
+        snprintf(bootv, sizeof(bootv), "%s",
+                 g_ui.prof_n > 0 ? "off" : "off (no snapshots yet)");
+    } else {
+        bool exists = false;
+        for (int i = 0; i < g_ui.prof_n; i++) {
+            if (!strcmp(g_ui.profs[i], g_prefs.startup_snapshot)) {
+                exists = true;
+                break;
+            }
+        }
+        if (exists)
+            snprintf(bootv, sizeof(bootv), "%s (--apply-startup)",
+                     g_prefs.startup_snapshot);
+        else
+            snprintf(bootv, sizeof(bootv), "%s (missing!)",
+                     g_prefs.startup_snapshot);
+    }
 
     const char *vals[SET_ROW_COUNT] = {
         VIEW_NAMES[ut_clamp_i(g_prefs.startup_view, 0, VIEW_COUNT - 1)],
+        bootv,
         THEME_NAMES[ut_clamp_i(g_prefs.theme, 0, THEME_COUNT - 1)],
         pollv,
         WRITE_OPTS[ut_clamp_i(g_prefs.write_pref, 0, 2)],
         onoff(g_prefs.gpu_temp),
     };
     static const char *const labels[SET_ROW_COUNT] = {
-        "Startup view", "Theme", "Poll interval",
+        "Startup view", "Boot snapshot", "Theme", "Poll interval",
         "Write method", "GPU temp (nvidia-smi)",
     };
 
     int y = r->y + 1;
+    int last = r->y + r->h - 1;
     ui_putln(n, x, y, w,
              "j/k/Tab move · h/l change · Enter apply · Esc/, close · saves on quit",
              pal->muted, false);
     y += 2;
 
-    ui_putln(n, x, y, w, "PREFERENCES", pal->accent, true);
-    y += 1;
-    for (int i = 0; i < SET_ROW_COUNT; i++, y++) {
+    if (y < last) {
+        ui_putln(n, x, y, w, "PREFERENCES", pal->accent, true);
+        y += 1;
+    }
+    for (int i = 0; i < SET_ROW_COUNT && y < last; i++, y++) {
         ui_row(n, x, y, w, labels[i], vals[i],
                !g_ui.set_in_modes && g_ui.set_sel == i);
         tgt_register(x, y, w, 1, TGT(TGT_PANEL_SETTINGS, ACT_SET_ROW_BASE + i));
     }
-    y += 2;
+    y += 1;
+    if (y >= last)
+        return;
 
     if (g_ui.set_del_arm >= g_ui.mode_n || g_ui.set_del_arm != g_ui.set_mode_sel)
         g_ui.set_del_arm = -1;
@@ -153,7 +203,6 @@ static void draw_settings(struct ncplane *n, const rect_t *r)
                  pal->accent, true);
     }
     y += 1;
-    int last = r->y + r->h - 1;
     int vis = last - y;
     if (vis < 1)
         vis = 1;
