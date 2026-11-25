@@ -192,9 +192,24 @@ else
     exit 1
 fi
 
+# ctron itself: a user install lives in ~/.local/bin and that copy wins,
+# because it is the one `make install` maintains; a package installs to
+# /usr/bin instead, so fall back to whatever PATH resolves — the same
+# binary typing `ctron` would start.
+if [ -x "$HOME/.local/bin/ctron" ]; then
+    ctron_bin="$HOME/.local/bin/ctron"
+else
+    ctron_bin=$(command -v ctron 2>/dev/null)
+fi
+if [ -z "$ctron_bin" ]; then
+    rm -f "$STAMP"
+    echo "ctron-toggle: ctron not found (expected ~/.local/bin/ctron or on PATH)" >&2
+    exit 1
+fi
+
 # Not exec: the toggle stays alive briefly to watch for the TUI and
 # clear the stamp itself. The terminal is backgrounded and survives.
-"$term" -e "$HOME/.local/bin/ctron" &
+"$term" -e "$ctron_bin" &
 i=0
 while [ "$i" -lt 8 ]; do
     pgrep -x ctron >/dev/null 2>&1 && break

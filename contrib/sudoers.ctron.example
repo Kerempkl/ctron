@@ -1,0 +1,55 @@
+# ctron — source to copy into /etc/sudoers.d/ctron
+#
+# Do not write that file directly. Open it with
+#
+#     sudo visudo -f /etc/sudoers.d/ctron
+#
+# and paste: visudo refuses to save a file with a syntax error, and a
+# broken sudoers file takes sudo down with it. The dot in this file's
+# name is deliberate — sudo ignores files with a dot in their name, so
+# the copy has to be called plain "ctron". Confirm with `sudo -n -l`
+# afterwards.
+#
+# This is the ruleset of SECURITY.md section 4; the notes there apply,
+# above all the daeboard warning in 4.1 and the merged-usr note.
+#
+# Replace youruser. Spelling matters: sudo matches the literal command
+# ctron sends, so check yours with `command -v tee`,
+# `command -v nvidia-smi` and `command -v ryzenadj`.
+#
+# Everything ctron runs with sudo -n, and nothing else:
+#   tee <sysfs path>          a sysfs write the direct write could not do
+#   nvidia-smi -lgc / -rgc    the GPU core-clock lock
+#   /usr/local/bin/ctron-ppt  the CPU watt limits, through the wrapper
+# asusctl, busctl, kscreen-doctor and hyprctl are called WITHOUT sudo.
+
+Cmnd_Alias CTRON_SYSFS = /usr/sbin/tee /sys/devices/platform/asus-nb-wmi/*, \
+                         /usr/sbin/tee /sys/class/firmware-attributes/asus-armoury/*, \
+                         /usr/sbin/tee /sys/devices/system/cpu/*, \
+                         /usr/sbin/tee /sys/firmware/acpi/platform_profile, \
+                         /usr/sbin/tee /sys/class/power_supply/*, \
+                         /usr/sbin/tee /sys/class/leds/*, \
+                         /usr/sbin/nvidia-smi -lgc *, \
+                         /usr/sbin/nvidia-smi -rgc
+
+# CPU watt limits through the three-integer wrapper (SECURITY.md 4.3,
+# contrib/ctron-ppt). Without the wrapper, ctron needs ryzenadj itself:
+# replace the CTRON_PPT line below by
+#     youruser ALL=(root) NOPASSWD: /usr/bin/ryzenadj *
+# and accept that every ryzenadj flag is then allowed (SECURITY.md 2.1).
+
+youruser ALL=(root) NOPASSWD: CTRON_SYSFS, /usr/local/bin/ctron-ppt
+
+# Once contrib/99-ctron.rules and contrib/ctron.tmpfiles.conf give your
+# group write access to the sysfs nodes (SECURITY.md 4.6), the five tee
+# lines can go; keep the two nvidia-smi lines.
+#
+# daeboard is deliberately not here: db_start runs a binary from a
+# user-writable path and db_install runs ~/Documents/daeboard/install.sh,
+# so a rule for either hands root to whatever sits there (SECURITY.md
+# 4.1). Only if that is accepted:
+# youruser ALL=(root) NOPASSWD: /usr/sbin/systemd-run --unit=daeboard --collect *
+#
+# NixOS has no sudoers.d: the same rules go into security.sudo.extraRules,
+# with the paths spelled as sudo resolves them there
+# (/run/current-system/sw/bin/...). Unverified — SECURITY.md 4.4.

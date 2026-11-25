@@ -1,0 +1,61 @@
+# ctron: group-write on the sysfs nodes ctron writes, so that the everyday
+# writes need no `sudo -n tee` rule (SECURITY.md, section 4.6).
+#
+# Install together with ctron.tmpfiles.conf:
+#   sudo groupadd --system ctron && sudo usermod -aG ctron "$USER"
+#   sudo install -m 644 ctron.tmpfiles.conf /etc/tmpfiles.d/ctron.conf
+#   sudo install -m 644 99-ctron.rules /etc/udev/rules.d/99-ctron.rules
+#   sudo udevadm control --reload && sudo systemd-tmpfiles --create
+# Log out and back in for the group to apply.
+#
+# Why a rule at all: the ASUS nodes do not exist when
+# systemd-tmpfiles-setup.service runs at boot. Measured on an FA608PP
+# (kernel 7.3.1, systemd 262): tmpfiles had finished at 2.2 s, asus_wmi
+# initialised at 5.1 s and created its nodes after that. So this rule
+# waits for the devices and acts when they appear.
+#
+# Why RUN and not GROUP= / MODE=: those keys apply to the device node in
+# /dev only. sysfs attributes keep their kernel permissions (on the same
+# machine /dev/rtc0 is root:clock 0660 while /sys/class/rtc/rtc0/* stays
+# root:root), so the change has to be an explicit chgrp/chmod.
+#
+# Everything here is idempotent and only ever widens access for one
+# group. The tools are named by absolute path because udev does not
+# search PATH (merged-usr layout: Arch, Debian 12+, Fedora, openSUSE).
+
+# The group that gets write access, the only thing to edit here. It must
+# match the group in ctron.tmpfiles.conf.
+ENV{CTRON_GROUP}="ctron"
+
+ACTION=="remove", GOTO="ctron_end"
+
+# Fan curves: exactly the pwm points and enables of the
+# asus_custom_fan_curve hwmon. The sibling hwmon "asus" carries files with
+# the same names and another meaning, which is why the grant is per
+# device. These files exist when the device is announced (the driver
+# registers all of its attribute groups at once), so this runs at once.
+SUBSYSTEM=="hwmon", KERNELS=="asus-nb-wmi", ATTR{name}=="asus_custom_fan_curve", \
+  RUN+="/usr/bin/find /sys$devpath -maxdepth 1 ( -name 'pwm[12]_enable' -o -name 'pwm[12]_auto_point[1-8]_temp' -o -name 'pwm[12]_auto_point[1-8]_pwm' ) -exec /usr/bin/chgrp $env{CTRON_GROUP} {} + -exec /usr/bin/chmod g+w {} +"
+
+# The other asus-nb-wmi nodes are listed in ctron.tmpfiles.conf. Run that
+# file again once the driver has finished probing: the platform attributes
+# and the platform profile are created during the probe, after this
+# device's own "add" event; asus-armoury creates its attributes after
+# announcing its device; and the ASUS battery extension adds
+# charge_control_end_threshold to a battery that was announced earlier.
+# A one-shot timer does the waiting (RUN must stay short) and vanishes.
+SUBSYSTEM=="hwmon", KERNELS=="asus-nb-wmi", \
+  RUN+="/usr/bin/systemd-run --quiet --collect --on-active=1s /usr/bin/systemd-tmpfiles --create --prefix=/sys"
+
+# Battery charge limit on any machine. "change" is included because the
+# attribute may be added after the battery's "add" event (see above), and
+# a later status change is the next moment udev hears about the battery.
+ACTION=="add|change", SUBSYSTEM=="power_supply", KERNEL=="BAT*", ATTR{charge_control_end_threshold}=="*", \
+  RUN+="/usr/bin/systemd-tmpfiles --create --prefix=/sys/class/power_supply"
+
+# Platform profile on other vendors (kernels with the platform-profile
+# class, 6.15 and newer).
+SUBSYSTEM=="platform-profile", \
+  RUN+="/usr/bin/systemd-tmpfiles --create --prefix=/sys/firmware"
+
+LABEL="ctron_end"

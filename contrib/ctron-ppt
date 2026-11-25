@@ -1,0 +1,37 @@
+#!/bin/sh
+# ctron-ppt: the least-privilege door for ctron's CPU watt limits.
+#
+# Root-owned, mode 0755, installed at /usr/local/bin/ctron-ppt (the path
+# ctron probes first), and allowed through sudoers as exactly this
+# command, with no arguments spelled out:
+#
+#     youruser ALL=(root) NOPASSWD: /usr/local/bin/ctron-ppt
+#
+# With that rule ctron never runs ryzenadj itself, and what sudo can
+# reach as root shrinks from "ryzenadj with any flag" (--tctl-temp
+# included) to three watt values. ctron calls it as
+#
+#     ctron-ppt <SPL mW> <SPPT mW> <FPPT mW>
+#
+# with three integers it validated itself. Nothing here trusts that:
+# anything but exactly three positive decimal integers is refused, and
+# the program that runs is the one named below, by absolute path.
+#
+# SECURITY.md section 4.3; contrib/sudoers.ctron.example has the rule.
+
+# Arch/CachyOS: /usr/bin/ryzenadj. Anywhere else put the LITERAL path
+# here (`command -v ryzenadj`); this script does not search PATH.
+RYZENADJ=/usr/bin/ryzenadj
+
+[ "$#" -eq 3 ] || exit 2
+for mw in "$1" "$2" "$3"; do
+    # decimal digits only: no sign, no space, nothing a parser would
+    # read twice. At most six of them (999 W is past any laptop), and a
+    # limit of zero is not a limit
+    case "$mw" in
+        ''|*[!0-9]*) exit 2 ;;
+    esac
+    [ "${#mw}" -le 6 ] && [ "$mw" -gt 0 ] || exit 2
+done
+[ -x "$RYZENADJ" ] || exit 3
+exec "$RYZENADJ" -a "$1" -c "$2" -b "$3"

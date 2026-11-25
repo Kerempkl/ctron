@@ -1,0 +1,21 @@
+# ctron — launcher entry.
+#
+# Packages install it as /usr/share/applications/ctron.desktop. For a
+# user install copy it to ~/.local/share/applications/, where a file of
+# the same name wins over the packaged one.
+#
+# Terminal=true opens ctron in the default terminal. For open/close
+# toggle behaviour under KDE or Hyprland, point Exec at ctron-toggle
+# instead and set Terminal=false (README, "KDE: Armoury Crate (M4) key").
+[Desktop Entry]
+Type=Application
+Name=ctron
+Comment=ASUS laptop control center
+Comment[tr]=ASUS dizüstü bilgisayar kontrol merkezi
+Exec=ctron
+TryExec=ctron
+Icon=utilities-terminal
+Terminal=true
+Categories=System;Monitor;
+Keywords=asus;fan;power;cpu;gpu;battery;telemetry;tui;laptop;
+Keywords[tr]=asus;fan;güç;işlemci;pil;telemetri;dizüstü;

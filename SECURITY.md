@@ -173,8 +173,11 @@ Other privileged operations:
 Everything here is derived from what the binary actually execs with
 `sudo -n` — nothing else needs root. Apply with
 `visudo -f /etc/sudoers.d/ctron` (mode 0440) and verify per §4.5.
-*(Note: Settings `"no sudo"` currently gates `ut_priv_write` only; gating
-the remaining `sudo -n` paths is tracked in `REVIEW.md` 1.11.)*
+`contrib/sudoers.ctron.example` holds the §4.2 ruleset as a file to copy
+from. The Settings `"no sudo"` preference gates every one of these
+paths (since `v0.10.0`): with it set, each falls back from a denied
+direct write to a clean error instead of `sudo -n`. If you install the
+group-write rules of §4.6, the `tee` lines become unnecessary.
 
 ### 4.1 What ctron runs with sudo
 
@@ -232,7 +235,10 @@ string, so `ryzenadj *` still allows *other* ryzenadj flags if typed
 manually (e.g. `--tctl-temp`) — that is §2.1's escalation concern. If
 your `/usr/bin/tee` spelling differs, adjust with
 `command -v tee`. Kbd brightness and most LED nodes are usually
-user-writable, so that line is belt-and-braces.
+user-writable, so that line is belt-and-braces. The cpu line is the
+widest: a sudoers `*` matches `/` too, so `tee /sys/devices/system/cpu/*`
+covers every file under it. Section 4.6 replaces the five `tee` lines
+with group-write on exactly the nodes ctron writes.
 
 ### 4.3 Stricter variant: the `ctron-ppt` wrapper
 
@@ -258,6 +264,16 @@ installed + allowed wrapper means ryzenadj is never invoked directly
 by ctron. A missing wrapper or a denied sudo rule falls through to
 the direct candidates (§4.1) — no configuration needed.
 
+`contrib/ctron-ppt` is this wrapper as a file. It is stricter than the
+snippet: exactly three positive decimal integers of at most six digits,
+nothing else, and it names ryzenadj by absolute path in one `RYZENADJ=`
+line at the top (Arch and CachyOS: `/usr/bin/ryzenadj`; elsewhere put
+the literal path there — it does not search `PATH`). Install it with
+
+```sh
+sudo install -o root -g root -m 0755 contrib/ctron-ppt /usr/local/bin/ctron-ppt
+```
+
 ### 4.4 NixOS (FA507NVR)
 
 Store paths change per generation, so a literal sudoers path goes
@@ -266,7 +282,12 @@ with the generation-independent spelling
 (`/run/current-system/sw/bin/...`), or package the §4.3 wrapper and
 allow only that. This half is unverified on the NixOS machine (roadmap
 FAZ 2, Arcioth); until it is, treat any NixOS host's sudoers state as
-machine-local and re-check the rule spelling after each rebuild.
+machine-local and re-check the rule spelling after each rebuild. The
+same goes for §4.6: there is no `/etc/udev/rules.d` or `/etc/tmpfiles.d`
+to drop a file into, so the node list of `contrib/ctron.tmpfiles.conf`
+belongs in `systemd.tmpfiles.rules` and the triggers of
+`contrib/99-ctron.rules` in `services.udev.extraRules`, with
+`/usr/bin/systemd-tmpfiles` spelled as the system resolves it.
 
 ### 4.5 Verifying an install
 
@@ -276,3 +297,71 @@ sudo -n -l                          # the rules as sudo sees them
 ./ctron --doctor                    # "sudo -n : passwordless"
 ./ctron --freq <current-ceiling>    # real round-trip: writes and reads back
 ```
+
+### 4.6 Group-write instead of the `tee` lines (`udev` + `tmpfiles.d`)
+
+The five `tee` lines of §4.2 exist because sysfs nodes are owned by
+root. Giving one group write access to exactly the nodes ctron writes
+removes that need: the direct write in `ut_priv_write` then succeeds and
+`sudo -n` is never reached for sysfs. What is left for sudo is the PPT
+write (§4.3) and the GPU clock lock.
+
+`contrib/ctron.tmpfiles.conf` lists the nodes; `contrib/99-ctron.rules`
+keeps the list in force at boot. Install both:
+
+```sh
+sudo groupadd --system ctron && sudo usermod -aG ctron "$USER"
+sudo install -m 644 contrib/ctron.tmpfiles.conf /etc/tmpfiles.d/ctron.conf
+sudo install -m 644 contrib/99-ctron.rules /etc/udev/rules.d/99-ctron.rules
+sudo udevadm control --reload && sudo systemd-tmpfiles --create
+```
+
+Log out and back in for the group to apply. To use a group you already
+belong to, replace `ctron` in both files. Then check:
+
+```sh
+id -nG                                              # lists the group
+ls -l /sys/devices/system/cpu/cpufreq/boost         # -rw-rw---- root <group>
+ls -l /sys/devices/platform/asus-nb-wmi/panel_od    # same (after a reboot at the latest)
+ctron --freq <current-ceiling>                      # direct write, no sudo
+```
+
+**What it grants.** Write access, for members of the group, to every
+thread's frequency ceiling and EPP, the global boost switch, the
+platform profile, the asus-nb-wmi PPT / overdrive / NVIDIA nodes, the
+asus-armoury PPT values, the battery charge limit, and the fan-curve
+points. Nothing else: neighbours of those files in the same device
+directories (`gpu_mux_mode`, `driver_override`, cpu `online`, …) keep
+their kernel permissions.
+
+**Why two files.** `systemd-tmpfiles-setup.service` runs once, early.
+Measured on an FA608PP (kernel 7.3.1, systemd 262): it had finished at
+2.2 s while `asus_wmi` only initialised at 5.1 s and created its nodes
+after that. The cpufreq and boost nodes exist from the first moment of
+boot, so tmpfiles handles them. The ASUS nodes are handled by the udev
+rule: when the fan-curve hwmon appears it grants exactly that hwmon's
+point and enable files, and when either asus-nb-wmi hwmon appears it
+starts a one-shot timer that runs the tmpfiles file once more a second
+later, after the driver has finished probing. The fan-curve grant is
+per device on purpose — the sibling hwmon carries files with the same
+names and another meaning.
+
+**Why `RUN` with `chgrp`/`chmod`, not `GROUP=`/`MODE=`.** udev applies
+those keys to the device node in `/dev` only; sysfs attributes keep the
+kernel's permissions (on the same machine `/dev/rtc0` is `root:clock`
+`0660` while `/sys/class/rtc/rtc0/*` stays `root:root`).
+
+**Not covered.** The keyboard backlight: OpenRGB's udev rule opens that
+node to everyone where it is installed, and ctron must not narrow it
+under them — keep the `leds` `tee` line for `--kbd`, or skip the
+feature. `nvidia-smi`, `ryzenadj` and `ctron-ppt` are programs, not
+nodes.
+
+**Verification status.** The tmpfiles lines were dry-run against the
+live FA608PP tree and applied on a scratch root with the real
+`systemd-tmpfiles`, including the `--prefix=` calls the rule makes; the
+rule passes `udevadm verify`, and its `find` expression matches exactly
+the 34 fan-curve files of the device and nothing beside them. What has
+**not** been exercised is the boot path itself — udev running `RUN`
+and the timer firing — because that needs root: confirm it with the
+`ls -l` lines above after the first reboot.
