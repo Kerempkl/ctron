@@ -17,6 +17,8 @@
     X(TS_CPU_TEMP, "cpu_temp", 0, 100)                                     \
     X(TS_CPU_CCD1, "cpu_ccd1_temp", 0, 100)                                \
     X(TS_CPU_CCD2, "cpu_ccd2_temp", 0, 100)                                \
+    X(TS_CPU_CORES_MW, "cpu_cores_mw", TELEM_AUTO, TELEM_AUTO)             \
+    X(TS_CPU_SOC_MW, "cpu_soc_mw", TELEM_AUTO, TELEM_AUTO)                 \
     X(TS_CPU_MHZ, "cpu_mhz", TELEM_AUTO, TELEM_AUTO)                       \
     X(TS_CPU_LOAD, "cpu_load", TELEM_AUTO, TELEM_AUTO)                     \
     X(TS_CPU_AVG_UTIL, "cpu_avg_util", 0, 100)                             \

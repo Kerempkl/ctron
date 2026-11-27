@@ -84,12 +84,27 @@ int hw_ccd_stats(const int *core_ccd, const int *core_util,
                  int *avg_util_out, int *peak_mhz_out);
 /* parse k10temp Tccd label ("Tccd1".."Tccd8") -> 1..8, else -1. Pure. */
 int hw_parse_tccd_label(const char *label);
-/* parse ryzen_smu PM table blob for per-core temperatures (millidegrees °C).
- * Version-gated (0x00540208 = Zen 4 Dragon Range 16-core, float[16] @ 0x528).
- * Writes -1 for invalid entries; returns valid core count (0 if unsupported). Pure. */
+/* Parsed subset of ryzen_smu PM table (version-gated, honest -1 when unknown). */
+typedef struct {
+    int pkg_mw;             /* SOCKET_POWER, mW (-1 unknown) */
+    int cores_mw;           /* VDDCR_VDD (CPU cores rail), mW (-1 unknown) */
+    int soc_mw;             /* VDDCR_SOC (SoC / I/O die / iGPU rail), mW (-1) */
+    int core_temp_mc[16];   /* per-core temperature, millidegrees °C (-1) */
+    int core_pwr_mw[16];    /* per-core power, mW (-1) */
+    int valid_temps;
+    int valid_pwrs;
+} hw_smu_pm_t;
+
+/* parse ryzen_smu PM table blob (0x00540208 = Zen 4 Dragon Range 16-core:
+ * VDDCR_VDD @ 0x050, VDDCR_SOC @ 0x054, SOCKET_POWER @ 0x068,
+ * CORE_POWER[16] @ 0x4a8, CORE_TEMP[16] @ 0x528). Returns 0 on supported
+ * table, -1 when unsupported/truncated. Pure. */
+int hw_parse_ryzen_smu_pm(unsigned ver, const unsigned char *pm,
+                          size_t pm_len, hw_smu_pm_t *out);
+/* convenience wrapper for per-core temperatures only; returns valid count. Pure. */
 int hw_parse_ryzen_smu_core_temps(unsigned ver, const unsigned char *pm,
                                   size_t pm_len, int *out_mc, int max_cores);
-/* true when `ver` is a PM table version with verified per-core temp offsets */
+/* true when `ver` is a PM table version with verified offsets */
 bool hw_ryzen_smu_ver_supported(unsigned ver);
 
 /* pstate/throttle-reason labels, bit i = 1u<<i in hw->gpu_throttle,
@@ -229,7 +244,12 @@ typedef struct hw_state {
     int core_mhz[HW_CPU_MAX];
     int core_temp_mc[HW_CPU_MAX]; /* per-core temp, millidegrees °C (-1 unknown),
                                      from ryzen_smu pm_table when loaded */
+    int core_pwr_mw[HW_CPU_MAX];  /* per-core power, mW (-1 unknown) */
     bool has_core_temp;           /* true when at least one core_temp_mc >= 0 */
+    bool has_core_pwr;            /* true when at least one core_pwr_mw >= 0 */
+    int cpu_pkg_mw;               /* ryzen_smu SOCKET_POWER, mW (-1 unknown) */
+    int cpu_cores_mw;             /* ryzen_smu VDDCR_VDD (CPU cores), mW (-1) */
+    int cpu_soc_mw;               /* ryzen_smu VDDCR_SOC (SoC/iGPU), mW (-1) */
     unsigned ryzen_smu_pm_ver;    /* ryzen_smu pm_table_version, 0 when absent */
     int busiest_util;          /* highest thread utilisation, % (-1) */
     hw_paths_t paths;                         /* cached device paths */

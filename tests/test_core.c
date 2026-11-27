@@ -1234,6 +1234,10 @@ static void check_telem(void)
           "telem ccd1 key");
     CHECK(telem_key(TS_CPU_CCD2) && !strcmp(telem_key(TS_CPU_CCD2), "cpu_ccd2_temp"),
           "telem ccd2 key");
+    CHECK(telem_key(TS_CPU_CORES_MW) && !strcmp(telem_key(TS_CPU_CORES_MW), "cpu_cores_mw"),
+          "telem cpu_cores_mw key");
+    CHECK(telem_key(TS_CPU_SOC_MW) && !strcmp(telem_key(TS_CPU_SOC_MW), "cpu_soc_mw"),
+          "telem cpu_soc_mw key");
     telem_push(TS_CPU_CCD1, 82.5);
     telem_push(TS_CPU_CCD1, 84.5);
     telem_push(TS_CPU_CCD1, -1);
@@ -1476,6 +1480,32 @@ static void check_telem_hw(void)
         CHECK(hw_parse_ryzen_smu_core_temps(0x00540208u, NULL, sizeof blob,
                                             out, 16) == 0,
               "smu null blob rejected");
+
+        /* full PM table struct: rails (0x050/0x054/0x068) + CORE_POWER[16] @ 0x4a8 */
+        memset(blob, 0, sizeof blob);
+        float v_cores = 28.13f, v_soc = 11.08f, v_pkg = 49.81f;
+        memcpy(blob + 0x050, &v_cores, 4);
+        memcpy(blob + 0x054, &v_soc, 4);
+        memcpy(blob + 0x068, &v_pkg, 4);
+        float pwr[16] = {
+            2.92f, 2.13f, 9.81f, 0.0f, -1.0f, 150.0f, 0.84f, 2.13f,
+            0.05f, 0.05f, 0.05f, 0.05f, 9.96f, 1.25f, 0.06f, 0.05f
+        };
+        memcpy(blob + 0x4a8, pwr, sizeof pwr);
+        memcpy(blob + 0x528, sample, sizeof sample);
+        hw_smu_pm_t pm_out;
+        CHECK(hw_parse_ryzen_smu_pm(0x00540208u, blob, sizeof blob, &pm_out) == 0,
+              "smu pm parse ok");
+        CHECK(pm_out.cores_mw == 28130 && pm_out.soc_mw == 11080 &&
+                  pm_out.pkg_mw == 49810,
+              "smu pm power rails");
+        CHECK(pm_out.valid_pwrs == 14 && pm_out.core_pwr_mw[2] == 9810 &&
+                  pm_out.core_pwr_mw[3] == 0 && pm_out.core_pwr_mw[12] == 9960,
+              "smu pm per-core watts");
+        CHECK(pm_out.core_pwr_mw[4] == -1 && pm_out.core_pwr_mw[5] == -1,
+              "smu pm invalid core power rejected");
+        CHECK(pm_out.valid_temps == 13 && pm_out.core_temp_mc[0] == 76100,
+              "smu pm temps parsed alongside power");
     }
 
     /* /proc/stat per-cpu jiffies: busy = user+nice+system+irq+softirq+

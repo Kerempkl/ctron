@@ -968,11 +968,59 @@ bool hw_ryzen_smu_ver_supported(unsigned ver)
     return ver == 0x00540208u;
 }
 
-/* ryzen_smu PM table per-core temperatures (millidegrees °C).
+static int pm_read_w_mw(const unsigned char *pm, size_t off, float max_w)
+{
+    float f = 0.0f;
+    memcpy(&f, pm + off, sizeof f);
+    /* >= 0.0f also rejects NaN (IEEE 754) */
+    if (f >= 0.0f && f < max_w)
+        return (int)(f * 1000.0f + 0.5f);
+    return -1;
+}
+
+/* ryzen_smu PM table parser (power rails + per-core temps & power).
  * Version-gated so an unknown AGESA layout never decodes garbage:
  *   0x00540208 (Raphael / Dragon Range / Dragon Range Refresh, 16-core):
- *     16 little-endian IEEE-754 floats at byte offset 0x528 (live-verified
- *     2026-11-27 on FA608PP Ryzen 9 8940HX via core-pinned load tests). */
+ *     0x050 = VDDCR_VDD (CPU cores rail W), 0x054 = VDDCR_SOC (SoC/iGPU W),
+ *     0x068 = SOCKET_POWER (total package W), 0x4a8 = CORE_POWER[16] (W),
+ *     0x528 = CORE_TEMP[16] (°C) — all live-verified 2026-11-27 on FA608PP
+ *     Ryzen 9 8940HX via core-pinned load tests. */
+int hw_parse_ryzen_smu_pm(unsigned ver, const unsigned char *pm,
+                          size_t pm_len, hw_smu_pm_t *out)
+{
+    if (!out)
+        return -1;
+    out->pkg_mw = out->cores_mw = out->soc_mw = -1;
+    out->valid_temps = out->valid_pwrs = 0;
+    for (int i = 0; i < 16; i++) {
+        out->core_temp_mc[i] = -1;
+        out->core_pwr_mw[i] = -1;
+    }
+    if (!pm || ver != 0x00540208u)
+        return -1;
+    if (pm_len < 0x528u + 16u * sizeof(float))
+        return -1;
+
+    out->cores_mw = pm_read_w_mw(pm, 0x050u, 500.0f);
+    out->soc_mw   = pm_read_w_mw(pm, 0x054u, 200.0f);
+    out->pkg_mw   = pm_read_w_mw(pm, 0x068u, 500.0f);
+
+    for (int i = 0; i < 16; i++) {
+        int pw = pm_read_w_mw(pm, 0x4a8u + (size_t)i * sizeof(float), 100.0f);
+        if (pw >= 0) {
+            out->core_pwr_mw[i] = pw;
+            out->valid_pwrs++;
+        }
+        float f = 0.0f;
+        memcpy(&f, pm + 0x528u + (size_t)i * sizeof(float), sizeof f);
+        if (f > 0.0f && f < 150.0f) {
+            out->core_temp_mc[i] = (int)(f * 1000.0f + 0.5f);
+            out->valid_temps++;
+        }
+    }
+    return 0;
+}
+
 int hw_parse_ryzen_smu_core_temps(unsigned ver, const unsigned char *pm,
                                   size_t pm_len, int *out_mc, int max_cores)
 {
@@ -980,32 +1028,15 @@ int hw_parse_ryzen_smu_core_temps(unsigned ver, const unsigned char *pm,
         return 0;
     for (int i = 0; i < max_cores; i++)
         out_mc[i] = -1;
-    if (!pm)
+    hw_smu_pm_t parsed;
+    if (hw_parse_ryzen_smu_pm(ver, pm, pm_len, &parsed) != 0)
         return 0;
-
-    size_t off = 0;
-    int count = 0;
-    if (ver == 0x00540208u) {
-        off = 0x528u;
-        count = 16;
-    } else {
-        return 0;
-    }
-
-    if (pm_len < off + (size_t)count * sizeof(float))
-        return 0;
-    if (count > max_cores)
-        count = max_cores;
-
+    int n = max_cores < 16 ? max_cores : 16;
     int valid = 0;
-    for (int i = 0; i < count; i++) {
-        float f = 0.0f;
-        memcpy(&f, pm + off + (size_t)i * sizeof(float), sizeof f);
-        /* > 0.0f also rejects NaN (IEEE 754) */
-        if (f > 0.0f && f < 150.0f) {
-            out_mc[i] = (int)(f * 1000.0f + 0.5f);
+    for (int i = 0; i < n; i++) {
+        out_mc[i] = parsed.core_temp_mc[i];
+        if (out_mc[i] >= 0)
             valid++;
-        }
     }
     return valid;
 }
@@ -1441,9 +1472,13 @@ static void read_ryzen_smu_core_temps(hw_state_t *hw)
     static long s_retry_ms;
 
     hw->has_core_temp = false;
+    hw->has_core_pwr = false;
+    hw->cpu_pkg_mw = hw->cpu_cores_mw = hw->cpu_soc_mw = -1;
     hw->ryzen_smu_pm_ver = s_ver;
-    for (int i = 0; i < hw->core_n && i < HW_CPU_MAX; i++)
+    for (int i = 0; i < hw->core_n && i < HW_CPU_MAX; i++) {
         hw->core_temp_mc[i] = -1;
+        hw->core_pwr_mw[i] = -1;
+    }
     if (hw->core_n <= 0)
         return;
 
@@ -1478,15 +1513,25 @@ static void read_ryzen_smu_core_temps(hw_state_t *hw)
         return;
     }
 
-    int tmp_mc[16];
-    if (hw_parse_ryzen_smu_core_temps(s_ver, pm, (size_t)n, tmp_mc, 16) <= 0)
+    hw_smu_pm_t parsed;
+    if (hw_parse_ryzen_smu_pm(s_ver, pm, (size_t)n, &parsed) != 0)
         return;
+
+    hw->cpu_pkg_mw = parsed.pkg_mw;
+    hw->cpu_cores_mw = parsed.cores_mw;
+    hw->cpu_soc_mw = parsed.soc_mw;
 
     for (int i = 0; i < hw->core_n && i < HW_CPU_MAX; i++) {
         int cid = hw->core_phys[i];
-        if (cid >= 0 && cid < 16 && tmp_mc[cid] >= 0) {
-            hw->core_temp_mc[i] = tmp_mc[cid];
-            hw->has_core_temp = true;
+        if (cid >= 0 && cid < 16) {
+            if (parsed.core_temp_mc[cid] >= 0) {
+                hw->core_temp_mc[i] = parsed.core_temp_mc[cid];
+                hw->has_core_temp = true;
+            }
+            if (parsed.core_pwr_mw[cid] >= 0) {
+                hw->core_pwr_mw[i] = parsed.core_pwr_mw[cid];
+                hw->has_core_pwr = true;
+            }
         }
     }
 }
@@ -1947,9 +1992,13 @@ void hw_init(hw_state_t *hw)
     /* all-cores sweep also fills cpu_n / cpu_mhz_core, which the CLI
      * flag path needs before any hw_refresh_* call */
     cpu_limits_sweep(hw, true);
-    for (int i = 0; i < HW_CPU_MAX; i++)
-        hw->core_util[i] = hw->core_mhz[i] = hw->core_temp_mc[i] = -1;
+    for (int i = 0; i < HW_CPU_MAX; i++) {
+        hw->core_util[i] = hw->core_mhz[i] = -1;
+        hw->core_temp_mc[i] = hw->core_pwr_mw[i] = -1;
+    }
     hw->has_core_temp = false;
+    hw->has_core_pwr = false;
+    hw->cpu_pkg_mw = hw->cpu_cores_mw = hw->cpu_soc_mw = -1;
     hw->busiest_util = -1;
     hw_topology_build(hw);
 

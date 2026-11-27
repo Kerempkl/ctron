@@ -726,7 +726,7 @@ static int cmd_doctor(hw_state_t *hw, bool as_json)
         char t1[16], t2[16];
         printf("  k10temp       : %s °C\n", dash_if(t1, sizeof(t1), hw->cpu_temp));
         if (hw->has_core_temp)
-            printf("  ryzen_smu     : yes (pm_table 0x%06x; per-core temp)\n",
+            printf("  ryzen_smu     : yes (pm_table 0x%06x; per-core temp & power)\n",
                    hw->ryzen_smu_pm_ver);
         else if (hw->ryzen_smu_pm_ver != 0)
             printf("  ryzen_smu     : loaded (pm_table 0x%06x unsupported)\n",

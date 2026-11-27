@@ -5,7 +5,33 @@
 
 ---
 
-## Latest session — 2026-11-27 (Expanded `5 Telemetry` CPU detail: `Tccd1`/`Tccd2` series + `ryzen_smu` per-core temperatures + CCD-grouped live core grid)
+## Latest session — 2026-11-27 (Expanded `5 Telemetry` CPU detail: `ryzen_smu` CPU/SoC power rails + per-core watts)
+
+**Antigravity / Kerempkl / FA608PP** — following up on `e141501`, the user noticed `btop` reporting separate CPU and iGPU watt readings (via `cap_dac_read_search,cap_perfmon=ep` on `/usr/bin/btop` reading root-only `0400` RAPL `energy_uj` plus `amdgpu` `power1_input`) and asked to add honest rootless CPU power breakdown to `ctron`. Live audit of the already-loaded `ryzen_smu` PM table (`0x00540208`, `0x8d0` B, mode `0444`, zero sudo) cross-checked against `V × A` rail telemetry and core-pinned load tests (`cpu2` → `9.81 W`, `cpu12` → `9.96 W`, idle cores `0.05–0.09 W`) verified five additional power fields: `0x050` `VDDCR_VDD` (CPU cores rail), `0x054` `VDDCR_SOC` (SoC / I/O-die + iGPU rail), `0x068` `SOCKET_POWER` (total package), and `0x4a8` `CORE_POWER[0..15]`.
+
+- **Hardware & telemetry (`src/hw.{h,c}`, `src/telem.h`, `src/main.c`):**
+  - Added `hw_smu_pm_t` and pure version-gated `hw_parse_ryzen_smu_pm()` (`0x00540208`; kept `hw_parse_ryzen_smu_core_temps()` as a thin wrapper) populating `cpu_pkg_mw`, `cpu_cores_mw`, `cpu_soc_mw`, `core_pwr_mw[HW_CPU_MAX]`, and `has_core_pwr` alongside per-core temperatures in one rootless `pm_table` read.
+  - Added `TS_CPU_CORES_MW` (`cpu_cores_mw`) and `TS_CPU_SOC_MW` (`cpu_soc_mw`) telemetry rings (60 s / since-reset `MIN / AVG / MAX`), pushed in `telem_poll()`.
+  - Updated `--doctor` to report `ryzen_smu : yes (pm_table 0x540208; per-core temp & power)`.
+- **Expanded CPU detail (`src/ui/panel_telem_full.c`) — 8-card overview grid untouched:**
+  - Added `CPU CORES` (`VDDCR_VDD`) and `SOC+IGPU` (`VDDCR_SOC`) rows under `── performance & power ──` when `ryzen_smu` provides rail data (at ultra-short `avail < 18` / `80×24`, swaps `APU PPT` → `CPU CORES` so all 16 cores still fit).
+  - Added `SMU pkg %.1f W` (`SOCKET_POWER`) to `── hardware ──` with dynamic line budgeting so the full 16-core CCD table always fits cleanly.
+  - Added per-CCD summed core watts to `dt_ccd_hdr()` across all widths (`160×50` full, `120×36` `· 18.0W · 5% · 5339 MHz`, `80×24` `· 12.8W · 2%`), added the per-core `PWR` column (`%.1fW`) next to `TEMP` in `core_rich_layout()` / `draw_core_rich_*()`, and updated `── notes ──`.
+- **Tests & docs (`tests/test_core.c`, `scripts/tui_smoke.py`, `HARDWARE.md`, `CHANGELOG.md`):**
+  - Added `TS_CPU_CORES_MW`/`TS_CPU_SOC_MW` key checks and `hw_parse_ryzen_smu_pm()` unit tests (rails, per-core watts, invalid/negative/>100 W rejection, temps alongside power).
+  - Extended `flow_telemetry()` in `scripts/tui_smoke.py` to assert `TEMP`, `PWR`, and `CPU CORES` when `ryzen_smu` is loaded.
+  - Synced `HARDWARE.md` (EN + TR CPU & iGPU sensor map bullets) and `CHANGELOG.md` (`[Unreleased]`).
+- **Verification:**
+  - `make`, `make HARDEN=1 LTO=1`, `make CC=clang`, and UBSan+LSan (`CFLAGS`/`LDFLAGS` via env): 0 warnings, `make test` green (`core tests ok`, `test_daeboard ok`).
+  - `clang --analyze` 0 findings (`src/hw.c`, `src/main.c`, `src/telem.c`, `src/ui/panel_telem_full.c`); `nm -u build/ctron` 0 `popen`/`pclose`/`system` symbols; `make check-help`, `make check-version` (`0.14.0`), `make comptest` (bash/zsh/fish 3 × 61/61) green; live `--doctor`, `--doctor --json` (valid JSON), `--status` verified.
+  - Verified layout at `160×50`, `120×36`, and `80×24` — zero clipping, aligned columns, full edge-to-edge dividers.
+  - `make tuitest`: **15/15 flows (66/66 assertions) PASS**.
+
+Signed: **Antigravity** — `ryzen_smu` CPU/SoC power rails and per-core watts in expanded `5 Telemetry` CPU detail.
+
+---
+
+## Previous session — 2026-11-27 (Expanded `5 Telemetry` CPU detail: `Tccd1`/`Tccd2` series + `ryzen_smu` per-core temperatures + CCD-grouped live core grid)
 
 **Antigravity / Kerempkl / FA608PP** — user asked to reorganize Telemetry and add CCD + per-core temperatures to CPU. After confirming `k10temp` only exposes `Tctl` + `Tccd1`/`Tccd2`, the user installed `ryzen_smu-dkms-git` (`amkillam/ryzen_smu`, `0.1.7`, DKMS installed on both `7.3.6-3-cachyos` and `6.18.65-1-cachyos-lts`). Live audit of `/sys/kernel/ryzen_smu_drv/` showed `pm_table_version = 0x00540208`, `pm_table_size = 0x8d0` (2256 B), world-readable (`0444`, zero sudo, `0.19 ms` avg read), and core-pinned load tests (`cpu12` → `+28.3 °C`, `cpu2` → `+24.1 °C`) live-verified the 16 per-core temperature floats at byte offset `0x528`. Per user direction, the 8-card overview grid stayed untouched while the expanded `TELEMETRY · CPU` page was redesigned end-to-end:
 

@@ -546,8 +546,10 @@ def flow_telemetry():
             if b"TCCD1" not in cpu_frame or b"CCD1" not in cpu_frame or b"thermals" not in cpu_frame:
                 fail("telemetry", "expanded CPU detail missing thermals/TCCD1/CCD1")
                 return
-            if os.path.exists("/sys/kernel/ryzen_smu_drv/pm_table") and b"TEMP" not in cpu_frame:
-                fail("telemetry", "ryzen_smu present but per-core TEMP column missing")
+            if os.path.exists("/sys/kernel/ryzen_smu_drv/pm_table") and (
+                b"TEMP" not in cpu_frame or b"PWR" not in cpu_frame or b"CPU CORES" not in cpu_frame
+            ):
+                fail("telemetry", "ryzen_smu present but per-core TEMP/PWR or CPU CORES missing")
                 return
             ok("telemetry", "expanded CPU detail renders TCTL/TCCD1 + CCD-grouped cores")
             s.key(b"\x1b")

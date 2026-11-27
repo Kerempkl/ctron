@@ -200,7 +200,11 @@ static const chartdef_t CD_CPU_PERF[] = {
     { "clock", U_MHZ, TS_CPU_MHZ,
       "thread-0 live frequency (sampled cpu)", ZN_NONE, -1, NULL },
     { "APU PPT", U_W, TS_IGPU_MW,
-      "whole-APU package power: CPU + iGPU", ZN_NONE, -1, NULL },
+      "whole-APU package power: CPU + iGPU (amdgpu)", ZN_NONE, -1, NULL },
+    { "CPU cores", U_W, TS_CPU_CORES_MW,
+      "CPU cores power rail (ryzen_smu VDDCR_VDD)", ZN_NONE, -1, NULL },
+    { "SoC+iGPU", U_W, TS_CPU_SOC_MW,
+      "SoC / I/O die + iGPU power rail (ryzen_smu VDDCR_SOC)", ZN_NONE, -1, NULL },
     { "avg util", U_PCT, TS_CPU_AVG_UTIL,
       "mean core utilisation (physical cores, SMT merged)", ZN_UTIL, -1, NULL },
     { "busiest", U_PCT, TS_BUSIEST_UTIL,
@@ -796,7 +800,20 @@ static void dt_ccd_hdr(struct ncplane *n, int x, int y, int w, int g,
     int avg_u = -1, peak_m = -1;
     hw_ccd_stats(hw->core_ccd, hw->core_util, hw->core_mhz, hw->core_n,
                  g, &avg_u, &peak_m);
-    char au[16], pm[20], full[64], shrt[32];
+    long ccd_mw = 0;
+    bool have_ccd_mw = false;
+    if (hw->has_core_pwr) {
+        for (int i = 0; i < hw->core_n && i < HW_CPU_MAX; i++) {
+            int cg = hw->core_ccd[i];
+            if (cg < 0)
+                cg = 0;
+            if (cg == g && hw->core_pwr_mw[i] >= 0) {
+                ccd_mw += hw->core_pwr_mw[i];
+                have_ccd_mw = true;
+            }
+        }
+    }
+    char au[16], pm[20], full_p[80], mid_p[64], full[64], shrt[40];
     if (avg_u >= 0)
         snprintf(au, sizeof au, "%d%%", avg_u);
     else
@@ -805,11 +822,30 @@ static void dt_ccd_hdr(struct ncplane *n, int x, int y, int w, int g,
         snprintf(pm, sizeof pm, "%d MHz", peak_m);
     else
         snprintf(pm, sizeof pm, "--");
+    if (have_ccd_mw) {
+        snprintf(full_p, sizeof full_p, " · %.1f W · avg %s · peak %s",
+                 ccd_mw / 1000.0, au, pm);
+        snprintf(mid_p, sizeof mid_p, " · %.1fW · %s · %s",
+                 ccd_mw / 1000.0, au, pm);
+    } else {
+        full_p[0] = '\0';
+        mid_p[0] = '\0';
+    }
     snprintf(full, sizeof full, " · avg %s · peak %s", au, pm);
-    snprintf(shrt, sizeof shrt, " · %s", au);
+    if (have_ccd_mw)
+        snprintf(shrt, sizeof shrt, " · %.1fW · %s", ccd_mw / 1000.0, au);
+    else
+        snprintf(shrt, sizeof shrt, " · %s", au);
 
+    int fpc = utf_cells(full_p), mpc = utf_cells(mid_p);
     int fc = utf_cells(full), sc = utf_cells(shrt);
-    if (cx + fc + 3 <= end) {
+    if (full_p[0] && cx + fpc + 3 <= end) {
+        ui_putln(n, cx, y, end - cx, full_p, pal->muted, false);
+        cx += fpc;
+    } else if (mid_p[0] && cx + mpc + 3 <= end) {
+        ui_putln(n, cx, y, end - cx, mid_p, pal->muted, false);
+        cx += mpc;
+    } else if (cx + fc + 3 <= end) {
         ui_putln(n, cx, y, end - cx, full, pal->muted, false);
         cx += fc;
     } else if (cx + sc + 3 <= end) {
@@ -859,31 +895,41 @@ static void draw_util_bar(struct ncplane *n, int x, int y, int cells,
 typedef struct {
     int x_core;
     int x_temp_r;
+    int x_pwr_r;
     int x_util_r;
     int x_bar;
     int bar_w;
     int x_clk_r;
     int x_cap_r;
     bool show_temp;
+    bool show_pwr;
     bool show_mhz;
     bool show_cap;
 } core_cols_t;
 
-static void core_rich_layout(core_cols_t *cl, int cx, int col_w, bool has_temp)
+static void core_rich_layout(core_cols_t *cl, int cx, int col_w,
+                             bool has_temp, bool has_pwr)
 {
     cl->show_temp = has_temp;
+    cl->show_pwr = has_pwr && col_w >= (has_temp ? 41 : 34);
     cl->show_cap = (col_w >= 42);
     cl->show_mhz = (col_w >= (has_temp ? 36 : 32));
     cl->x_core = cx;
-    cl->x_temp_r = cx + 12;
-    cl->x_util_r = has_temp ? (cx + 18) : (cx + 9);
+    int pos = cx + 4;
+    cl->x_temp_r = pos + 8;
+    if (cl->show_temp)
+        pos = cl->x_temp_r;
+    cl->x_pwr_r = pos + 7;
+    if (cl->show_pwr)
+        pos = cl->x_pwr_r;
+    cl->x_util_r = pos + 5;
     int left_end = cl->x_util_r + 2;
     int clk_w = cl->show_mhz ? 8 : 5;
     int bar_gap = col_w >= 52 ? 3 : 2;
     int cap_gap = col_w >= 52 ? 3 : 2;
     int cap_w = cl->show_cap ? (cap_gap + 5) : 0;
     int rem = col_w - (left_end - cx) - bar_gap - clk_w - cap_w - 1;
-    int max_bar = has_temp ? 20 : 24;
+    int max_bar = cl->show_pwr ? 16 : (has_temp ? 20 : 24);
     cl->bar_w = rem >= 6 ? (rem > max_bar ? max_bar : rem) : 0;
     cl->x_bar = left_end;
     cl->x_clk_r = (cl->bar_w > 0 ? cl->x_bar + cl->bar_w + bar_gap
@@ -897,6 +943,8 @@ static void draw_core_rich_hdr(struct ncplane *n, int y,
     ui_putln(n, cl->x_core, y, 5, "CORE", pal->muted, false);
     if (cl->show_temp)
         ui_putln(n, cl->x_temp_r - 4, y, 5, "TEMP", pal->muted, false);
+    if (cl->show_pwr)
+        ui_putln(n, cl->x_pwr_r - 3, y, 4, "PWR", pal->muted, false);
     ui_putln(n, cl->x_util_r - 4, y, 5, "UTIL", pal->muted, false);
     if (cl->bar_w > 0)
         ui_putln(n, cl->x_bar, y, 5, "LOAD", pal->muted, false);
@@ -912,15 +960,20 @@ static void draw_core_rich_row(struct ncplane *n, int y,
     int cpu_id = hw->core_cpu[ci];
     int u = hw->core_util[ci], m = hw->core_mhz[ci];
     int tmc = hw->core_temp_mc[ci];
+    int pmw = hw->core_pwr_mw[ci];
     int cap = (cpu_id >= 0 && cpu_id < HW_CPU_MAX) ? hw->cpu_mhz_core[cpu_id] : 0;
     bool clamped = (cap > 0 && hw->cpu_mhz_max > 0 && hw->cpu_mhz_max - cap > 50);
 
-    char id[16], tv[20], uv[16], mv[24], cv[16];
+    char id[16], tv[20], pv[16], uv[16], mv[24], cv[16];
     snprintf(id, sizeof id, "c%d", cpu_id);
     if (tmc > 0)
         snprintf(tv, sizeof tv, "%.1f°C", tmc / 1000.0);
     else
         snprintf(tv, sizeof tv, "--");
+    if (pmw >= 0)
+        snprintf(pv, sizeof pv, "%.1fW", pmw / 1000.0);
+    else
+        snprintf(pv, sizeof pv, "--");
     if (u >= 0)
         snprintf(uv, sizeof uv, "%d%%", u);
     else
@@ -944,6 +997,11 @@ static void draw_core_rich_row(struct ncplane *n, int y,
         ui_putln(n, cl->x_temp_r - tc, y, tc, tv,
                  tmc > 0 ? zone_color(ZN_TEMP, tmc / 1000.0, pal) : pal->muted,
                  tmc > 0);
+    }
+    if (cl->show_pwr) {
+        int pc = utf_cells(pv);
+        ui_putln(n, cl->x_pwr_r - pc, y, pc, pv,
+                 pmw >= 0 ? pal->text : pal->muted, false);
     }
     int uc = utf_cells(uv);
     ui_putln(n, cl->x_util_r - uc, y, uc, uv,
@@ -1059,8 +1117,10 @@ static int core_ccd_table(struct ncplane *n, int x, int y, int w, int rows)
 
         if (rows >= 2 + max_c) {
             core_cols_t cl_l, cl_r;
-            core_rich_layout(&cl_l, lx, col_w, hw->has_core_temp);
-            core_rich_layout(&cl_r, rx, rw, hw->has_core_temp);
+            core_rich_layout(&cl_l, lx, col_w, hw->has_core_temp,
+                             hw->has_core_pwr);
+            core_rich_layout(&cl_r, rx, rw, hw->has_core_temp,
+                             hw->has_core_pwr);
             dt_ccd_hdr(n, lx, y, col_w, 0, hw, true);
             dt_ccd_hdr(n, rx, y, rw, 1, hw, true);
             draw_core_rich_hdr(n, y + 1, &cl_l, pal);
@@ -1114,9 +1174,10 @@ static int core_ccd_table(struct ncplane *n, int x, int y, int w, int rows)
             int col_w = (w - gap) / 2;
             int half = (grp_cnt[0] + 1) / 2;
             core_cols_t cl_l, cl_r;
-            core_rich_layout(&cl_l, x, col_w, hw->has_core_temp);
+            core_rich_layout(&cl_l, x, col_w, hw->has_core_temp,
+                             hw->has_core_pwr);
             core_rich_layout(&cl_r, x + col_w + gap, w - col_w - gap,
-                             hw->has_core_temp);
+                             hw->has_core_temp, hw->has_core_pwr);
             draw_core_rich_hdr(n, y + used, &cl_l, pal);
             draw_core_rich_hdr(n, y + used, &cl_r, pal);
             used++;
@@ -1131,7 +1192,8 @@ static int core_ccd_table(struct ncplane *n, int x, int y, int w, int rows)
         }
         if (w >= 36 && rows >= 2 + grp_cnt[0]) {
             core_cols_t cl;
-            core_rich_layout(&cl, x, w > 64 ? 64 : w, hw->has_core_temp);
+            core_rich_layout(&cl, x, w > 64 ? 64 : w, hw->has_core_temp,
+                             hw->has_core_pwr);
             draw_core_rich_hdr(n, y + used, &cl, pal);
             used++;
             for (int r = 0; r < grp_cnt[0] && used < rows; r++, used++)
@@ -1197,11 +1259,33 @@ static void detail_cpu(struct ncplane *n, const rect_t *r)
         telem_count(TS_CPU_CCD2) > 0 || hw->ccd_n >= 2)
         therm[nt++] = &CD_CPU_THERM[2];
 
-    int np = CD_COUNT(CD_CPU_PERF);
+    bool has_smu_pwr = (hw->cpu_cores_mw >= 0 || hw->cpu_soc_mw >= 0 ||
+                        telem_count(TS_CPU_CORES_MW) > 0 ||
+                        telem_count(TS_CPU_SOC_MW) > 0);
+    /* Build the Performance & Power rows: include ryzen_smu CPU CORES and
+     * SOC+IGPU rails whenever available and height >= 18; on ultra-short
+     * 80x24 terminals (avail < 18), swap APU PPT -> CPU CORES so all 16
+     * cores still fit without clipping. */
+    const chartdef_t *perf[8];
+    int np = 0;
+    for (int i = 0; i < CD_COUNT(CD_CPU_PERF); i++) {
+        int sidx = CD_CPU_PERF[i].sidx;
+        if (sidx == TS_CPU_CORES_MW) {
+            if (!has_smu_pwr)
+                continue;
+        } else if (sidx == TS_CPU_SOC_MW) {
+            if (!has_smu_pwr || avail < 18)
+                continue;
+        } else if (sidx == TS_IGPU_MW && has_smu_pwr && avail < 18) {
+            continue;
+        }
+        perf[np++] = &CD_CPU_PERF[i];
+    }
+
     bool show_stats = (avail >= 20);
     bool show_hw = (avail >= 22);
     bool show_seps = (avail >= 24);
-    bool spaced = (avail >= 35);
+    bool spaced = (avail >= 37);
 
     int y = r->y + 1;
     int used = 0;
@@ -1251,15 +1335,16 @@ static void detail_cpu(struct ncplane *n, const rect_t *r)
         used++;
     }
     for (int i = 0; i < np && used < avail; i++, y++, used++)
-        stat_row(n, x, y, &CD_CPU_PERF[i], CD_CPU_PERF[i].sidx,
-                 CD_CPU_PERF[i].label, ce);
+        stat_row(n, x, y, perf[i], perf[i]->sidx, perf[i]->label, ce);
     if (spaced && used < avail) {
         y++;
         used++;
     }
 
-    /* 3. Hardware & Limits */
-    if (show_hw && used < avail) {
+    /* 3. Hardware & Limits (trimmed so full per-CCD core table always fits) */
+    int want_cores = hw->core_n > 0 ? (hw->ccd_n == 2 ? 10 : 6) : 0;
+    int hw_budget = avail - used - want_cores;
+    if (show_hw && hw_budget >= 2 && used < avail) {
         char topo[32], fc[16], fg[16], l0[224], l1[224], l2[192];
         if (hw->core_n > 0 && hw->cpu_n > hw->core_n)
             snprintf(topo, sizeof topo, "%dc/%dt", hw->core_n, hw->cpu_n);
@@ -1296,7 +1381,12 @@ static void detail_cpu(struct ncplane *n, const rect_t *r)
             snprintf(ld, sizeof ld, "load 1m: %.2f", hw->load1);
         else
             snprintf(ld, sizeof ld, "load --");
-        snprintf(l1, sizeof l1, " %s · fans %s/%s rpm · %s", ppt, fc, fg, ld);
+        if (hw->cpu_pkg_mw >= 0)
+            snprintf(l1, sizeof l1, " %s · SMU pkg %.1f W · fans %s/%s rpm · %s",
+                     ppt, hw->cpu_pkg_mw / 1000.0, fc, fg, ld);
+        else
+            snprintf(l1, sizeof l1, " %s · fans %s/%s rpm · %s",
+                     ppt, fc, fg, ld);
 
         int clo = 0, chi = 0, at_max = 0, seen = 0;
         for (int i = 0; i < hw->cpu_n; i++) {
@@ -1327,16 +1417,20 @@ static void detail_cpu(struct ncplane *n, const rect_t *r)
         else
             snprintf(l2, sizeof l2, " per-core ceilings: %d-%d MHz", clo, chi);
 
-        if (show_seps && used < avail) {
+        int left_hw = hw_budget;
+        if (show_seps && left_hw >= 3 && used < avail) {
             dt_sep(n, x, y, w, "hardware");
             y++;
             used++;
+            left_hw--;
         }
         const char *hlines[3] = { l0, l1, l2 };
-        int nh = avail >= 27 ? 3 : 2;
+        int nh = left_hw >= 3 ? 3 : left_hw;
+        if (nh > 3)
+            nh = 3;
         for (int i = 0; i < nh && used < avail; i++, y++, used++)
             info_line(n, x, y, w, hlines[i]);
-        if (spaced && used < avail) {
+        if (spaced && avail - used > want_cores && used < avail) {
             y++;
             used++;
         }
@@ -1364,21 +1458,27 @@ static void detail_cpu(struct ncplane *n, const rect_t *r)
             rem--;
         }
         if (rem >= 1) {
-            char n0[128];
-            if (hw->has_core_temp)
+            char n0[144];
+            if (hw->has_core_temp && hw->has_core_pwr)
+                snprintf(n0, sizeof n0,
+                         " Tctl/Tccd = k10temp · per-core TEMP/PWR + CPU CORES/SOC = ryzen_smu (0x%06x)",
+                         hw->ryzen_smu_pm_ver);
+            else if (hw->has_core_temp)
                 snprintf(n0, sizeof n0,
                          " Tctl/Tccd = k10temp · per-core TEMP = ryzen_smu pm_table (0x%06x)",
                          hw->ryzen_smu_pm_ver);
             else
                 snprintf(n0, sizeof n0,
-                         " Tctl = package · Tccd1/2 = per-CCD die (k10temp; load ryzen_smu for core temp)");
+                         " Tctl = package · Tccd1/2 = per-CCD die (k10temp; load ryzen_smu for core temp/W)");
             ui_putln(n, x, y, w, n0, pal->muted, false);
             y++;
             rem--;
         }
         if (rem >= 1) {
             ui_putln(n, x, y, w,
-                     " APU PPT = CPU+iGPU package · PSI = 10 s CPU stall % · CAP = scaling_max",
+                     has_smu_pwr
+                         ? " APU PPT = amdgpu pkg · CPU CORES = VDDCR_VDD · SOC+IGPU = VDDCR_SOC · CAP = scaling_max"
+                         : " APU PPT = CPU+iGPU package · PSI = 10 s CPU stall % · CAP = scaling_max",
                      pal->muted, false);
         }
     }
@@ -1885,6 +1985,8 @@ void telem_poll(hw_state_t *hw, long now_ms)
                                                      : (double)hw->cpu_temp_ccd1);
     telem_push(TS_CPU_CCD2, hw->cpu_temp_ccd2_mc > 0 ? hw->cpu_temp_ccd2_mc / 1000.0
                                                      : (double)hw->cpu_temp_ccd2);
+    telem_push(TS_CPU_CORES_MW, hw->cpu_cores_mw);
+    telem_push(TS_CPU_SOC_MW, hw->cpu_soc_mw);
     telem_push(TS_CPU_MHZ, hw->cpu_mhz_cur);
     telem_push(TS_CPU_LOAD, hw->load1);
     telem_push(TS_BUSIEST_UTIL, hw->busiest_util);

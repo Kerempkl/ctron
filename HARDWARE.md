@@ -115,13 +115,16 @@ Notes:
   absent sensors print `--`, never a guess:
   - **CPU**: k10temp `temp1` (Tctl) + `Tccd` sensors (`temp2..temp10`,
     accepted only when their label files match `Tccd1`–`Tccd8`, 0.1 °C
-    precision); optional rootless **per-core temperatures** when the
-    out-of-tree `ryzen_smu` DKMS module is loaded
+    precision); optional rootless **per-core temperatures, per-core
+    power, and separated CPU/SoC rails** when the out-of-tree
+    `ryzen_smu` DKMS module is loaded
     (`/sys/kernel/ryzen_smu_drv/pm_table`, mode 0444, strictly
-    version-gated — `0x00540208` = 16 floats at byte offset `0x528`,
-    live-verified 2026-11-27 on FA608PP Ryzen 9 8940HX via core-pinned
-    load tests; unsupported versions or absent module omit the `TEMP`
-    column honestly); per-core ceilings from
+    version-gated — `0x00540208`: `0x050` `VDDCR_VDD` CPU cores rail,
+    `0x054` `VDDCR_SOC` SoC/I/O-die + iGPU rail, `0x068` `SOCKET_POWER`
+    package total, `0x4a8` `CORE_POWER[16]`, `0x528` `CORE_TEMP[16]`,
+    all live-verified 2026-11-27 on FA608PP Ryzen 9 8940HX via
+    core-pinned load tests; unsupported versions or absent module omit
+    the `TEMP`/`PWR` columns and rail rows honestly); per-core ceilings from
     cpufreq `scaling_max_freq`; per-core NOW utilisation from
     `/proc/stat` jiffy deltas (busy = user+nice+system+irq+softirq+
     steal, the SMT pair merged by max — the total delta is itself
@@ -155,11 +158,14 @@ Notes:
     2026-10-29: tight-pair sampling against `gpu_busy_percent`
     matched 18/22 exactly, 11/12 within 5 points under load, and
     the "10.00 W ceiling" was 100% utilisation — user caught the
-    0 W-while-working contradiction). So `power1_input` is the
-    only honest APU watt and **no rootless CPU/iGPU split exists**;
-    a MEASURED per-core watt still needs root (RAPL `energy_uj`
-    0400; the per-core `power_core` perf PMU, kernel 6.14+, sits
-    behind perf_event_paranoid).
+    0 W-while-working contradiction). So without out-of-tree
+    `ryzen_smu`, `power1_input` is the only stock rootless APU watt
+    (RAPL `energy_uj` is 0400 root-only and the kernel 6.14+ per-core
+    `power_core` perf PMU sits behind `perf_event_paranoid`); when
+    `ryzen_smu` is loaded on a verified PM table (`0x00540208`), its
+    world-readable `pm_table` provides rootless `VDDCR_VDD` (CPU cores),
+    `VDDCR_SOC` (SoC + iGPU) and per-core `CORE_POWER` in the expanded
+    CPU view.
   - **RAM**: spd5118 module temps are uncommon hardware — most
     laptops have none and show `--`. Where present, the limits
     (`temp1_max`/`temp1_crit`) and the kernel `max_alarm` flag
@@ -313,12 +319,16 @@ Notlar:
   - **CPU**: k10temp `temp1` (Tctl) + `Tccd` sensörleri (`temp2..temp10`,
     yalnızca etiket dosyaları `Tccd1`–`Tccd8` eşleşiyorsa kabul edilir,
     0.1 °C hassasiyet); isteğe bağlı, sudo'suz **çekirdek başına
-    sıcaklıklar** — çekirdek dışı `ryzen_smu` DKMS modülü yüklüyse
+    sıcaklık/güç ve ayrıştırılmış CPU/SoC güç rayları** — çekirdek dışı
+    `ryzen_smu` DKMS modülü yüklüyse
     (`/sys/kernel/ryzen_smu_drv/pm_table`, 0444 izniyle, kesin sürüm
-    kapılı — `0x00540208` = `0x528` ofsetinde 16 float, 2026-11-27'de
-    FA608PP Ryzen 9 8940HX üzerinde çekirdek-sabitli yük testiyle canlı
-    doğrulandı; desteklenmeyen sürümde veya modül yokken `TEMP` sütunu
-    dürüstçe gizlenir); çekirdek başına tavanlar
+    kapılı — `0x00540208`: `0x050` `VDDCR_VDD` CPU çekirdek rayı,
+    `0x054` `VDDCR_SOC` SoC/I/O-die + iGPU rayı, `0x068` `SOCKET_POWER`
+    toplam paket, `0x4a8` `CORE_POWER[16]`, `0x528` `CORE_TEMP[16]`,
+    tümü 2026-11-27'de FA608PP Ryzen 9 8940HX üzerinde çekirdek-sabitli
+    yük testiyle canlı doğrulandı; desteklenmeyen sürümde veya modül
+    yokken `TEMP`/`PWR` sütunları ve ray satırları dürüstçe gizlenir);
+    çekirdek başına tavanlar
     cpufreq `scaling_max_freq`'ten; çekirdek başına ANLIK kullanım
     `/proc/stat` jiffy delta'sından (busy = user+nice+system+irq+
     softirq+steal, SMT çifti maksimumla birleştirilir — total
@@ -352,11 +362,13 @@ Notlar:
     çürütme 2026-10-29: `gpu_busy_percent` ile sıkı-eşleşmeli
     örneklemede 22'de 18'i birebir, yük altında 12'de 11'i ≤5 puan;
     "10.00 W tavanı" %100 kullanımmış — çalışırken 0 W çelişkisini
-    kullanıcı yakaladı). Dolayısıyla `power1_input` tek dürüst APU
-    watt'ıdır ve **sudo'suz CPU/iGPU ayrıştırması YOKTUR**;
-    ÖLÇÜLMÜŞ çekirdek watt'ı yine root ister (RAPL `energy_uj` 0400;
-    çekirdek başına `power_core` perf PMU, kernel 6.14+,
-    perf_event_paranoid ardında).
+    kullanıcı yakaladı). Dolayısıyla çekirdek dışı `ryzen_smu` olmadan
+    `power1_input` tek stok sudo'suz APU watt'ıdır (RAPL `energy_uj`
+    0400 root-only; çekirdek başına `power_core` perf PMU, kernel 6.14+,
+    `perf_event_paranoid` ardında); doğrulanmış bir PM tablosuyla
+    (`0x00540208`) `ryzen_smu` yüklüyken 0444 `pm_table` üzerinden
+    genişletilmiş CPU ekranında sudo'suz `VDDCR_VDD` (CPU çekirdekleri),
+    `VDDCR_SOC` (SoC + iGPU) ve çekirdek başına `CORE_POWER` okunur.
   - **RAM**: spd5118 modül sıcaklıkları nadir donanımdır — çoğu
     laptop'ta yoktur, `--` görünür. Varsa limitler
     (`temp1_max`/`temp1_crit`) ve çekirdeğin `max_alarm` bayrağı da
