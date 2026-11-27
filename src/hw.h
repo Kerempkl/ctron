@@ -77,6 +77,20 @@ int hw_parse_psi(const char *s, double *some_avg10);
 /* mean utilisation over the valid (>= 0) entries, rounded to nearest
  * %; -1 when none are valid. Pure. */
 int hw_core_avg_util(const int *util, int n);
+/* per-CCD mean utilisation (%, -1 unknown) and peak clock (MHz, -1 unknown)
+ * over physical cores belonging to `ccd_idx`. Returns matching core count. Pure. */
+int hw_ccd_stats(const int *core_ccd, const int *core_util,
+                 const int *core_mhz, int core_n, int ccd_idx,
+                 int *avg_util_out, int *peak_mhz_out);
+/* parse k10temp Tccd label ("Tccd1".."Tccd8") -> 1..8, else -1. Pure. */
+int hw_parse_tccd_label(const char *label);
+/* parse ryzen_smu PM table blob for per-core temperatures (millidegrees °C).
+ * Version-gated (0x00540208 = Zen 4 Dragon Range 16-core, float[16] @ 0x528).
+ * Writes -1 for invalid entries; returns valid core count (0 if unsupported). Pure. */
+int hw_parse_ryzen_smu_core_temps(unsigned ver, const unsigned char *pm,
+                                  size_t pm_len, int *out_mc, int max_cores);
+/* true when `ver` is a PM table version with verified per-core temp offsets */
+bool hw_ryzen_smu_ver_supported(unsigned ver);
 
 /* pstate/throttle-reason labels, bit i = 1u<<i in hw->gpu_throttle,
  * in the same order as the nvidia-smi query field list */
@@ -187,6 +201,7 @@ typedef struct hw_state {
     hw_profile_t profile;
     hw_epp_t epp;
     int cpu_temp;          /* k10temp Tctl, °C (-1 unknown) */
+    int cpu_temp_mc;       /* k10temp Tctl, millidegrees °C (-1 unknown) */
     int gpu_temp;          /* nvidia-smi, °C (-1 unknown) */
     int cpu_mhz_cur;
     int cpu_mhz_min;
@@ -202,6 +217,7 @@ typedef struct hw_state {
     int core_cpu[HW_CPU_MAX];  /* first thread of each core */
     int core_sib[HW_CPU_MAX];  /* second thread, -1 = SMT off/none */
     int core_ccd[HW_CPU_MAX];  /* L3 group index of each core */
+    int core_phys[HW_CPU_MAX]; /* physical core index (0..core_n-1 or topology core_id) */
     int ccd_n;                 /* L3 group count (>=1) */
     bool topo_odd;             /* weird topology -> per-cpu grid fallback */
     /* per-core NOW telemetry (fast-poll deltas, indexed like core_cpu):
@@ -211,6 +227,10 @@ typedef struct hw_state {
      * the source briefly vanished — both honest "--") */
     int core_util[HW_CPU_MAX];
     int core_mhz[HW_CPU_MAX];
+    int core_temp_mc[HW_CPU_MAX]; /* per-core temp, millidegrees °C (-1 unknown),
+                                     from ryzen_smu pm_table when loaded */
+    bool has_core_temp;           /* true when at least one core_temp_mc >= 0 */
+    unsigned ryzen_smu_pm_ver;    /* ryzen_smu pm_table_version, 0 when absent */
     int busiest_util;          /* highest thread utilisation, % (-1) */
     hw_paths_t paths;                         /* cached device paths */
     int rpm_cpu, rpm_gpu;  /* -1 unknown (0 = fan stopped, honest) */
@@ -260,6 +280,7 @@ typedef struct hw_state {
     int igpu_busy;                             /* drm gpu_busy_percent */
     int igpu_dpm, igpu_dpm_n, igpu_dpm_mhz;    /* active pp_dpm_sclk level */
     int cpu_temp_ccd1, cpu_temp_ccd2;          /* k10temp Tccd1/2, °C */
+    int cpu_temp_ccd1_mc, cpu_temp_ccd2_mc;    /* k10temp Tccd1/2, millidegrees °C */
     int ram_temp_n, ram_temp[2];               /* spd5118 modules, °C */
     int ram_thresh_max, ram_thresh_crit;       /* spd5118 limits, °C */
     int ram_alarm;                             /* bit i = module i over max */

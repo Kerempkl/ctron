@@ -5,7 +5,30 @@
 
 ---
 
-## Latest session — 2026-11-26 (`v0.14.0` release: packaging, man page, shell completions, privilege helpers)
+## Latest session — 2026-11-27 (Expanded `5 Telemetry` CPU detail: `Tccd1`/`Tccd2` series + `ryzen_smu` per-core temperatures + CCD-grouped live core grid)
+
+**Antigravity / Kerempkl / FA608PP** — user asked to reorganize Telemetry and add CCD + per-core temperatures to CPU. After confirming `k10temp` only exposes `Tctl` + `Tccd1`/`Tccd2`, the user installed `ryzen_smu-dkms-git` (`amkillam/ryzen_smu`, `0.1.7`, DKMS installed on both `7.3.6-3-cachyos` and `6.18.65-1-cachyos-lts`). Live audit of `/sys/kernel/ryzen_smu_drv/` showed `pm_table_version = 0x00540208`, `pm_table_size = 0x8d0` (2256 B), world-readable (`0444`, zero sudo, `0.19 ms` avg read), and core-pinned load tests (`cpu12` → `+28.3 °C`, `cpu2` → `+24.1 °C`) live-verified the 16 per-core temperature floats at byte offset `0x528`. Per user direction, the 8-card overview grid stayed untouched while the expanded `TELEMETRY · CPU` page was redesigned end-to-end:
+
+- **Hardware & telemetry rings (`src/hw.{h,c}`, `src/telem.h`, `src/main.c`):**
+  - Added millidegree CPU temperature fields (`cpu_temp_mc`, `cpu_temp_ccd1_mc`, `cpu_temp_ccd2_mc`) alongside integer °C fields (preserving all existing CLI/header/rail/JSON/CSV callers) and pushed `0.1 °C` values into `TS_CPU_TEMP` plus new `TS_CPU_CCD1` (`cpu_ccd1_temp`) and `TS_CPU_CCD2` (`cpu_ccd2_temp`) rings.
+  - Added pure, unit-tested `hw_parse_tccd_label()` (`"Tccd1".."Tccd8"`), `hw_ccd_stats()`, `hw_ryzen_smu_ver_supported()`, and `hw_parse_ryzen_smu_core_temps()` (version-gated to proven `0x00540208` `float[16]` @ `0x528`, rejecting `0.0f`/negative/`>=150°C`/NaN/truncated blobs). Generalized `k10temp` `Tccd` probing to `temp2..temp10` with suspend/resume re-probe.
+  - Added rootless `read_ryzen_smu_core_temps()` (with `EINTR` handling, 5 s absence throttle, unsupported-version early return before SMU transfer, and `core_phys[]` via unique sysfs `topology/core_id` in `hw_topology_build()`), plus `ryzen_smu` capability reporting in `--doctor` and `--doctor --json`.
+- **Expanded CPU detail page (`src/ui/panel_telem_full.c`):**
+  - Left the 8-card overview grid (`SECTIONS[]`, `sec_*`, `CD_CPU`) intact.
+  - Reorganized `detail_cpu()` into: (1) `── thermals ──` (`TCTL`, `TCCD1`, `TCCD2` — dynamically omitting absent `Tccd2` on single-CCD chips) with `NOW / MIN / AVG / MAX` + zone colouring; (2) `── performance & power ──` (`CLOCK`, `APU PPT`, `AVG UTIL`, `BUSIEST`, `LOAD 1M`, `PSI CPU`); (3) compact `── hardware ──` block; (4) **CCD-grouped live core table (`core_ccd_table`)** — side-by-side `CCD1` (`c0..c7`) | `CCD2` (`c8..c15`) with bold zone-coloured CCD temp + avg util + peak clock on headers, and per-core **`TEMP`** (0.1 °C bold zone-coloured when `ryzen_smu` is loaded; hidden cleanly when absent), `UTIL %`, zone-coloured `LOAD` bar, live `CLOCK`, and `CAP` (`scaling_max`, amber if clamped > 50 MHz below `cpu_mhz_max`), gracefully fitting `120×36` and compact `CORE T° U% MHz` at `80×24`; (5) dynamic `── notes ──`.
+  - Simplified `detail_table()` (removed unused `tail`/`tail_min`) and fixed `dt_sep()` using `ui_hline()` so section dividers span full width past 85 cols on all detail pages. Updated `HARDWARE.md` (EN+TR).
+- **Verification:**
+  - `make`, `make HARDEN=1 LTO=1`, `make CC=clang`, and UBSan+LSan (`CFLAGS`/`LDFLAGS` via env): 0 warnings, `make test` green (including `TS_CPU_CCD1`/`TS_CPU_CCD2`, `hw_parse_tccd_label`, `hw_ccd_stats`, and `hw_parse_ryzen_smu_core_temps` checks in `tests/test_core.c`).
+  - `clang --analyze` 0 findings on `src/hw.c`, `src/main.c`, `src/telem.c`, `src/ui/panel_telem_full.c`; `nm -u build/ctron` 0 `popen`/`pclose`/`system` symbols; `make check-help`, `make check-version`, `make comptest` (3 × 61/61) green; live `--doctor` (`ryzen_smu : yes (pm_table 0x540208; per-core temp)`), `--doctor --json` valid JSON, `--status` verified.
+  - Visually inspected rendered screenshots at `160×50` (8-card grid + expanded CPU detail with live per-core temps), `120×36`, and `80×24` — zero clipping, pixel-aligned columns, edge-to-edge rules across all sizes.
+  - `make tuitest`: **15/15 flows (66/66 assertions) PASS** (exit 0, including `TCTL`/`TCCD1`/`CCD1`/`thermals`/`TEMP` verification).
+- Still `[Unreleased]` on top of `v0.14.0` (no version bump requested).
+
+Signed: **Antigravity** — expanded `5 Telemetry` CPU detail (`Tccd1`/`Tccd2` series + rootless `ryzen_smu` per-core temperatures).
+
+---
+
+## Previous session — 2026-11-26 (`v0.14.0` release: packaging, man page, shell completions, privilege helpers)
 
 **GLM 5.4 / Kerempkl / FA608PP** — the user asked to start `v0.14.0`
 (`REVIEW.md` §2.2, 4.1, 4.2, 4.4). Everything in the planned scope landed

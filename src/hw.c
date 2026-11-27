@@ -9,13 +9,17 @@
 
 #include <ctype.h>
 #include <dirent.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <glob.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/statvfs.h>
 #include <time.h>
+#include <unistd.h>
 
 #define NB_WMI "/sys/devices/platform/asus-nb-wmi"
 #define ARMOURY_ATTR "/sys/class/firmware-attributes/asus-armoury/attributes"
@@ -915,6 +919,97 @@ int hw_core_avg_util(const int *util, int n)
     return (int)((sum * 2 + cnt) / (2 * cnt));
 }
 
+int hw_ccd_stats(const int *core_ccd, const int *core_util,
+                 const int *core_mhz, int core_n, int ccd_idx,
+                 int *avg_util_out, int *peak_mhz_out)
+{
+    if (avg_util_out)
+        *avg_util_out = -1;
+    if (peak_mhz_out)
+        *peak_mhz_out = -1;
+    if (!core_ccd || core_n <= 0 || ccd_idx < 0)
+        return 0;
+    long usum = 0;
+    int cnt = 0, ucnt = 0, peak = -1;
+    for (int i = 0; i < core_n; i++) {
+        if (core_ccd[i] != ccd_idx)
+            continue;
+        cnt++;
+        if (core_util && core_util[i] >= 0) {
+            usum += core_util[i];
+            ucnt++;
+        }
+        if (core_mhz && core_mhz[i] > peak)
+            peak = core_mhz[i];
+    }
+    if (avg_util_out && ucnt > 0)
+        *avg_util_out = (int)((usum * 2 + ucnt) / (2 * ucnt));
+    if (peak_mhz_out)
+        *peak_mhz_out = peak;
+    return cnt;
+}
+
+int hw_parse_tccd_label(const char *label)
+{
+    if (!label || strncmp(label, "Tccd", 4) != 0)
+        return -1;
+    const char *p = label + 4;
+    if (*p < '1' || *p > '8')
+        return -1;
+    int idx = *p - '0';
+    p++;
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')
+        p++;
+    return *p == '\0' ? idx : -1;
+}
+
+bool hw_ryzen_smu_ver_supported(unsigned ver)
+{
+    return ver == 0x00540208u;
+}
+
+/* ryzen_smu PM table per-core temperatures (millidegrees °C).
+ * Version-gated so an unknown AGESA layout never decodes garbage:
+ *   0x00540208 (Raphael / Dragon Range / Dragon Range Refresh, 16-core):
+ *     16 little-endian IEEE-754 floats at byte offset 0x528 (live-verified
+ *     2026-11-27 on FA608PP Ryzen 9 8940HX via core-pinned load tests). */
+int hw_parse_ryzen_smu_core_temps(unsigned ver, const unsigned char *pm,
+                                  size_t pm_len, int *out_mc, int max_cores)
+{
+    if (!out_mc || max_cores <= 0)
+        return 0;
+    for (int i = 0; i < max_cores; i++)
+        out_mc[i] = -1;
+    if (!pm)
+        return 0;
+
+    size_t off = 0;
+    int count = 0;
+    if (ver == 0x00540208u) {
+        off = 0x528u;
+        count = 16;
+    } else {
+        return 0;
+    }
+
+    if (pm_len < off + (size_t)count * sizeof(float))
+        return 0;
+    if (count > max_cores)
+        count = max_cores;
+
+    int valid = 0;
+    for (int i = 0; i < count; i++) {
+        float f = 0.0f;
+        memcpy(&f, pm + off + (size_t)i * sizeof(float), sizeof f);
+        /* > 0.0f also rejects NaN (IEEE 754) */
+        if (f > 0.0f && f < 150.0f) {
+            out_mc[i] = (int)(f * 1000.0f + 0.5f);
+            valid++;
+        }
+    }
+    return valid;
+}
+
 bool hw_mount_whole(const char *dev, const char *fs)
 {
     if (!dev || !fs || !dev[0] || !fs[0])
@@ -1080,6 +1175,7 @@ static void read_net_ifs(hw_state_t *hw)
 }
 
 static void read_core_now(hw_state_t *hw, char *buf, size_t bufsize);
+static void read_ryzen_smu_core_temps(hw_state_t *hw);
 
 static void read_telem_extras(hw_state_t *hw)
 {
@@ -1172,29 +1268,39 @@ static void read_telem_extras(hw_state_t *hw)
         }
     }
 
-    /* Tccd sensors: k10temp temp3/temp4, verified once against their
-     * labels so a different chip layout never shows a wrong name */
+    /* Tccd sensors: k10temp temp2..temp10 verified against their labels
+     * ("Tccd1".."Tccd8") so a different chip layout never mislabels a sensor,
+     * re-probed automatically if hwmon renumbers after suspend/resume. */
     hw->cpu_temp_ccd1 = hw->cpu_temp_ccd2 = -1;
-    static int s_ccd[2] = { -2, -2 }; /* -2 unchecked, -1 absent */
+    hw->cpu_temp_ccd1_mc = hw->cpu_temp_ccd2_mc = -1;
+    static int s_ccd[2] = { -1, -1 };
+    static char s_ccd_base[256];
     if (cached_hwmon(hw->paths.k10temp, "k10temp", base, sizeof base) == 0) {
-        char leaf[340], lbl[32];
-        for (int i = 0; i < 2; i++) {
-            if (s_ccd[i] == -2) {
-                s_ccd[i] = -1;
-                if (ut_path_join(leaf, sizeof leaf, base,
-                                 i == 0 ? "temp3_label" : "temp4_label") == 0 &&
+        if (strcmp(s_ccd_base, base) != 0) {
+            s_ccd[0] = s_ccd[1] = -1;
+            int found = 0;
+            char leaf[340], lbl[32], lname[24];
+            for (int ch = 2; ch <= 10 && found < 2; ch++) {
+                snprintf(lname, sizeof lname, "temp%d_label", ch);
+                if (ut_path_join(leaf, sizeof leaf, base, lname) == 0 &&
                     ut_read_file(leaf, lbl, sizeof lbl) == 0 &&
-                    strncmp(lbl, "Tccd", 4) == 0)
-                    s_ccd[i] = 3 + i;
+                    hw_parse_tccd_label(lbl) > 0)
+                    s_ccd[found++] = ch;
             }
+            snprintf(s_ccd_base, sizeof s_ccd_base, "%s", base);
+        }
+        for (int i = 0; i < 2; i++) {
             if (s_ccd[i] > 0) {
                 char name[24];
                 snprintf(name, sizeof name, "temp%d_input", s_ccd[i]);
                 if (hwmon_read_int(base, name, &v) == 0 && v > 0 && v < 150000) {
-                    if (i == 0)
+                    if (i == 0) {
                         hw->cpu_temp_ccd1 = (int)(v / 1000);
-                    else
+                        hw->cpu_temp_ccd1_mc = (int)v;
+                    } else {
                         hw->cpu_temp_ccd2 = (int)(v / 1000);
+                        hw->cpu_temp_ccd2_mc = (int)v;
+                    }
                 }
             }
         }
@@ -1301,6 +1407,88 @@ static void read_telem_extras(hw_state_t *hw)
     read_pd_ports(hw);
     read_net_ifs(hw);
     read_core_now(hw, buf, sizeof buf);
+    read_ryzen_smu_core_temps(hw);
+}
+
+/* Optional rootless per-core temperature reader via ryzen_smu DKMS driver
+ * (/sys/kernel/ryzen_smu_drv/pm_table, mode 0444). When the module is absent,
+ * re-probes at most once every 5 s so fast polls stay zero-overhead. */
+static ssize_t read_bin_file(const char *path, unsigned char *buf, size_t cap)
+{
+    int fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0)
+        return -1;
+    size_t got = 0;
+    while (got < cap) {
+        ssize_t n = read(fd, buf + got, cap - got);
+        if (n < 0) {
+            if (errno == EINTR)
+                continue;
+            close(fd);
+            return -1;
+        }
+        if (n == 0)
+            break;
+        got += (size_t)n;
+    }
+    close(fd);
+    return (ssize_t)got;
+}
+
+static void read_ryzen_smu_core_temps(hw_state_t *hw)
+{
+    static unsigned s_ver;
+    static long s_retry_ms;
+
+    hw->has_core_temp = false;
+    hw->ryzen_smu_pm_ver = s_ver;
+    for (int i = 0; i < hw->core_n && i < HW_CPU_MAX; i++)
+        hw->core_temp_mc[i] = -1;
+    if (hw->core_n <= 0)
+        return;
+
+    if (s_ver == 0) {
+        long now = ut_mono_ms();
+        if (s_retry_ms > 0 && now - s_retry_ms < 5000)
+            return;
+        s_retry_ms = now;
+        unsigned char vb[8];
+        if (read_bin_file("/sys/kernel/ryzen_smu_drv/pm_table_version",
+                          vb, sizeof vb) < 4)
+            return;
+        uint32_t v = 0;
+        memcpy(&v, vb, sizeof v);
+        if (v == 0)
+            return;
+        s_ver = (unsigned)v;
+        hw->ryzen_smu_pm_ver = s_ver;
+    }
+
+    /* Skip the SMU DRAM transfer completely on unknown PM table versions */
+    if (!hw_ryzen_smu_ver_supported(s_ver))
+        return;
+
+    unsigned char pm[4096];
+    ssize_t n = read_bin_file("/sys/kernel/ryzen_smu_drv/pm_table",
+                              pm, sizeof pm);
+    if (n <= 0) {
+        s_ver = 0; /* module unloaded or gone: re-probe later */
+        hw->ryzen_smu_pm_ver = 0;
+        s_retry_ms = ut_mono_ms();
+        return;
+    }
+
+    int tmp_mc[16];
+    if (hw_parse_ryzen_smu_core_temps(s_ver, pm, (size_t)n, tmp_mc, 16) <= 0)
+        return;
+
+    for (int i = 0; i < hw->core_n && i < HW_CPU_MAX; i++) {
+        int cid = hw->core_phys[i];
+        if (cid >= 0 && cid < 16 && tmp_mc[cid] >= 0) {
+            hw->core_temp_mc[i] = tmp_mc[cid];
+            hw->has_core_temp = true;
+        }
+    }
 }
 
 /* Per-core NOW telemetry. Utilisation = /proc/stat jiffy deltas between
@@ -1670,6 +1858,7 @@ void hw_init(hw_state_t *hw)
 {
     memset(hw, 0, sizeof(*hw));
     hw->cpu_temp = -1;
+    hw->cpu_temp_mc = -1;
     hw->gpu_temp = -1;
     hw->rpm_cpu = -1;
     hw->rpm_gpu = -1;
@@ -1692,6 +1881,7 @@ void hw_init(hw_state_t *hw)
     hw->igpu_busy = -1;
     hw->igpu_dpm = hw->igpu_dpm_mhz = -1;
     hw->cpu_temp_ccd1 = hw->cpu_temp_ccd2 = -1;
+    hw->cpu_temp_ccd1_mc = hw->cpu_temp_ccd2_mc = -1;
     hw->ram_thresh_max = hw->ram_thresh_crit = -1;
     hw->nvme_sensor_max[0] = hw->nvme_sensor_max[1] = -1;
     hw->gpu_mw = hw->gpu_mhz = hw->gpu_util = -1;
@@ -1758,7 +1948,8 @@ void hw_init(hw_state_t *hw)
      * flag path needs before any hw_refresh_* call */
     cpu_limits_sweep(hw, true);
     for (int i = 0; i < HW_CPU_MAX; i++)
-        hw->core_util[i] = hw->core_mhz[i] = -1;
+        hw->core_util[i] = hw->core_mhz[i] = hw->core_temp_mc[i] = -1;
+    hw->has_core_temp = false;
     hw->busiest_util = -1;
     hw_topology_build(hw);
 
@@ -2082,6 +2273,36 @@ void hw_topology_build(hw_state_t *hw)
     hw->core_n = hw_topology_group(hw->cpu_ids, sibp, l3p, hw->cpu_n,
                                    hw->core_cpu, hw->core_sib, hw->core_ccd,
                                    &hw->ccd_n, &hw->topo_odd);
+
+    /* Physical core index for ryzen_smu PM-table lookup: use sysfs core_id
+     * when unique across all physical cores (handles offlined cores and
+     * adjacent-SMT numbering); fall back to 0..core_n-1 if core_id repeats
+     * per CCD on some kernels. */
+    bool uniq = (hw->core_n > 0);
+    for (int i = 0; i < hw->core_n && i < HW_CPU_MAX; i++) {
+        char p[96];
+        snprintf(p, sizeof p,
+                 "/sys/devices/system/cpu/cpu%d/topology/core_id",
+                 hw->core_cpu[i]);
+        int cid = ut_read_int(p);
+        if (cid < 0 || cid >= HW_CPU_MAX) {
+            uniq = false;
+            break;
+        }
+        for (int j = 0; j < i; j++) {
+            if (hw->core_phys[j] == cid) {
+                uniq = false;
+                break;
+            }
+        }
+        if (!uniq)
+            break;
+        hw->core_phys[i] = cid;
+    }
+    if (!uniq) {
+        for (int i = 0; i < hw->core_n && i < HW_CPU_MAX; i++)
+            hw->core_phys[i] = i;
+    }
 }
 
 void hw_refresh_fast(hw_state_t *hw)
@@ -2095,10 +2316,14 @@ void hw_refresh_fast(hw_state_t *hw)
     if (cached_hwmon(hw->paths.k10temp, "k10temp", p, sizeof(p)) == 0 &&
         ut_path_join(q, sizeof(q), p, "temp1_input") == 0) {
         int t = ut_read_int(q);
-        if (t > 0)
+        if (t > 0 && t < 150000) {
             hw->cpu_temp = t / 1000;
-        else
+            hw->cpu_temp_mc = t;
+        } else {
+            hw->cpu_temp = -1;
+            hw->cpu_temp_mc = -1;
             hw->paths.k10temp[0] = '\0';   /* path gone: re-probe */
+        }
     }
 
     int cur = ut_read_int("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq");

@@ -536,6 +536,22 @@ def flow_telemetry():
             if b"[r] reset stats" not in frame:
                 fail("telemetry", "[r] reset stats header button missing")
                 return
+            # open CPU 1 detail (default sel 0) -> grouped thermals + CCD cores
+            m_cpu = s.mark()
+            s.key(b"\r")
+            if not s.wait_for(b"TCTL", since=m_cpu, timeout=6.0):
+                fail("telemetry", "Enter on CPU 1 did not open expanded CPU detail")
+                return
+            cpu_frame = s.bytes_since(m_cpu)
+            if b"TCCD1" not in cpu_frame or b"CCD1" not in cpu_frame or b"thermals" not in cpu_frame:
+                fail("telemetry", "expanded CPU detail missing thermals/TCCD1/CCD1")
+                return
+            if os.path.exists("/sys/kernel/ryzen_smu_drv/pm_table") and b"TEMP" not in cpu_frame:
+                fail("telemetry", "ryzen_smu present but per-core TEMP column missing")
+                return
+            ok("telemetry", "expanded CPU detail renders TCTL/TCCD1 + CCD-grouped cores")
+            s.key(b"\x1b")
+            time.sleep(0.25)
             # spatial nav j + l -> RAM 4, Enter opens detail
             s.key(b"j")
             s.key(b"l")

@@ -113,9 +113,15 @@ Notes:
 - **Telemetry sensor map (the 't' screen)** — every source is
   read-only sysfs/procfs except nvidia-smi (one query, 2 s cache);
   absent sensors print `--`, never a guess:
-  - **CPU**: k10temp `temp1` (Tctl) + `temp3`/`temp4` (Tccd1/2 —
-    accepted only when their label files say `Tccd`, so a different
-    chip layout can never mislabel a sensor); per-core ceilings from
+  - **CPU**: k10temp `temp1` (Tctl) + `Tccd` sensors (`temp2..temp10`,
+    accepted only when their label files match `Tccd1`–`Tccd8`, 0.1 °C
+    precision); optional rootless **per-core temperatures** when the
+    out-of-tree `ryzen_smu` DKMS module is loaded
+    (`/sys/kernel/ryzen_smu_drv/pm_table`, mode 0444, strictly
+    version-gated — `0x00540208` = 16 floats at byte offset `0x528`,
+    live-verified 2026-11-27 on FA608PP Ryzen 9 8940HX via core-pinned
+    load tests; unsupported versions or absent module omit the `TEMP`
+    column honestly); per-core ceilings from
     cpufreq `scaling_max_freq`; per-core NOW utilisation from
     `/proc/stat` jiffy deltas (busy = user+nice+system+irq+softirq+
     steal, the SMT pair merged by max — the total delta is itself
@@ -304,9 +310,15 @@ Notlar:
 - **Telemetri sensör haritası ('t' ekranı)** — nvidia-smi
   dışında (tek sorgu, 2 sn önbellek) her kaynak salt-okunur
   sysfs/procfs; olmayan sensör `--` basar, asla tahmin etmez:
-  - **CPU**: k10temp `temp1` (Tctl) + `temp3`/`temp4` (Tccd1/2 —
-    yalnızca etiket dosyaları `Tccd` diyorsa kabul edilir, başka bir
-    çip düzeninde yanlış etiket imkânsız); çekirdek başına tavanlar
+  - **CPU**: k10temp `temp1` (Tctl) + `Tccd` sensörleri (`temp2..temp10`,
+    yalnızca etiket dosyaları `Tccd1`–`Tccd8` eşleşiyorsa kabul edilir,
+    0.1 °C hassasiyet); isteğe bağlı, sudo'suz **çekirdek başına
+    sıcaklıklar** — çekirdek dışı `ryzen_smu` DKMS modülü yüklüyse
+    (`/sys/kernel/ryzen_smu_drv/pm_table`, 0444 izniyle, kesin sürüm
+    kapılı — `0x00540208` = `0x528` ofsetinde 16 float, 2026-11-27'de
+    FA608PP Ryzen 9 8940HX üzerinde çekirdek-sabitli yük testiyle canlı
+    doğrulandı; desteklenmeyen sürümde veya modül yokken `TEMP` sütunu
+    dürüstçe gizlenir); çekirdek başına tavanlar
     cpufreq `scaling_max_freq`'ten; çekirdek başına ANLIK kullanım
     `/proc/stat` jiffy delta'sından (busy = user+nice+system+irq+
     softirq+steal, SMT çifti maksimumla birleştirilir — total

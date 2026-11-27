@@ -1227,6 +1227,23 @@ static void check_telem(void)
     CHECK(telem_count(TS_GPU_TEMP) == 240 &&
               telem_since_n(TS_GPU_TEMP) == 300,
           "since outlives the 60 s window");
+
+    /* CCD1 / CCD2 series keys, fractional 0.1 C precision & unknown skips */
+    telem_reset();
+    CHECK(telem_key(TS_CPU_CCD1) && !strcmp(telem_key(TS_CPU_CCD1), "cpu_ccd1_temp"),
+          "telem ccd1 key");
+    CHECK(telem_key(TS_CPU_CCD2) && !strcmp(telem_key(TS_CPU_CCD2), "cpu_ccd2_temp"),
+          "telem ccd2 key");
+    telem_push(TS_CPU_CCD1, 82.5);
+    telem_push(TS_CPU_CCD1, 84.5);
+    telem_push(TS_CPU_CCD1, -1);
+    telem_push(TS_CPU_CCD2, 79.25);
+    CHECK(telem_count(TS_CPU_CCD1) == 2 && telem_last(TS_CPU_CCD1) == 84.5,
+          "telem ccd1 fractional last");
+    CHECK(telem_avg(TS_CPU_CCD1) == 83.5, "telem ccd1 fractional avg");
+    telem_since(TS_CPU_CCD2, &smn, &smx, &sav);
+    CHECK(smn == 79.25 && smx == 79.25 && sav == 79.25,
+          "telem ccd2 since stats");
     telem_reset();
 }
 
@@ -1385,6 +1402,80 @@ static void check_telem_hw(void)
         CHECK(hw_core_avg_util(half, 4) == 50, "avg plain mean");
         CHECK(hw_core_avg_util(u, 0) == -1 && hw_core_avg_util(NULL, 3) == -1,
               "avg degenerate inputs");
+    }
+
+    /* per-CCD live summary + k10temp Tccd label parser */
+    {
+        CHECK(hw_parse_tccd_label("Tccd1") == 1, "tccd1 label");
+        CHECK(hw_parse_tccd_label("Tccd2\n") == 2, "tccd2 trailing nl");
+        CHECK(hw_parse_tccd_label("Tccd8 ") == 8, "tccd8 trailing space");
+        CHECK(hw_parse_tccd_label("Tctl") == -1, "tctl rejected");
+        CHECK(hw_parse_tccd_label("Tccd0") == -1, "tccd0 rejected");
+        CHECK(hw_parse_tccd_label("Tccd9") == -1, "tccd9 rejected");
+        CHECK(hw_parse_tccd_label("Tccd10") == -1, "tccd10 rejected");
+        CHECK(hw_parse_tccd_label("Tccd1x") == -1, "tccd trailing junk rejected");
+        CHECK(hw_parse_tccd_label(NULL) == -1, "tccd null rejected");
+
+        int ccd[6]  = { 0, 0, 0, 1, 1, 1 };
+        int util[6] = { 10, -1, 35, 80, 100, 60 };
+        int mhz[6]  = { 3200, 4950, -1, 4100, 5120, 4800 };
+        int au = -9, pm = -9;
+        CHECK(hw_ccd_stats(ccd, util, mhz, 6, 0, &au, &pm) == 3 &&
+                  au == 23 && pm == 4950,
+              "ccd0 stats skip unknown and round");
+        CHECK(hw_ccd_stats(ccd, util, mhz, 6, 1, &au, &pm) == 3 &&
+                  au == 80 && pm == 5120,
+              "ccd1 stats mean util + peak mhz");
+        CHECK(hw_ccd_stats(ccd, util, mhz, 6, 2, &au, &pm) == 0 &&
+                  au == -1 && pm == -1,
+              "missing ccd returns 0 and -1s");
+        int u_bad[2] = { -1, -1 }, m_bad[2] = { -1, -1 }, c_one[2] = { 0, 0 };
+        CHECK(hw_ccd_stats(c_one, u_bad, m_bad, 2, 0, &au, &pm) == 2 &&
+                  au == -1 && pm == -1,
+              "all-unknown ccd stays honest -1");
+        CHECK(hw_ccd_stats(NULL, util, mhz, 6, 0, &au, &pm) == 0 &&
+                  au == -1 && pm == -1,
+              "ccd stats null guard");
+    }
+
+    /* ryzen_smu PM table per-core temp parser (0x00540208 version-gated) */
+    {
+        CHECK(hw_ryzen_smu_ver_supported(0x00540208u), "smu 0x540208 supported");
+        CHECK(!hw_ryzen_smu_ver_supported(0x00540104u), "smu 0x540104 gated off");
+        CHECK(!hw_ryzen_smu_ver_supported(0u), "smu 0 gated off");
+
+        unsigned char blob[0x8d0];
+        memset(blob, 0, sizeof blob);
+        float sample[16] = {
+            76.1f, 74.4f, 94.85f, 75.1f, 75.4f, 75.1f, 75.3f, 74.5f,
+            66.9f, 67.3f, 0.0f,   -5.0f, 99.9f, 200.0f, 67.7f, 69.2f
+        };
+        memcpy(blob + 0x528, sample, sizeof sample);
+        int out[16];
+        int valid = hw_parse_ryzen_smu_core_temps(0x00540208u, blob, sizeof blob,
+                                                  out, 16);
+        CHECK(valid == 13, "smu skips zero/neg/over-150");
+        CHECK(out[0] == 76100 && out[2] == 94850 && out[12] == 99900 &&
+                  out[15] == 69200,
+              "smu millidegree values");
+        CHECK(out[10] == -1 && out[11] == -1 && out[13] == -1,
+              "smu invalid entries stay -1");
+        /* NaN rejected cleanly */
+        unsigned nan_bits = 0x7fc00000u;
+        memcpy(blob + 0x528, &nan_bits, 4);
+        CHECK(hw_parse_ryzen_smu_core_temps(0x00540208u, blob, sizeof blob,
+                                            out, 16) == 12 && out[0] == -1,
+              "smu NaN rejected");
+        /* wrong version or truncated buffer rejected cleanly */
+        CHECK(hw_parse_ryzen_smu_core_temps(0x00540004u, blob, sizeof blob,
+                                            out, 16) == 0 && out[1] == -1,
+              "smu unknown version rejected");
+        CHECK(hw_parse_ryzen_smu_core_temps(0x00540208u, blob, 0x560,
+                                            out, 16) == 0,
+              "smu short blob rejected");
+        CHECK(hw_parse_ryzen_smu_core_temps(0x00540208u, NULL, sizeof blob,
+                                            out, 16) == 0,
+              "smu null blob rejected");
     }
 
     /* /proc/stat per-cpu jiffies: busy = user+nice+system+irq+softirq+

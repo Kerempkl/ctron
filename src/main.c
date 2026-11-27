@@ -695,6 +695,7 @@ static int cmd_doctor(hw_state_t *hw, bool as_json)
         printf(", \"fan_curve\": %s", hw->has_fan_curve ? "true" : "false");
         printf(", \"fan_rpm\": %s", hw->has_fan_rpm ? "true" : "false");
         printf(", \"k10temp_c\": "); json_int_min(hw->cpu_temp, 0);
+        printf(", \"ryzen_smu_core_temp\": %s", hw->has_core_temp ? "true" : "false");
         printf(", \"nvidia_smi\": %s", hw->has_nvidia_smi ? "true" : "false");
         printf(", \"gpu_temp_c\": "); json_int_min(hw->gpu_temp, 0);
         printf(", \"gpu_clock_lock\": "); json_int_min(hw->gpu_clock_lock, 1);
@@ -724,6 +725,14 @@ static int cmd_doctor(hw_state_t *hw, bool as_json)
     {
         char t1[16], t2[16];
         printf("  k10temp       : %s °C\n", dash_if(t1, sizeof(t1), hw->cpu_temp));
+        if (hw->has_core_temp)
+            printf("  ryzen_smu     : yes (pm_table 0x%06x; per-core temp)\n",
+                   hw->ryzen_smu_pm_ver);
+        else if (hw->ryzen_smu_pm_ver != 0)
+            printf("  ryzen_smu     : loaded (pm_table 0x%06x unsupported)\n",
+                   hw->ryzen_smu_pm_ver);
+        else
+            printf("  ryzen_smu     : not loaded (optional; per-core temp)\n");
         printf("  nvidia-smi    : %s (%s °C)\n", hw->has_nvidia_smi ? "yes" : "no",
                dash_if(t2, sizeof(t2), hw->gpu_temp));
         printf("  gpu clock lock: %s%s\n",

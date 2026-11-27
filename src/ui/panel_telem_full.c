@@ -185,6 +185,31 @@ static const chartdef_t CD_CPU[] = {
      "% of the last 10 s some task stalled on CPU (psi some)",
      ZN_NONE, -1, NULL },
 };
+/* Expanded CPU detail page series: split into Thermals (package Tctl +
+ * per-CCD Tccd1/Tccd2) and Performance & Power so the thermal hierarchy
+ * leads the page while leaving the 8-card overview grid untouched. */
+static const chartdef_t CD_CPU_THERM[] = {
+    { "Tctl", U_TEMP, TS_CPU_TEMP,
+      "package control temperature (k10temp hottest sensor)", ZN_TEMP, -1, NULL },
+    { "Tccd1", U_TEMP, TS_CPU_CCD1,
+      "CCD1 die temperature (k10temp)", ZN_TEMP, -1, NULL },
+    { "Tccd2", U_TEMP, TS_CPU_CCD2,
+      "CCD2 die temperature (k10temp)", ZN_TEMP, -1, NULL },
+};
+static const chartdef_t CD_CPU_PERF[] = {
+    { "clock", U_MHZ, TS_CPU_MHZ,
+      "thread-0 live frequency (sampled cpu)", ZN_NONE, -1, NULL },
+    { "APU PPT", U_W, TS_IGPU_MW,
+      "whole-APU package power: CPU + iGPU", ZN_NONE, -1, NULL },
+    { "avg util", U_PCT, TS_CPU_AVG_UTIL,
+      "mean core utilisation (physical cores, SMT merged)", ZN_UTIL, -1, NULL },
+    { "busiest", U_PCT, TS_BUSIEST_UTIL,
+      "highest single-core utilisation (busiest thread)", ZN_UTIL, -1, NULL },
+    { "load 1m", U_LOAD, TS_CPU_LOAD,
+      "1-min load average (runnable tasks)", ZN_NONE, -1, NULL },
+    { "psi cpu", U_PSI, TS_PSI_CPU,
+      "% of the last 10 s some task stalled on CPU (psi some)", ZN_NONE, -1, NULL },
+};
 static const chartdef_t CD_GPU[] = {
     { "temp", U_TEMP, TS_GPU_TEMP, "dGPU temperature", ZN_TEMP, -1, NULL },
     { "power", U_W, TS_GPU_MW, "dGPU board power draw", ZN_NONE, -1, NULL },
@@ -353,37 +378,30 @@ static void stat_row(struct ncplane *n, int x, int y,
     }
 }
 
-/* "── tag ────..." across the content width: groups the live info
- * block and the legend block so mixed lines stop reading as data */
+/* "── tag ────..." across the content width: groups blocks cleanly.
+ * Draws the trailing rule with ui_hline so wide terminals (> 85 cols)
+ * never hit ui_putln's 256-byte UTF-8 buffer cap. */
 static void dt_sep(struct ncplane *n, int x, int y, int w, const char *tag)
 {
+    if (w < 4)
+        return;
     const palette_t *pal = ui_palette(g_prefs.theme);
-    char s[512];
-    int off = snprintf(s, sizeof s, "── %s ", tag);
-    while (off > 0 && (size_t)off + 3 < sizeof s && utf_cells(s) < w - 1) {
-        memcpy(s + off, "─", 3);
-        off += 3;
-        s[off] = '\0';
-    }
-    ui_putln(n, x, y, w, s, pal->muted, false);
+    char hdr[96];
+    snprintf(hdr, sizeof hdr, "── %s ", tag);
+    int hc = utf_cells(hdr);
+    ui_putln(n, x, y, w, hdr, pal->muted, false);
+    if (hc < w)
+        ui_hline(n, x + hc, y, w - hc, pal->muted);
 }
 
 /* detail page: a numeric now/min/avg/max report (no charts). Roomy
  * terminals get breathing space — a blank line after every series
  * (pairs stay together) and section separators around the live info
  * and legend blocks; short terminals fall back to the packed layout
- * and then to tail clipping as before. `tail` is an optional block
- * drawn between the live info and the legend (the CPU section's
- * per-core table); tail_min is the height below which it is skipped —
- * it also joins roomy_n, so on mid-size terminals spacing yields to
- * the table rather than the table dying. */
-typedef int (*detail_tail_fn)(struct ncplane *n, int x, int y, int w,
-                              int rows);
-
+ * and then to tail clipping as before. */
 static void detail_table(struct ncplane *n, const rect_t *r,
                          const chartdef_t *cd, int ncd,
-                         const char *const *info, int ninfo,
-                         detail_tail_fn tail, int tail_min)
+                         const char *const *info, int ninfo)
 {
     const palette_t *pal = ui_palette(g_prefs.theme);
     int x = r->x + 2, w = r->w - 4;
@@ -399,8 +417,6 @@ static void detail_table(struct ncplane *n, const rect_t *r,
     /* +1 for the stats-source line under the header */
     int roomy_n = 1 + 1 + 1 + halves + ncd + (ninfo > 0 ? 1 : 0) +
                   ninfo + 1 + (ncd > 0 ? 1 : 0) + ncd;
-    if (tail)
-        roomy_n += tail_min + 1;
     bool roomy = avail >= roomy_n;
 
     int y = r->y + 1;
@@ -449,17 +465,6 @@ static void detail_table(struct ncplane *n, const rect_t *r,
         }
         for (int i = 0; i < ninfo && used < avail; i++, used++, y++)
             info_line(n, x, y, w, info[i]);
-    }
-    if (tail) {
-        if (roomy && used < avail) {
-            y++;
-            used++;
-        }
-        if (avail - used >= tail_min) {
-            int u = tail(n, x, y, w, avail - used);
-            y += u;
-            used += u;
-        }
     }
     if (ncd > 0) {
         if (roomy && used < avail) {
@@ -731,142 +736,652 @@ static void sec_power(struct ncplane *n, const rect_t *r)
 
 /* ---- section detail pages (full page inside the overlay) ------------- */
 
-/* per-core NOW table (CPU detail): a snapshot grid of core id · util% ·
- * live clock, the SMT pair merged into one row per physical core.
- * Deliberately NO min/avg/max — the cells are "right now"; the time
- * dimension is the "busiest" series row in the table above, which
- * carries the usual window/since-reset stats. Returns lines drawn. */
-static int core_now_table(struct ncplane *n, int x, int y, int w, int rows)
+/* ---- expanded CPU detail: grouped by CCD with live temp & bars ------- */
+
+static double hw_ccd_temp_c(const hw_state_t *hw, int g)
 {
-    hw_state_t *hw = g_ui.hw;
-    if (hw->core_n <= 0 || rows < 3 || w < 34)
+    if (g == 0)
+        return hw->cpu_temp_ccd1_mc > 0 ? hw->cpu_temp_ccd1_mc / 1000.0
+                                        : (double)hw->cpu_temp_ccd1;
+    if (g == 1)
+        return hw->cpu_temp_ccd2_mc > 0 ? hw->cpu_temp_ccd2_mc / 1000.0
+                                        : (double)hw->cpu_temp_ccd2;
+    return -1;
+}
+
+/* "── CCD1  94.5 °C · avg 18% · peak 5120 MHz ────..." with bold zone-
+ * coloured CCD temperature right in the group header. */
+static void dt_ccd_hdr(struct ncplane *n, int x, int y, int w, int g,
+                       const hw_state_t *hw, bool named_ccd)
+{
+    if (w < 12)
+        return;
+    const palette_t *pal = ui_palette(g_prefs.theme);
+    int end = x + w;
+    int cx = x;
+
+    ui_putln(n, cx, y, end - cx, "── ", pal->muted, false);
+    cx += 3;
+
+    char tag[16];
+    if (named_ccd)
+        snprintf(tag, sizeof tag, "CCD%d", g + 1);
+    else
+        snprintf(tag, sizeof tag, "CORES");
+    int tc = utf_cells(tag);
+    if (cx + tc <= end) {
+        ui_putln(n, cx, y, end - cx, tag, pal->text, true);
+        cx += tc;
+    }
+
+    double temp_c = hw_ccd_temp_c(hw, g);
+    if (temp_c >= 0) {
+        char tb[24];
+        snprintf(tb, sizeof tb, " %.1f °C", temp_c);
+        int tbc = utf_cells(tb);
+        if (cx + tbc <= end) {
+            ui_putln(n, cx, y, end - cx, tb,
+                     zone_color(ZN_TEMP, temp_c, pal), true);
+            cx += tbc;
+        }
+    } else if (named_ccd && g < 2) {
+        static const char na[] = " -- °C";
+        int nac = utf_cells(na);
+        if (cx + nac <= end) {
+            ui_putln(n, cx, y, end - cx, na, pal->muted, false);
+            cx += nac;
+        }
+    }
+
+    int avg_u = -1, peak_m = -1;
+    hw_ccd_stats(hw->core_ccd, hw->core_util, hw->core_mhz, hw->core_n,
+                 g, &avg_u, &peak_m);
+    char au[16], pm[20], full[64], shrt[32];
+    if (avg_u >= 0)
+        snprintf(au, sizeof au, "%d%%", avg_u);
+    else
+        snprintf(au, sizeof au, "--");
+    if (peak_m > 0)
+        snprintf(pm, sizeof pm, "%d MHz", peak_m);
+    else
+        snprintf(pm, sizeof pm, "--");
+    snprintf(full, sizeof full, " · avg %s · peak %s", au, pm);
+    snprintf(shrt, sizeof shrt, " · %s", au);
+
+    int fc = utf_cells(full), sc = utf_cells(shrt);
+    if (cx + fc + 3 <= end) {
+        ui_putln(n, cx, y, end - cx, full, pal->muted, false);
+        cx += fc;
+    } else if (cx + sc + 3 <= end) {
+        ui_putln(n, cx, y, end - cx, shrt, pal->muted, false);
+        cx += sc;
+    }
+
+    if (cx + 2 < end) {
+        cx++;
+        ui_hline(n, cx, y, end - cx, pal->muted);
+    }
+}
+
+/* horizontal per-core util bar: filled blocks in zone colour, empty
+ * remainder in muted grey so busy cores stand out without visual noise */
+static void draw_util_bar(struct ncplane *n, int x, int y, int cells,
+                          int pct, const palette_t *pal)
+{
+    if (cells <= 0)
+        return;
+    int fill = 0;
+    if (pct >= 0) {
+        fill = (pct * cells + 50) / 100;
+        if (fill > cells)
+            fill = cells;
+    }
+    char fb[96], eb[96];
+    int fw = 0, ew = 0;
+    for (int i = 0; i < fill && (size_t)fw + 4 <= sizeof fb; i++) {
+        fb[fw++] = (char)0xE2;
+        fb[fw++] = (char)0x96;
+        fb[fw++] = (char)0x88; /* █ */
+    }
+    fb[fw] = '\0';
+    for (int i = 0; i < cells - fill && (size_t)ew + 4 <= sizeof eb; i++) {
+        eb[ew++] = (char)0xE2;
+        eb[ew++] = (char)0x96;
+        eb[ew++] = (char)0x91; /* ░ */
+    }
+    eb[ew] = '\0';
+    if (fill > 0)
+        ui_putln(n, x, y, fill, fb, zone_color(ZN_UTIL, pct, pal), false);
+    if (cells - fill > 0)
+        ui_putln(n, x + fill, y, cells - fill, eb, pal->muted, false);
+}
+
+typedef struct {
+    int x_core;
+    int x_temp_r;
+    int x_util_r;
+    int x_bar;
+    int bar_w;
+    int x_clk_r;
+    int x_cap_r;
+    bool show_temp;
+    bool show_mhz;
+    bool show_cap;
+} core_cols_t;
+
+static void core_rich_layout(core_cols_t *cl, int cx, int col_w, bool has_temp)
+{
+    cl->show_temp = has_temp;
+    cl->show_cap = (col_w >= 42);
+    cl->show_mhz = (col_w >= (has_temp ? 36 : 32));
+    cl->x_core = cx;
+    cl->x_temp_r = cx + 12;
+    cl->x_util_r = has_temp ? (cx + 18) : (cx + 9);
+    int left_end = cl->x_util_r + 2;
+    int clk_w = cl->show_mhz ? 8 : 5;
+    int bar_gap = col_w >= 52 ? 3 : 2;
+    int cap_gap = col_w >= 52 ? 3 : 2;
+    int cap_w = cl->show_cap ? (cap_gap + 5) : 0;
+    int rem = col_w - (left_end - cx) - bar_gap - clk_w - cap_w - 1;
+    int max_bar = has_temp ? 20 : 24;
+    cl->bar_w = rem >= 6 ? (rem > max_bar ? max_bar : rem) : 0;
+    cl->x_bar = left_end;
+    cl->x_clk_r = (cl->bar_w > 0 ? cl->x_bar + cl->bar_w + bar_gap
+                                 : cl->x_util_r + 2) + clk_w;
+    cl->x_cap_r = cl->x_clk_r + cap_gap + 5;
+}
+
+static void draw_core_rich_hdr(struct ncplane *n, int y,
+                               const core_cols_t *cl, const palette_t *pal)
+{
+    ui_putln(n, cl->x_core, y, 5, "CORE", pal->muted, false);
+    if (cl->show_temp)
+        ui_putln(n, cl->x_temp_r - 4, y, 5, "TEMP", pal->muted, false);
+    ui_putln(n, cl->x_util_r - 4, y, 5, "UTIL", pal->muted, false);
+    if (cl->bar_w > 0)
+        ui_putln(n, cl->x_bar, y, 5, "LOAD", pal->muted, false);
+    ui_putln(n, cl->x_clk_r - 5, y, 6, "CLOCK", pal->muted, false);
+    if (cl->show_cap)
+        ui_putln(n, cl->x_cap_r - 3, y, 4, "CAP", pal->muted, false);
+}
+
+static void draw_core_rich_row(struct ncplane *n, int y,
+                               const core_cols_t *cl, const hw_state_t *hw,
+                               int ci, const palette_t *pal)
+{
+    int cpu_id = hw->core_cpu[ci];
+    int u = hw->core_util[ci], m = hw->core_mhz[ci];
+    int tmc = hw->core_temp_mc[ci];
+    int cap = (cpu_id >= 0 && cpu_id < HW_CPU_MAX) ? hw->cpu_mhz_core[cpu_id] : 0;
+    bool clamped = (cap > 0 && hw->cpu_mhz_max > 0 && hw->cpu_mhz_max - cap > 50);
+
+    char id[16], tv[20], uv[16], mv[24], cv[16];
+    snprintf(id, sizeof id, "c%d", cpu_id);
+    if (tmc > 0)
+        snprintf(tv, sizeof tv, "%.1f°C", tmc / 1000.0);
+    else
+        snprintf(tv, sizeof tv, "--");
+    if (u >= 0)
+        snprintf(uv, sizeof uv, "%d%%", u);
+    else
+        snprintf(uv, sizeof uv, "--");
+    if (m >= 0) {
+        if (cl->show_mhz)
+            snprintf(mv, sizeof mv, "%d MHz", m);
+        else
+            snprintf(mv, sizeof mv, "%d", m);
+    } else {
+        snprintf(mv, sizeof mv, "--");
+    }
+    if (cap > 0)
+        snprintf(cv, sizeof cv, "%d", cap);
+    else
+        snprintf(cv, sizeof cv, "--");
+
+    ui_putln(n, cl->x_core, y, 5, id, pal->muted, false);
+    if (cl->show_temp) {
+        int tc = utf_cells(tv);
+        ui_putln(n, cl->x_temp_r - tc, y, tc, tv,
+                 tmc > 0 ? zone_color(ZN_TEMP, tmc / 1000.0, pal) : pal->muted,
+                 tmc > 0);
+    }
+    int uc = utf_cells(uv);
+    ui_putln(n, cl->x_util_r - uc, y, uc, uv,
+             u >= 0 ? zone_color(ZN_UTIL, u, pal) : pal->muted, u >= 0);
+    if (cl->bar_w > 0)
+        draw_util_bar(n, cl->x_bar, y, cl->bar_w, u, pal);
+    int mc = utf_cells(mv);
+    ui_putln(n, cl->x_clk_r - mc, y, mc, mv, pal->text, false);
+    if (cl->show_cap) {
+        int cc = utf_cells(cv);
+        ui_putln(n, cl->x_cap_r - cc, y, cc, cv,
+                 clamped ? pal->warn : pal->muted, clamped);
+    }
+}
+
+static void draw_core_compact_hdr(struct ncplane *n, int cx, int y,
+                                  bool show_temp, const palette_t *pal)
+{
+    ui_putln(n, cx, y, 5, "CORE", pal->muted, false);
+    if (show_temp) {
+        ui_putln(n, cx + 5, y, 3, "T°", pal->muted, false);
+        ui_putln(n, cx + 9, y, 3, "U%", pal->muted, false);
+        ui_putln(n, cx + 13, y, 4, "MHz", pal->muted, false);
+    } else {
+        ui_putln(n, cx + 5, y, 5, "UTIL", pal->muted, false);
+        ui_putln(n, cx + 10, y, 6, "CLOCK", pal->muted, false);
+    }
+}
+
+static void draw_core_compact_cell(struct ncplane *n, int cx, int y,
+                                   const hw_state_t *hw, int ci,
+                                   bool show_temp, const palette_t *pal)
+{
+    int u = hw->core_util[ci], m = hw->core_mhz[ci];
+    int tmc = hw->core_temp_mc[ci];
+    char id[16], tv[16], uv[16], mv[16];
+    snprintf(id, sizeof id, "c%d", hw->core_cpu[ci]);
+    if (tmc > 0)
+        snprintf(tv, sizeof tv, "%d°", (tmc + 500) / 1000);
+    else
+        snprintf(tv, sizeof tv, "--");
+    if (u >= 0)
+        snprintf(uv, sizeof uv, "%d%%", u);
+    else
+        snprintf(uv, sizeof uv, "--");
+    if (m >= 0)
+        snprintf(mv, sizeof mv, "%d", m);
+    else
+        snprintf(mv, sizeof mv, "--");
+    ui_putln(n, cx, y, 5, id, pal->muted, false);
+    if (show_temp) {
+        int tc = utf_cells(tv);
+        ui_putln(n, cx + 7 - tc, y, tc, tv,
+                 tmc > 0 ? zone_color(ZN_TEMP, tmc / 1000.0, pal) : pal->muted,
+                 tmc > 0);
+        int uc = utf_cells(uv);
+        ui_putln(n, cx + 11 - uc, y, uc, uv,
+                 u >= 0 ? zone_color(ZN_UTIL, u, pal) : pal->muted, u >= 0);
+        int mc = utf_cells(mv);
+        ui_putln(n, cx + 16 - mc, y, mc, mv, pal->text, false);
+    } else {
+        int uc = utf_cells(uv);
+        ui_putln(n, cx + 9 - uc, y, uc, uv,
+                 u >= 0 ? zone_color(ZN_UTIL, u, pal) : pal->muted, u >= 0);
+        int mc = utf_cells(mv);
+        ui_putln(n, cx + 15 - mc, y, mc, mv, pal->text, false);
+    }
+}
+
+/* Per-CCD live core grid (CPU detail): physical cores grouped under
+ * their L3/CCD domain with the CCD's own k10temp reading on the header,
+ * live util % + bar + live clock + scaling_max cap per core. Side-by-side
+ * for dual-CCD CPUs on normal widths, 2-column for single-CCD, and
+ * compact fallback on short/narrow terminals. Returns lines drawn. */
+static int core_ccd_table(struct ncplane *n, int x, int y, int w, int rows)
+{
+    const hw_state_t *hw = g_ui.hw;
+    if (hw->core_n <= 0 || rows < 3 || w < 30)
         return 0;
     const palette_t *pal = ui_palette(g_prefs.theme);
-    dt_sep(n, x, y, w, "cores (now)");
-    y++;
-    rows--;
-    /* cell = "c12 100% 4916"; 4 columns on normal detail widths, 2 on
-     * narrow ones (stride 16 keeps id+util+clock from touching) */
-    int cols = w >= 60 ? 4 : 2;
-    int stride = w / cols;
-    if (stride < 16) {
-        cols = 2;
-        stride = w / 2;
+
+    int nccd = hw->ccd_n > 0 ? hw->ccd_n : 1;
+    if (nccd > 8)
+        nccd = 8;
+    int grp_cnt[8] = {0}, grp_off[8] = {0}, grp_pos[8] = {0};
+    int order[HW_CPU_MAX] = {0};
+    for (int i = 0; i < hw->core_n && i < HW_CPU_MAX; i++) {
+        int g = hw->core_ccd[i];
+        if (g < 0 || g >= nccd)
+            g = 0;
+        grp_cnt[g]++;
     }
-    for (int c = 0; c < cols; c++) {
-        int cx = x + c * stride;
-        if (cx + 15 >= x + w)
-            break;
-        ui_putln(n, cx, y, 6, "CORE", pal->muted, false);
-        ui_putln(n, cx + 6, y, 5, "UTIL", pal->muted, false);
-        ui_putln(n, cx + 11, y, 6, "CLOCK", pal->muted, false);
+    int tot = 0;
+    for (int g = 0; g < nccd; g++) {
+        grp_off[g] = tot;
+        grp_pos[g] = tot;
+        tot += grp_cnt[g];
     }
-    y++;
-    rows--;
-    int drawn = 0;
-    for (int i = 0; i < hw->core_n && rows > 0; i += cols, drawn++) {
-        for (int c = 0; c < cols && i + c < hw->core_n; c++) {
-            int cx = x + c * stride;
-            if (cx + 15 >= x + w)
-                break;
-            int u = hw->core_util[i + c], m = hw->core_mhz[i + c];
-            char id[16], uv[16], mv[16];
-            snprintf(id, sizeof id, "c%d", hw->core_cpu[i + c]);
-            if (u >= 0)
-                snprintf(uv, sizeof uv, "%d%%", u);
-            else
-                snprintf(uv, sizeof uv, "--");
-            if (m >= 0)
-                snprintf(mv, sizeof mv, "%d", m);
-            else
-                snprintf(mv, sizeof mv, "--");
-            ui_putln(n, cx, y, 6, id, pal->muted, false);
-            int uc = utf_cells(uv);
-            ui_putln(n, cx + 9 - uc, y, uc + 1, uv,
-                     u >= 0 ? zone_color(ZN_UTIL, u, pal) : pal->muted,
-                     u >= 0);
-            int mc = utf_cells(mv);
-            ui_putln(n, cx + 15 - mc, y, mc + 1, mv, pal->text, false);
+    for (int i = 0; i < hw->core_n && i < HW_CPU_MAX; i++) {
+        int g = hw->core_ccd[i];
+        if (g < 0 || g >= nccd)
+            g = 0;
+        order[grp_pos[g]++] = i;
+    }
+
+    /* 2-CCD side-by-side (e.g. FA608PP: CCD1 c0..c7 left, CCD2 c8..c15 right) */
+    if (nccd == 2 && w >= 72) {
+        int gap = w >= 100 ? 4 : 3;
+        int col_w = (w - gap) / 2;
+        int lx = x, rx = x + col_w + gap;
+        int rw = w - col_w - gap;
+        int max_c = grp_cnt[0] > grp_cnt[1] ? grp_cnt[0] : grp_cnt[1];
+
+        if (rows >= 2 + max_c) {
+            core_cols_t cl_l, cl_r;
+            core_rich_layout(&cl_l, lx, col_w, hw->has_core_temp);
+            core_rich_layout(&cl_r, rx, rw, hw->has_core_temp);
+            dt_ccd_hdr(n, lx, y, col_w, 0, hw, true);
+            dt_ccd_hdr(n, rx, y, rw, 1, hw, true);
+            draw_core_rich_hdr(n, y + 1, &cl_l, pal);
+            draw_core_rich_hdr(n, y + 1, &cl_r, pal);
+            for (int r = 0; r < max_c; r++) {
+                if (r < grp_cnt[0])
+                    draw_core_rich_row(n, y + 2 + r, &cl_l, hw,
+                                       order[grp_off[0] + r], pal);
+                if (r < grp_cnt[1])
+                    draw_core_rich_row(n, y + 2 + r, &cl_r, hw,
+                                       order[grp_off[1] + r], pal);
+            }
+            return 2 + max_c;
         }
-        y++;
-        rows--;
+        /* short terminal: 2 compact sub-columns inside each CCD half */
+        int half_rows = (max_c + 1) / 2;
+        if (rows >= 2 + half_rows && col_w >= 32) {
+            int sub_l = col_w / 2, sub_r = rw / 2;
+            bool ct_l = hw->has_core_temp && sub_l >= 17;
+            bool ct_r = hw->has_core_temp && sub_r >= 17;
+            dt_ccd_hdr(n, lx, y, col_w, 0, hw, true);
+            dt_ccd_hdr(n, rx, y, rw, 1, hw, true);
+            for (int s = 0; s < 2; s++) {
+                draw_core_compact_hdr(n, lx + s * sub_l, y + 1, ct_l, pal);
+                draw_core_compact_hdr(n, rx + s * sub_r, y + 1, ct_r, pal);
+            }
+            for (int r = 0; r < half_rows; r++) {
+                for (int s = 0; s < 2; s++) {
+                    int idx = r * 2 + s;
+                    if (idx < grp_cnt[0])
+                        draw_core_compact_cell(n, lx + s * sub_l, y + 2 + r,
+                                               hw, order[grp_off[0] + idx],
+                                               ct_l, pal);
+                    if (idx < grp_cnt[1])
+                        draw_core_compact_cell(n, rx + s * sub_r, y + 2 + r,
+                                               hw, order[grp_off[1] + idx],
+                                               ct_r, pal);
+                }
+            }
+            return 2 + half_rows;
+        }
     }
-    return drawn + 2;
+
+    /* Single-CCD (e.g. FA507NVR: 8 cores in 2 rich columns when wide) */
+    if (nccd == 1) {
+        bool named = (hw_ccd_temp_c(hw, 0) >= 0);
+        dt_ccd_hdr(n, x, y, w, 0, hw, named);
+        int used = 1;
+        if (grp_cnt[0] >= 6 && w >= 72 && rows >= 2 + (grp_cnt[0] + 1) / 2) {
+            int gap = w >= 100 ? 4 : 3;
+            int col_w = (w - gap) / 2;
+            int half = (grp_cnt[0] + 1) / 2;
+            core_cols_t cl_l, cl_r;
+            core_rich_layout(&cl_l, x, col_w, hw->has_core_temp);
+            core_rich_layout(&cl_r, x + col_w + gap, w - col_w - gap,
+                             hw->has_core_temp);
+            draw_core_rich_hdr(n, y + used, &cl_l, pal);
+            draw_core_rich_hdr(n, y + used, &cl_r, pal);
+            used++;
+            for (int r = 0; r < half && used < rows; r++, used++) {
+                draw_core_rich_row(n, y + used, &cl_l, hw,
+                                   order[grp_off[0] + r], pal);
+                if (half + r < grp_cnt[0])
+                    draw_core_rich_row(n, y + used, &cl_r, hw,
+                                       order[grp_off[0] + half + r], pal);
+            }
+            return used;
+        }
+        if (w >= 36 && rows >= 2 + grp_cnt[0]) {
+            core_cols_t cl;
+            core_rich_layout(&cl, x, w > 64 ? 64 : w, hw->has_core_temp);
+            draw_core_rich_hdr(n, y + used, &cl, pal);
+            used++;
+            for (int r = 0; r < grp_cnt[0] && used < rows; r++, used++)
+                draw_core_rich_row(n, y + used, &cl, hw,
+                                   order[grp_off[0] + r], pal);
+            return used;
+        }
+    }
+
+    /* Stacked compact fallback (narrow terminals or >2 CCDs) */
+    int used = 0;
+    int cell_min = hw->has_core_temp ? 17 : 16;
+    int cols = w >= cell_min * 4 ? 4 : (w >= cell_min * 2 ? 2 : 1);
+    int stride = w / cols;
+    bool ctemp = hw->has_core_temp && stride >= 17;
+    for (int g = 0; g < nccd && rows - used >= 3; g++) {
+        if (grp_cnt[g] <= 0)
+            continue;
+        bool named = (nccd > 1 || hw_ccd_temp_c(hw, g) >= 0);
+        dt_ccd_hdr(n, x, y + used, w, g, hw, named);
+        used++;
+        for (int c = 0; c < cols; c++) {
+            int cx = x + c * stride;
+            if (cx + (ctemp ? 16 : 15) >= x + w)
+                break;
+            draw_core_compact_hdr(n, cx, y + used, ctemp, pal);
+        }
+        used++;
+        for (int i = 0; i < grp_cnt[g] && used < rows; i += cols, used++) {
+            for (int c = 0; c < cols && i + c < grp_cnt[g]; c++) {
+                int cx = x + c * stride;
+                if (cx + (ctemp ? 16 : 15) >= x + w)
+                    break;
+                draw_core_compact_cell(n, cx, y + used, hw,
+                                       order[grp_off[g] + i + c], ctemp, pal);
+            }
+        }
+    }
+    return used;
 }
 
 static void detail_cpu(struct ncplane *n, const rect_t *r)
 {
-    hw_state_t *hw = g_ui.hw;
-    char l0[128], l1[192], l2[192];
-    char cc[40];
-    fmt_tccd(cc, sizeof cc, hw);
+    const hw_state_t *hw = g_ui.hw;
+    const palette_t *pal = ui_palette(g_prefs.theme);
+    int x = r->x + 2, w = r->w - 4;
+    int avail = r->h - 2;
+    if (avail < 1 || w < 30)
+        return;
 
-    snprintf(l0, sizeof l0, " %d threads · %d cores · %d CCD · EPP %s · boost %s",
-             hw->cpu_n, hw->core_n, hw->ccd_n, hw_epp_name(hw->epp),
-             hw->cpu_boost ? "on" : "off");
-    char fc[16], fg[16];
-    fmt_int(fc, sizeof fc, "", hw->rpm_cpu);
-    fmt_int(fg, sizeof fg, "", hw->rpm_gpu);
-    if (hw->ppt_spl > 0 || hw->ppt_sppt > 0 || hw->ppt_fppt > 0) {
-        char ps[16], pp[16], pf[16];
-        fmt_pos(ps, sizeof ps, "", hw->ppt_spl);
-        fmt_pos(pp, sizeof pp, "", hw->ppt_sppt);
-        fmt_pos(pf, sizeof pf, "", hw->ppt_fppt);
-        snprintf(l1, sizeof l1, " PPT %s / %s / %s W · fans %s / %s rpm%s",
-                 ps, pp, pf, fc, fg, cc);
-    } else {
-        snprintf(l1, sizeof l1, " PPT -- · fans %s / %s rpm%s",
-                 fc, fg, cc);
+    int ce[4];
+    dt_cols(x, w, ce);
+
+    /* Thermal rows: always Tctl; Tccd1/Tccd2 shown when the sensor exists
+     * or the CPU has >= 2 CCDs (single-CCD parts omit absent Tccd2). */
+    const chartdef_t *therm[3];
+    int nt = 0;
+    therm[nt++] = &CD_CPU_THERM[0];
+    if (hw->cpu_temp_ccd1 >= 0 || hw->cpu_temp_ccd1_mc > 0 ||
+        telem_count(TS_CPU_CCD1) > 0 || hw->ccd_n >= 2)
+        therm[nt++] = &CD_CPU_THERM[1];
+    if (hw->cpu_temp_ccd2 >= 0 || hw->cpu_temp_ccd2_mc > 0 ||
+        telem_count(TS_CPU_CCD2) > 0 || hw->ccd_n >= 2)
+        therm[nt++] = &CD_CPU_THERM[2];
+
+    int np = CD_COUNT(CD_CPU_PERF);
+    bool show_stats = (avail >= 20);
+    bool show_hw = (avail >= 22);
+    bool show_seps = (avail >= 24);
+    bool spaced = (avail >= 35);
+
+    int y = r->y + 1;
+    int used = 0;
+
+    static const char *const hn[4] = { "NOW", "MIN", "AVG", "MAX" };
+    ui_putln(n, x, y, 12, "METRIC", pal->muted, false);
+    for (int i = 0; i < 4; i++)
+        ui_putln(n, ce[i] - (int)strlen(hn[i]), y, 8, hn[i],
+                 pal->muted, false);
+    y++;
+    used++;
+
+    if (show_stats && used < avail) {
+        char mode[128];
+        if (g_ui.telem_since)
+            snprintf(mode, sizeof mode,
+                     " stats: since reset — 's' back to the 60 s window");
+        else
+            snprintf(mode, sizeof mode,
+                     " stats: 60 s window — 's' switches to since reset");
+        info_line(n, x, y, w, mode);
+        y++;
+        used++;
+    }
+    if (spaced && used < avail) {
+        y++;
+        used++;
     }
 
-    /* per-core ceilings as a numeric summary: the old one-block-per-
-     * thread bar read as one solid rectangle at real font sizes (a
-     * single cell is too small to tell the 8 levels apart — user
-     * report), so the shape carried no information. The hw max rides
-     * along whenever the threads are not all sitting on it. */
-    int clo = 0, chi = 0, at_max = 0, seen = 0;
-    for (int i = 0; i < hw->cpu_n; i++) {
-        int mhz = hw->cpu_mhz_core[hw->cpu_ids[i]];
-        if (mhz <= 0)
-            continue;
-        seen++;
-        if (clo == 0 || mhz < clo)
-            clo = mhz;
-        if (mhz > chi)
-            chi = mhz;
-        if (hw->cpu_mhz_max > 0 && mhz >= hw->cpu_mhz_max)
-            at_max++;
+    /* 1. Thermals (Tctl + Tccd1 + Tccd2) */
+    if (show_seps && used < avail) {
+        dt_sep(n, x, y, w, "thermals");
+        y++;
+        used++;
     }
-    if (seen == 0)
-        snprintf(l2, sizeof l2, " per-core ceilings: --");
-    else if (clo == chi && (hw->cpu_mhz_max <= 0 || clo == hw->cpu_mhz_max))
-        snprintf(l2, sizeof l2, " per-core ceilings: all %d threads @ %d MHz",
-                 seen, clo);
-    else if (clo == chi)
-        snprintf(l2, sizeof l2,
-                 " per-core ceilings: all %d threads @ %d MHz (hw max %d)",
-                 seen, clo, hw->cpu_mhz_max);
-    else if (hw->cpu_mhz_max > 0)
-        snprintf(l2, sizeof l2,
-                 " per-core ceilings: %d-%d MHz · %d/%d @ hw max %d",
-                 clo, chi, at_max, seen, hw->cpu_mhz_max);
-    else
-        snprintf(l2, sizeof l2, " per-core ceilings: %d-%d MHz", clo, chi);
+    for (int i = 0; i < nt && used < avail; i++, y++, used++)
+        stat_row(n, x, y, therm[i], therm[i]->sidx, therm[i]->label, ce);
+    if (spaced && used < avail) {
+        y++;
+        used++;
+    }
 
-    /* 5/15-min load ride along the polled 1-min series (same source
-     * line, parsed together) */
-    char l3[96];
-    if (hw->load1 >= 0 && hw->load5 >= 0 && hw->load15 >= 0)
-        snprintf(l3, sizeof l3, " load 1/5/15 min: %.2f / %.2f / %.2f",
-                 hw->load1, hw->load5, hw->load15);
-    else if (hw->load1 >= 0)
-        snprintf(l3, sizeof l3, " load 1 min: %.2f", hw->load1);
-    else
-        snprintf(l3, sizeof l3, " load --");
+    /* 2. Performance & Power */
+    if (show_seps && used < avail) {
+        dt_sep(n, x, y, w, "performance & power");
+        y++;
+        used++;
+    }
+    for (int i = 0; i < np && used < avail; i++, y++, used++)
+        stat_row(n, x, y, &CD_CPU_PERF[i], CD_CPU_PERF[i].sidx,
+                 CD_CPU_PERF[i].label, ce);
+    if (spaced && used < avail) {
+        y++;
+        used++;
+    }
 
-    const char *info[4] = { l0, l1, l2, l3 };
-    detail_table(n, r, CD_CPU, CD_COUNT(CD_CPU),
-                 info, 4, core_now_table, 3);
+    /* 3. Hardware & Limits */
+    if (show_hw && used < avail) {
+        char topo[32], fc[16], fg[16], l0[224], l1[224], l2[192];
+        if (hw->core_n > 0 && hw->cpu_n > hw->core_n)
+            snprintf(topo, sizeof topo, "%dc/%dt", hw->core_n, hw->cpu_n);
+        else if (hw->core_n > 0)
+            snprintf(topo, sizeof topo, "%dc", hw->core_n);
+        else
+            snprintf(topo, sizeof topo, "%dt", hw->cpu_n);
+        snprintf(l0, sizeof l0, " %.64s · %s · %d CCD · EPP %s · boost %s",
+                 hw->cpu[0] ? hw->cpu : "CPU", topo, hw->ccd_n,
+                 hw_epp_name(hw->epp), hw->cpu_boost ? "on" : "off");
+
+        fmt_int(fc, sizeof fc, "", hw->rpm_cpu);
+        fmt_int(fg, sizeof fg, "", hw->rpm_gpu);
+        char ppt[64];
+        if (hw->ppt_spl > 0 || hw->ppt_sppt > 0 || hw->ppt_fppt > 0) {
+            char ps[16], pp[16], pf[16];
+            fmt_pos(ps, sizeof ps, "", hw->ppt_spl);
+            fmt_pos(pp, sizeof pp, "", hw->ppt_sppt);
+            fmt_pos(pf, sizeof pf, "", hw->ppt_fppt);
+            snprintf(ppt, sizeof ppt, "PPT %s/%s/%s W", ps, pp, pf);
+        } else if (hw->ppt_set_valid && hw->ppt_set_off) {
+            snprintf(ppt, sizeof ppt, "PPT off (set)");
+        } else if (hw->ppt_set_valid) {
+            snprintf(ppt, sizeof ppt, "PPT %d/%d/%d W (set)",
+                     hw->ppt_set_spl, hw->ppt_set_sppt, hw->ppt_set_fppt);
+        } else {
+            snprintf(ppt, sizeof ppt, "PPT --");
+        }
+        char ld[64];
+        if (hw->load1 >= 0 && hw->load5 >= 0 && hw->load15 >= 0)
+            snprintf(ld, sizeof ld, "load 1/5/15m: %.2f / %.2f / %.2f",
+                     hw->load1, hw->load5, hw->load15);
+        else if (hw->load1 >= 0)
+            snprintf(ld, sizeof ld, "load 1m: %.2f", hw->load1);
+        else
+            snprintf(ld, sizeof ld, "load --");
+        snprintf(l1, sizeof l1, " %s · fans %s/%s rpm · %s", ppt, fc, fg, ld);
+
+        int clo = 0, chi = 0, at_max = 0, seen = 0;
+        for (int i = 0; i < hw->cpu_n; i++) {
+            int mhz = hw->cpu_mhz_core[hw->cpu_ids[i]];
+            if (mhz <= 0)
+                continue;
+            seen++;
+            if (clo == 0 || mhz < clo)
+                clo = mhz;
+            if (mhz > chi)
+                chi = mhz;
+            if (hw->cpu_mhz_max > 0 && mhz >= hw->cpu_mhz_max)
+                at_max++;
+        }
+        if (seen == 0)
+            snprintf(l2, sizeof l2, " per-core ceilings: --");
+        else if (clo == chi && (hw->cpu_mhz_max <= 0 || clo == hw->cpu_mhz_max))
+            snprintf(l2, sizeof l2, " per-core ceilings: all %d threads @ %d MHz",
+                     seen, clo);
+        else if (clo == chi)
+            snprintf(l2, sizeof l2,
+                     " per-core ceilings: all %d threads @ %d MHz (hw max %d)",
+                     seen, clo, hw->cpu_mhz_max);
+        else if (hw->cpu_mhz_max > 0)
+            snprintf(l2, sizeof l2,
+                     " per-core ceilings: %d-%d MHz · %d/%d @ hw max %d",
+                     clo, chi, at_max, seen, hw->cpu_mhz_max);
+        else
+            snprintf(l2, sizeof l2, " per-core ceilings: %d-%d MHz", clo, chi);
+
+        if (show_seps && used < avail) {
+            dt_sep(n, x, y, w, "hardware");
+            y++;
+            used++;
+        }
+        const char *hlines[3] = { l0, l1, l2 };
+        int nh = avail >= 27 ? 3 : 2;
+        for (int i = 0; i < nh && used < avail; i++, y++, used++)
+            info_line(n, x, y, w, hlines[i]);
+        if (spaced && used < avail) {
+            y++;
+            used++;
+        }
+    }
+
+    /* 4. Per-CCD live core table */
+    if (hw->core_n > 0 && avail - used >= 3) {
+        int u = core_ccd_table(n, x, y, w, avail - used);
+        y += u;
+        used += u;
+    }
+
+    /* 5. Concise sensor notes (only when vertical room remains) */
+    int rem = avail - used;
+    if (rem >= 2) {
+        if (spaced && rem >= 4) {
+            y++;
+            used++;
+            rem--;
+        }
+        if (rem >= 3) {
+            dt_sep(n, x, y, w, "notes");
+            y++;
+            used++;
+            rem--;
+        }
+        if (rem >= 1) {
+            char n0[128];
+            if (hw->has_core_temp)
+                snprintf(n0, sizeof n0,
+                         " Tctl/Tccd = k10temp · per-core TEMP = ryzen_smu pm_table (0x%06x)",
+                         hw->ryzen_smu_pm_ver);
+            else
+                snprintf(n0, sizeof n0,
+                         " Tctl = package · Tccd1/2 = per-CCD die (k10temp; load ryzen_smu for core temp)");
+            ui_putln(n, x, y, w, n0, pal->muted, false);
+            y++;
+            rem--;
+        }
+        if (rem >= 1) {
+            ui_putln(n, x, y, w,
+                     " APU PPT = CPU+iGPU package · PSI = 10 s CPU stall % · CAP = scaling_max",
+                     pal->muted, false);
+        }
+    }
 }
 
 static void detail_gpu(struct ncplane *n, const rect_t *r)
@@ -895,13 +1410,11 @@ static void detail_gpu(struct ncplane *n, const rect_t *r)
         snprintf(l2, sizeof l2, " pstate %s · throttle: %s",
                  hw->gpu_pstate, th);
         const char *info[3] = { l0, l1, l2 };
-        detail_table(n, r, CD_GPU, CD_COUNT(CD_GPU),
-                     info, 3, NULL, 0);
+        detail_table(n, r, CD_GPU, CD_COUNT(CD_GPU), info, 3);
         return;
     }
     const char *info[2] = { l0, l1 };
-    detail_table(n, r, CD_GPU, CD_COUNT(CD_GPU),
-                 info, 2, NULL, 0);
+    detail_table(n, r, CD_GPU, CD_COUNT(CD_GPU), info, 2);
 }
 
 static void detail_igpu(struct ncplane *n, const rect_t *r)
@@ -925,8 +1438,7 @@ static void detail_igpu(struct ncplane *n, const rect_t *r)
              " APU PPT = whole-package power (CPU + iGPU) — no honest"
              " per-side split on this silicon");
     const char *info[3] = { l0, l1, l2 };
-    detail_table(n, r, CD_IGPU, CD_COUNT(CD_IGPU),
-                 info, 3, NULL, 0);
+    detail_table(n, r, CD_IGPU, CD_COUNT(CD_IGPU), info, 3);
 }
 
 static void detail_ram(struct ncplane *n, const rect_t *r)
@@ -949,8 +1461,7 @@ static void detail_ram(struct ncplane *n, const rect_t *r)
     else {
         snprintf(l1, sizeof l1, " no spd5118 temp sensors");
         const char *info2[2] = { l0, l1 };
-        detail_table(n, r, CD_RAM, CD_COUNT(CD_RAM),
-                     info2, 2, NULL, 0);
+        detail_table(n, r, CD_RAM, CD_COUNT(CD_RAM), info2, 2);
         return;
     }
     /* spd5118 limits + which modules are flagged over max right now */
@@ -979,8 +1490,7 @@ static void detail_ram(struct ncplane *n, const rect_t *r)
              hw->ram_alarm ? " · over max: module " : "",
              hw->ram_alarm ? mod : "");
     const char *info[3] = { l0, l1, l2 };
-    detail_table(n, r, CD_RAM, CD_COUNT(CD_RAM),
-                 info, 3, NULL, 0);
+    detail_table(n, r, CD_RAM, CD_COUNT(CD_RAM), info, 3);
 }
 
 static void detail_disk(struct ncplane *n, const rect_t *r)
@@ -1033,8 +1543,7 @@ static void detail_disk(struct ncplane *n, const rect_t *r)
                  hw->mnt_dupes, hw->mnt_dupes == 1 ? "" : "s");
         info[ni++] = ml[HW_MOUNT_MAX];
     }
-    detail_table(n, r, CD_DISK, CD_COUNT(CD_DISK),
-                 info, ni, NULL, 0);
+    detail_table(n, r, CD_DISK, CD_COUNT(CD_DISK), info, ni);
 }
 
 static void detail_net(struct ncplane *n, const rect_t *r)
@@ -1073,8 +1582,7 @@ static void detail_net(struct ncplane *n, const rect_t *r)
     }
     info[ni] = l[ni];
     ni++;
-    detail_table(n, r, CD_NET, CD_COUNT(CD_NET),
-                 info, ni, NULL, 0);
+    detail_table(n, r, CD_NET, CD_COUNT(CD_NET), info, ni);
 }
 
 static void detail_fan(struct ncplane *n, const rect_t *r)
@@ -1089,8 +1597,7 @@ static void detail_fan(struct ncplane *n, const rect_t *r)
     snprintf(l1, sizeof l1, " curves are edited in the FAN workspace view "
                             "(this screen is read-only)");
     const char *info[2] = { l0, l1 };
-    detail_table(n, r, CD_FAN, CD_COUNT(CD_FAN),
-                 info, 2, NULL, 0);
+    detail_table(n, r, CD_FAN, CD_COUNT(CD_FAN), info, 2);
 }
 
 static void detail_power(struct ncplane *n, const rect_t *r)
@@ -1120,7 +1627,7 @@ static void detail_power(struct ncplane *n, const rect_t *r)
                  hw->pd_in_mw > 0 ? "live" : "--");
     const char *info[3] = { l0, l1, l2 };
     detail_table(n, r, CD_POWER, hw->pd_n > 0 ? CD_COUNT(CD_POWER) : 2,
-                 info, hw->pd_n > 0 ? 3 : 2, NULL, 0);
+                 info, hw->pd_n > 0 ? 3 : 2);
 }
 
 /* 'r' key / footer button: clear every series ring AND the lifetime
@@ -1372,7 +1879,12 @@ void telem_poll(hw_state_t *hw, long now_ms)
     prev_tx = hw->net_tx_tot;
     prev_ms = now_ms;
 
-    telem_push(TS_CPU_TEMP, hw->cpu_temp);
+    telem_push(TS_CPU_TEMP, hw->cpu_temp_mc > 0 ? hw->cpu_temp_mc / 1000.0
+                                                : (double)hw->cpu_temp);
+    telem_push(TS_CPU_CCD1, hw->cpu_temp_ccd1_mc > 0 ? hw->cpu_temp_ccd1_mc / 1000.0
+                                                     : (double)hw->cpu_temp_ccd1);
+    telem_push(TS_CPU_CCD2, hw->cpu_temp_ccd2_mc > 0 ? hw->cpu_temp_ccd2_mc / 1000.0
+                                                     : (double)hw->cpu_temp_ccd2);
     telem_push(TS_CPU_MHZ, hw->cpu_mhz_cur);
     telem_push(TS_CPU_LOAD, hw->load1);
     telem_push(TS_BUSIEST_UTIL, hw->busiest_util);
